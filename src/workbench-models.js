@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 export const BOOTH_METRICS = {
   window: { x: .15, y: 2.72, z: -1.9, width: 5.95, height: 3.06 },
-  deskTop: .86,
+  deskTop: .66,
 };
 
 const halfPi = Math.PI / 2;
@@ -194,20 +194,21 @@ function makeRoom(group, m, window) {
 
 function makeDesk(group, m) {
   const center = 1.425;
+  const legHeight = deskY - .21;
   flat(group, [m.wood, m.woodEdge], 12.14, 4.19, .15, 0, deskY - .119, center, .20, .027);
   flat(group, [m.deskTop, m.deskLip], 11.97, 4.04, .027, 0, deskY - .028, center, .19, .013);
-  rounded(group, [m.wood, m.woodEdge], 11.98, .148, .14, 0, .706, 3.47, .052, .026);
-  rounded(group, m.deskLip, 11.84, .041, .03, 0, .745, 3.568, .017, .008);
-  box(group, m.underDesk, 11.45, .16, .15, 0, .54, 3.22);
-  box(group, m.underDesk, 10.9, .13, .14, 0, .31, 3.25);
+  rounded(group, [m.wood, m.woodEdge], 11.98, .148, .14, 0, deskY - .154, 3.47, .052, .026);
+  rounded(group, m.deskLip, 11.84, .041, .03, 0, deskY - .115, 3.568, .017, .008);
+  box(group, m.underDesk, 11.45, .16, .15, 0, deskY - .32, 3.22);
+  box(group, m.underDesk, 10.9, .13, .14, 0, deskY - .55, 3.25);
   for (const x of [-5.36, 5.36]) {
     for (const z of [-.23, 3.28]) {
-      rounded(group, [m.underDesk, m.rail], .16, .65, .15, x, .34, z, .04, .012);
+      rounded(group, [m.underDesk, m.rail], .16, legHeight, .15, x, .015 + legHeight / 2, z, .04, .012);
       flat(group, m.black, .25, .24, .045, x, .034, z, .042, .01);
     }
-    box(group, m.underDesk, .14, .11, 3.31, x, .44, 1.51);
+    box(group, m.underDesk, .14, .11, 3.31, x, deskY - .42, 1.51);
   }
-  for (const x of [-5.35, -2.6, 2.6, 5.35]) fastener(group, m.bronze, x, .66, 3.559, .026);
+  for (const x of [-5.35, -2.6, 2.6, 5.35]) fastener(group, m.bronze, x, deskY - .20, 3.559, .026);
 
   flat(group, m.felt, 3.82, 1.24, .007, -1.05, deskY + .009, 1.91, .11, .008);
   for (const x of [-2.89, .79]) {

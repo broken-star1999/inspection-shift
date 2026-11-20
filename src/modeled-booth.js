@@ -409,8 +409,9 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   }
 
   function aimCamera(viewCamera, x, y) {
-    viewCamera.position.set(.15 + x * .52, 2.8 - y * .19, 7.2 + Math.max(Math.abs(x), Math.abs(y)) * .08);
-    viewCamera.lookAt(x * .16, 2.05 - y * .36, -.25);
+    const eyeX = BOOTH_METRICS.window.x + x * .085;
+    viewCamera.position.set(eyeX, 2.8 - y * .19, 7.2 + Math.max(Math.abs(x), Math.abs(y)) * .08);
+    viewCamera.lookAt(eyeX + x * .17, 2.05 - y * .36, -.25);
     viewCamera.updateMatrixWorld(true);
   }
 
@@ -431,7 +432,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
                 corner.set(px, py, pz).applyMatrix4(probe.matrixWorldInverse);
                 const depth = -corner.z;
                 if (depth > camera.near) {
-                  vertical = Math.max(vertical, Math.abs(corner.y) / (depth * .91), Math.abs(corner.x) / (depth * aspect * .94));
+                  vertical = Math.max(vertical, Math.abs(corner.y) / (depth * .91), Math.abs(corner.x) / (depth * aspect * .96));
                 }
               }
             }
