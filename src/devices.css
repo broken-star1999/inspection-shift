@@ -1,0 +1,45 @@
+html[data-shift-rotated],
+html[data-shift-immersive],
+html[data-shift-rotated] body,
+html[data-shift-immersive] body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.game-shell[data-immersive="true"] {
+  box-sizing: border-box;
+  position: fixed;
+  inset: var(--screen-top, 0px) auto auto var(--screen-left, 0px);
+  z-index: 1000;
+  inline-size: var(--stage-width, 100vw);
+  block-size: var(--stage-height, 100vh);
+  max-inline-size: none;
+  max-block-size: none;
+  margin: 0;
+  overflow: hidden;
+}
+
+@media (pointer: coarse) {
+  .game-shell[data-rotated="false"] {
+    box-sizing: border-box;
+    padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+  }
+}
+
+.game-shell[data-rotated="true"] {
+  box-sizing: border-box;
+  position: fixed;
+  inset: var(--screen-top, 0px) auto auto calc(var(--screen-left, 0px) + var(--screen-width, 100vw));
+  inline-size: var(--stage-width, 100vh);
+  block-size: var(--stage-height, 100vw);
+  min-inline-size: 0;
+  min-block-size: 0;
+  max-inline-size: none;
+  max-block-size: none;
+  margin: 0;
+  overflow: hidden;
+  padding: env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0) env(safe-area-inset-top, 0);
+  transform: rotate(90deg);
+  transform-origin: top left;
+  touch-action: pinch-zoom;
+}

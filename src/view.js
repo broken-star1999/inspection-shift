@@ -1,0 +1,176 @@
+import { CHARACTERS, DAYS, EASTER_EGGS } from './content.js';
+
+export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
+export const labels = { pass: '通过', fail: '不通过', review: '要求审查' };
+export const statuses = { shipping: '排车', shipped: '已出库', returned: '退回', held: '隔离待查', recalled: '召回确认' };
+const types = { label: '标签', report: '检验', order: '送检', archive: '留底' };
+const glyphs = { pass: '✓', fail: '×', review: '…' };
+
+export const esc = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+const cls = (name, enabled) => enabled ? ` ${name}` : '';
+const active = (selected) => selected ? ' aria-pressed="true"' : ' aria-pressed="false"';
+
+export function button(text, action, variant = 'secondary', attributes = '') {
+  return `<button class="button ${variant}" data-act="${action}" ${attributes}>${text}</button>`;
+}
+
+export function shell() {
+  return `<div class="game-frame">
+    <header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><strong>南渡防护用品厂</strong><small>成品抽检窗口</small></div></div>
+      <div class="top-status" id="top-status"></div>
+      <nav class="utility" aria-label="游戏设置">
+        <button class="icon-button" data-act="how" aria-label="玩法说明" title="玩法说明"><span class="icon-help" aria-hidden="true">?</span></button>
+        <button class="icon-button" data-act="sound" aria-label="音效" title="音效"><span class="icon-sound" aria-hidden="true">♪</span></button>
+        <button class="icon-button" data-act="fullscreen" aria-label="全屏" title="全屏"><span class="icon-expand" aria-hidden="true"></span></button>
+      </nav>
+    </header>
+    <main class="playfield">
+      <div class="room"><div class="canvas-room" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
+      <div class="console" id="desk"></div>
+      <div class="screen-layer" id="screen"></div>
+      <div class="modal-layer" id="modal"></div>
+      <div class="game-toast" aria-live="polite"></div>
+    </main>
+  </div>`;
+}
+
+export function home(save, endings) {
+  return `<section class="home-screen"><div class="home-art" aria-hidden="true"></div><div class="home-body">
+    <div class="title-paper"><div class="eyebrow">南渡防护用品厂 · 代班通知</div><h1>质检员<br><em>的一天</em></h1>
+      <p class="title-description">在出货窗口替五天班。<br>看样，对单，然后签你的名字。</p>
+      <div class="home-actions">${save ? button(`继续值班 <small>${DAYS[save.day].title}</small>`, 'resume', 'primary') + button('重新接班', 'new') : button('接班', 'start', 'primary')}</div>
+    </div><div class="home-sign" aria-hidden="true"><i></i><span>发货抽检窗口</span><b>01</b></div></div>
+    <footer class="home-footer"><span>出货交接室</span>${endings.length ? `<span>交班记录 ${endings.length}／3</span>` : '<span>五个工作日</span>'}</footer></section>`;
+}
+
+export function room(run, item, tutorial, firstIssue, pressure, eventIndex) {
+  const day = DAYS[run.day];
+  const events = run.events ?? [];
+  const sceneEvent = item ? events[eventIndex] : null;
+  const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
+  const record = run.phase === 'receipt' ? run.records.at(-1) : null;
+  const line = sceneEvent?.line ?? record?.response ?? item?.line ?? day.intro;
+  return `<div class="room-status"><span class="room-tag"><i></i> ${run.phase === 'receipt' ? '出单中' : '窗口接件'}</span><strong>${day.title}</strong>
+      <div class="batch-progress" aria-label="当班来件 ${run.index + 1} / 4">${day.cases.map((_, index) => `<span class="${index <= run.index ? 'done' : ''}"></span>`).join('')}</div><button class="wall-notice" data-act="rules" title="查验要求">查验要求<span aria-hidden="true">﹣﹣﹣</span></button></div>
+    <div class="speech${cls('dispatch-event', sceneEvent)}" aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
+      <p>${esc(line)}</p>${pressure && !sceneEvent && !record ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
+      ${sceneEvent ? button('收下留底', 'event-next', 'primary') : ''}</div>
+    ${tutorial && !sceneEvent ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>` : firstIssue ? `<div class="training"><span class="tutorial-index">查验卡</span><small>老周</small><p>${esc(firstIssue)}</p></div>` : ''}`;
+}
+
+function paperCard(doc, index, tutorial, offset) {
+  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', tutorial?.target === doc.type)}" data-act="doc" data-i="${index}" data-drag="paper"${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}">
+    <small>${types[doc.type] ?? '归档'}</small><h3>${esc(doc.title)}</h3><b class="paper-num">${esc(doc.fields[0]?.[1])}</b><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">${doc.type === 'label' ? '批' : doc.type === 'report' ? '检' : '联'}</span></button>`;
+}
+
+function stampButtons(instructed, disabled = false, action = 'stamp') {
+  return Object.entries(labels).map(([key, value]) => `<button class="stamp ${key}${cls('instructed', instructed && key === 'pass')}" data-act="${action}" data-key="${key}" ${disabled ? 'disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`).join('');
+}
+
+export function desk(run, item, tutorial, interaction) {
+  if (!item) return '';
+  const { note, positions, pencil } = interaction;
+  return `<aside class="desk-tools">
+      <button class="tool" data-act="rules"><span class="tool-icon tool-rules" aria-hidden="true"></span><b>查验卡</b></button>
+      <button class="tool" data-act="archive"><span class="tool-icon tool-archive" aria-hidden="true"></span><b>交接簿</b></button>
+      <button class="tool" data-act="phone"><span class="tool-icon tool-phone" aria-hidden="true"></span><b>电话</b></button>
+    </aside><section class="paper-work"><div class="section-label"><b>单据</b><span>${esc(item.batch)}</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, tutorial, positions[index])).join('')}</div>
+      ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
+    <section class="sample-work"><div class="section-label"><b>样品</b><span>护目镜</span></div><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample"><img src="${asset('sample.webp')}" alt="检样护目镜" draggable="false"><span class="sample-caption">取样检查</span></button></section>
+    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
+      <p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上选一项作为依据'}</p></aside>`;
+}
+
+export function overlay(run, ending) {
+  const day = DAYS[run.day];
+  if (run.phase === 'brief') return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(day.subtitle)}</h3><p>${esc(day.intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
+  if (run.phase === 'summary') {
+    const records = run.records.filter(({ day: dayIndex }) => dayIndex === run.day);
+    return `<div class="stage-overlay"><section class="brief-card summary-card"><div class="eyebrow">${day.title} · 收班回执</div><h2>当班交接</h2><ul class="summary-list">${records.map((record) => `<li><b>${record.batch}</b><span>${labels[record.decision]} · ${statuses[record.status]}</span></li>`).join('')}</ul><p>${esc(day.outro)}</p>${button('下一班', 'advance-day', 'primary')}</section></div>`;
+  }
+  if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button('打电话', 'phone')}${button('交接', 'handoff', 'primary')}</div></section></div>`;
+  if (run.phase === 'ending') return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}"><div class="eyebrow">南渡防护用品厂 · 交班存根</div>
+      <h2>${esc(ending.title)}</h2><p>${esc(ending.line)}</p><div class="ending-note">${esc(ending.detail).replace(/\n/g, '<br>')}</div>
+      ${ending.id === 'issue' && ending.traceDisposition ? `<p>${esc(ending.traceDisposition)}</p>` : ''}
+      <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
+      <div class="brief-actions">${button('返回窗口', 'home')}${button('再接一周', 'new', 'primary')}</div></section></div>`;
+  return '';
+}
+
+export function visitOverlay(event) {
+  const character = CHARACTERS[event.npc];
+  return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">窗口回访 · ${esc(character.name)}</div><h2>${esc(event.title)}</h2><p>${esc(event.line)}</p>${button('收下留底', 'event-next', 'primary')}</section></div>`;
+}
+
+export function dialog(title, body, type = '') {
+  return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2>${type === 'receipt-modal' ? '' : '<button class="modal-close" data-act="close" aria-label="关闭面板">×</button>'}</header><div class="modal-body">${body}</div></section></div>`;
+}
+
+export function instructions(how) {
+  return dialog(how ? '接班说明' : '桌边查验卡', `<div class="rule-sheet"><p>拿到来件，先认箱签。对过报告的批号、签发和项目以后，再检查实物的镜片、型号和扣件。</p>
+    <ol><li><b>通过</b>　样品合格，有效报告能对应这批，并覆盖送检要求。</li><li><b>不通过</b>　实物确有裂纹、划伤、扣件问题或已查明的错型、超差。</li><li><b>要求审查</b>　材料不足，先隔离，等补证或复检。</li></ol>
+    <p>有换签时对照登记上的旧号和新号。样品上的保护膜可以揭角。核对过的旧单会留在交接簿。</p>
+    ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。电脑也可用 1、2、3 开单，Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
+}
+
+function sheet(doc, index, actions, highlightSignature = false) {
+  return `<article class="sheet sheet-${doc.type}"><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small><h3>${esc(doc.title)}</h3><dl class="fields">
+    ${doc.fields.map(([key, value], field) => `<div><dt>${esc(key)}</dt><dd>${actions ? `<button class="field-value${cls('instructed', highlightSignature && key.includes('签发'))}" data-act="basis" data-i="${index}" data-field="${field}">${esc(value)}</button>` : esc(value)}</dd></div>`).join('')}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
+}
+
+export function documents(item, index, compare, tutorial, progress) {
+  const doc = item.documents[index];
+  if (!doc) return '';
+  const extras = [3, 15].includes(item.id) ? button('翻工艺夹板背面', 'egg', 'secondary', 'data-key="cat"') : item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
+  const other = item.documents[compare];
+  const signature = tutorial?.key === 'signature';
+  const guide = signature ? `${progress.signed ? '签发已核对。' : '点报告上的「已签发」。'}${progress.orderSeen ? '送检联已核对。' : '再并排翻看送检联的检验项目。'}` : tutorial?.line;
+  return dialog('桌面单据', `${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="单据切换">${item.documents.map(({ title, type }, position) => `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index)}>${esc(title)}</button>`).join('')}</nav>
+    <div class="doc-grid${cls('pair', other)}">${sheet(doc, index, true, signature)}${other ? sheet(other, compare, true, signature) : ''}</div>
+    <div class="modal-actions">${button(other ? '收起并排单据' : '并排核对', 'compare')}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-modal');
+}
+
+export function sample(item, inspection, tutorial) {
+  const { back, film, clasp, tug, measured } = inspection;
+  const spec = item.sample;
+  const kind = spec.kind;
+  const visual = back ? (tug ? spec.back : '检样已翻到背面。查看扣件、框内刻字和两侧插片。') : kind === 'film' && !film ? '视窗处有一道浅白痕，检样的保护膜可以揭起一角。' : spec.front;
+  return dialog(`${item.batch} · 样品`, `${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-inspector"><div class="sample-stage${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}" data-kind="${esc(kind)}"><img src="${asset(back ? 'sample-back.webp' : 'sample.webp')}" alt="${back ? '检样的扣件和框内' : '检样的正面视窗'}" draggable="false"><span class="sample-mark" aria-hidden="true"></span>
+    ${back && spec.model ? `<span class="model-mark">${esc(spec.model)}</span>` : ''}</div><div class="sample-findings"><b>${back ? '背面' : '正面'}</b><p>${esc(visual)}</p>
+    ${measured && spec.reading ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
+    <div class="modal-actions">${button(back ? '看正面' : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
+    ${!back && ['film', 'crack'].includes(kind) ? button(film ? '放回保护膜' : '揭开膜角', 'sample-film') : ''}
+    ${back && !tug ? button(!clasp ? '按合扣件' : '轻拉检查', !clasp ? 'sample-clasp' : 'sample-tug', tutorial?.key === 'sample' ? 'primary' : 'secondary') : ''}
+    ${spec.reading ? button('放进量规', 'sample-measure') : ''}${tug || film || measured || back ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div>`, 'sample-modal');
+}
+
+export function receipt(record) {
+  return dialog('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span><p>${esc(record.note || `去向 · ${statuses[record.status]}`)}</p></div><div class="modal-actions">${button('接着值班', 'next', 'primary')}</div>`, 'receipt-modal');
+}
+
+export function archivePanel(rows, focus, selected, query, editing, handoff) {
+  const row = rows.find(({ id }) => id === focus);
+  return dialog('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
+    <div class="drawer-list" aria-label="留档单据">${rows.length ? rows.slice().reverse().map(({ id, batch, title, record }) => `<button class="record-button" data-act="archive-focus" data-i="${id}"${active(id === focus)}><b>${esc(batch)}</b><span>${esc(title)}</span><small>${record ? statuses[record.status] : '本班来件'}</small></button>`).join('') : '<p>这页暂时没有单据。</p>'}</div></div>
+    <div class="archive-detail">${row ? `<div class="doc-grid">${row.documents.map((doc) => sheet(doc, 0, false)).join('')}</div><div class="modal-actions">${button(selected.includes(row.id) ? '从电话旁拿回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
+      ${handoff && row.record ? button(editing ? '取消更正' : '更正开单', 'edit-record') : ''}</div>${editing && row.record ? `<div class="stamp-buttons">${stampButtons(false, false, 'recheck')}</div>` : ''}` : '<p class="archive-empty">选一张留底，可以翻看原来的单据。</p>'}</div></div>`, 'archive-modal');
+}
+
+export function phone(number, call, pinned, numberGuide, phoneBack) {
+  return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine"><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>
+    <div class="phone-side">${numberGuide ? '<div class="phone-directory"><button class="button secondary" data-act="phone-select" data-key="204">实验室 204</button></div>' : ''}
+    ${pinned.length ? `<p class="phone-pinned">电话旁 ${pinned.map(({ batch }) => esc(batch)).join('、')}</p>` : ''}
+    <div class="phone-log" aria-live="polite">${call ? `<b>${esc(CHARACTERS[call.npc]?.name ?? '内线')} · ${esc(call.number)}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : '<p>拨出内线，或从交接簿拿一张单来问。</p>'}</div>
+    <div class="modal-actions">${button('交接簿', 'archive')}${button(phoneBack ? '机底贴纸 · 880' : '翻看机底', 'phone-back')}</div></div></div>`, 'phone-modal');
+}
+
+export function handoffPanel(run, evidence) {
+  return dialog('周五交接', `<div class="handoff-paper"><p>确认下一班拿到你手里的回执和留底。</p>
+    ${['trace', 'night'].map((key) => run.flags[`${key}Document`] ? `<div class="handoff-evidence">${sheet(evidence[key], 0, false)}${button(run.flags[`${key}Attached`] ? '已夹入 · 取回' : '夹入交接板', 'attach', run.flags[`${key}Attached`] ? 'primary' : 'secondary', `data-key="${key}"`)}</div>` : '').join('')}
+    <div class="modal-actions">${button('回看全周出货', 'archive')}${button('拉铃交班', 'finish', 'primary')}</div></div>`, 'handoff-modal');
+}
+
+export function egg(key, caseId) {
+  const extra = EASTER_EGGS[key];
+  return dialog(extra.title, `<div class="egg-note"><p>${esc(extra.line)}</p>${caseId === extra.slots[1] ? `<p>${esc(extra.returnLine)}</p>` : ''}</div>`, 'egg-modal');
+}
