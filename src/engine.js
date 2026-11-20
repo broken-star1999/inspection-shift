@@ -87,6 +87,20 @@ export function createFollowingRun(previousRun, seed) {
   return { ...run, variantOverride: { caseId: item.id, index } };
 }
 
+export function restoreRun(state) {
+  if (state.phase !== 'case' && state.phase !== 'receipt') return state;
+  let records = state.records;
+  for (const previous of state.records) {
+    if (previous.status !== 'shipped' || !(previous.day < state.day)) continue;
+    const supplement = findVerifiedReceipt(state.records, previous);
+    if (!supplement || supplement.day !== state.day || supplement.status !== 'shipping' ||
+        supplement.original !== 'pass' || supplement.decision !== 'pass' || supplement.amendments?.length) continue;
+    // Correct older saves that queued a supplement for a previously shipped lot.
+    records = updateRecord(records, supplement.id, { status: 'shipped' });
+  }
+  return records === state.records ? state : { ...state, records };
+}
+
 export function getDay(state) {
   const day = DAYS[state.day];
   const options = ARRIVAL_ORDERS[state.day];
@@ -229,25 +243,36 @@ function sameLotFollowup(previous, next) {
   return followUp?.sameLot === true && followUp.caseId === previous?.id && previous?.batch === next.batch;
 }
 
+function previousSameLot(records, record) {
+  const id = CASE_BY_ID.get(record.id)?.followUp?.caseId;
+  const previous = records.find((receipt) => receipt.id === id);
+  return sameLotFollowup(previous, record) ? previous : null;
+}
+
+function hasAcceptedProof(record) {
+  return record.answer === 'pass' && (record.decision === 'pass' || record.original === 'pass' ||
+    record.amendments?.some(({ to }) => to === 'pass') === true);
+}
+
 function findVerifiedReceipt(records, previous) {
   if (!previous.verifiedBy) return null;
   const next = records.find(({ id }) => id === previous.verifiedBy);
-  if (!sameLotFollowup(previous, next) || next.answer !== 'pass') return null;
   // A later recall changes where the lot is, while the accepted test evidence is still on file.
-  const accepted = next.decision === 'pass' || next.original === 'pass' || next.amendments?.some(({ to }) => to === 'pass');
-  return accepted ? next : null;
+  return sameLotFollowup(previous, next) && hasAcceptedProof(next) ? next : null;
 }
 
 function confirmFollowup(records, record) {
   if (record.decision !== 'pass' || record.answer !== 'pass') return records;
-  const previousId = CASE_BY_ID.get(record.id)?.followUp?.caseId;
-  const previous = records.find(({ id }) => id === previousId);
-  if (!sameLotFollowup(previous, record)) return records;
-  return updateRecord(records, previous.id, { verifiedBy: record.id });
+  const previous = previousSameLot(records, record);
+  return previous ? updateRecord(records, previous.id, { verifiedBy: record.id }) : records;
 }
 
-function disposition(decision) {
-  return decision === 'pass' ? 'shipping' : decision === 'fail' ? 'returned' : 'held';
+function disposition(records, item, decision) {
+  if (decision !== 'pass') return decision === 'fail' ? 'returned' : 'held';
+  if (item.answer === 'pass' && !hasAcceptedProof(item) && previousSameLot(records, item)?.status === 'shipped') {
+    return 'shipped';
+  }
+  return 'shipping';
 }
 
 function stamp(state, action) {
@@ -271,7 +296,7 @@ function stamp(state, action) {
     note: String(action.note ?? action.reason ?? '').trim().slice(0, 100) || (value === 'review' ? '请核对送检材料' : ''),
     ...(findings.length ? { findings } : {}),
     response,
-    status: disposition(value),
+    status: disposition(state.records, item, value),
     amendments: [],
   };
   return { ...state, phase: 'receipt', records: confirmFollowup([...state.records, record], record) };
@@ -282,7 +307,7 @@ function recheck(state, action) {
   const record = getRecord(state, Number(action.id));
   if (!record || action.value === record.decision || findVerifiedReceipt(state.records, record)) return state;
   const requiresRecall = record.status === 'shipped' || record.status === 'recalled';
-  const status = requiresRecall && action.value !== 'pass' ? 'recalled' : disposition(action.value);
+  const status = requiresRecall && action.value !== 'pass' ? 'recalled' : disposition(state.records, record, action.value);
   const { decision: previous, status: priorStatus } = record;
   const revised = {
     ...record,

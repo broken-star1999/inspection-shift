@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getPreviousReceipt, TUTORIAL } from '../src/engine.js';
+import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getPreviousReceipt, restoreRun, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -345,6 +345,83 @@ test('newly signed proof clears a premature release, while G-204 is tracked sepa
   const corrected = getEnding(act(state, 'finish'));
   assert.equal(corrected.id, 'routine');
   assert.deepEqual(corrected.delayedReceipts, []);
+});
+
+test('a signed same-lot supplement preserves the prior shipment in its immediate receipt', () => {
+  const previousIds = new Map([[9, 5], [13, 11], [14, 10]]);
+  for (const scenario of [
+    { decisions: { 4: 'pass', 5: 'pass', 10: 'pass', 11: 'pass' }, expected: 'shipped' },
+    { decisions: { 4: 'pass', 11: 'fail' }, expected: 'shipping' },
+  ]) {
+    const checked = new Set();
+    untilHandoff(21, { decisions: scenario.decisions, inspect: (state, item) => {
+      if (item.id === 15) {
+        const remainder = act(state, 'stamp', { value: 'pass' });
+        const old = archive(remainder, 'G-204').find(({ id }) => id === 4);
+        assert.equal(old.record.status, 'shipped');
+        assert.equal(old.latestReceipt, null);
+        assert.equal(remainder.records.at(-1).status, 'shipping');
+      }
+      const previousId = previousIds.get(item.id);
+      if (!previousId) return state;
+      const stamped = act(state, 'stamp', { value: item.answer });
+      const saved = JSON.parse(JSON.stringify(stamped));
+      const regularReceipt = saved.records.at(-1);
+      const history = archive(saved, item.batch).find(({ id }) => id === previousId);
+      assert.equal(regularReceipt.id, item.id);
+      assert.equal(regularReceipt.status, scenario.expected);
+      assert.equal(history.latestReceipt, regularReceipt);
+      assert.equal(history.record.status, state.records.find(({ id }) => id === previousId).status);
+      assert.equal(restoreRun(saved), saved);
+      checked.add(item.id);
+      return state;
+    } });
+    assert.deepEqual(checked, new Set(previousIds.keys()));
+  }
+});
+
+test('a first acceptance at handoff keeps the offsite lot shipped, and a later release can requeue', () => {
+  const week = untilHandoff(21, { decisions: { 5: 'pass', 9: 'review' } });
+  assert.deepEqual(getEnding(week).issues.map(({ id }) => id), [5]);
+  const accepted = act(week, 'recheck', { id: 9, value: 'pass' });
+  const original = archive(accepted, 'G-205').find(({ id }) => id === 5);
+  assert.equal(original.latestReceipt.status, 'shipped');
+  assert.equal(original.latestReceipt.amendments.at(-1).status, 'shipped');
+  assert.deepEqual(getEnding(accepted).issues, []);
+
+  const recalled = act(accepted, 'recheck', { id: 9, value: 'review' });
+  const requeued = act(JSON.parse(JSON.stringify(recalled)), 'recheck', { id: 9, value: 'pass' });
+  assert.equal(archive(requeued, 'G-205').find(({ id }) => id === 5).latestReceipt.status, 'shipping');
+  assert.equal(restoreRun(requeued), requeued);
+  const shipped = act(requeued, 'finish');
+  assert.equal(archive(shipped, 'G-205').find(({ id }) => id === 5).latestReceipt.status, 'shipped');
+});
+
+test('restoring an active legacy save corrects only a supplement queued for a shipment already offsite', () => {
+  let checked = false;
+  untilHandoff(21, { decisions: { 11: 'pass' }, inspect: (state, item) => {
+    if (item.id !== 13) return state;
+    const receipt = act(state, 'stamp', { value: 'pass' });
+    const legacy = {
+      ...receipt,
+      records: receipt.records.map((record) => record.id === 13 ? { ...record, status: 'shipping' } : record),
+    };
+    for (const active of [legacy, act(legacy, 'next')]) {
+      const saved = JSON.parse(JSON.stringify(active));
+      const loaded = restoreRun(saved);
+      const original = archive(loaded, 'G-211').find(({ id }) => id === 11);
+      assert.equal(original.record, saved.records.find(({ id }) => id === 11));
+      assert.equal(original.latestReceipt.status, 'shipped');
+      assert.equal(saved.records.find(({ id }) => id === 13).status, 'shipping');
+      assert.equal(loaded.phase, active.phase);
+      assert.equal(restoreRun(loaded), loaded);
+    }
+    const historical = { ...legacy, phase: 'summary' };
+    assert.equal(restoreRun(historical), historical);
+    checked = true;
+    return state;
+  } });
+  assert.equal(checked, true);
 });
 
 test('an accepted same-lot receipt owns the disposition and preserves the first receipt', () => {

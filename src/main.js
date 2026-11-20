@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, dispatch, getCase, getDay, getEnding, getPreviousReceipt, archive, TUTORIAL, EVIDENCE } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getPreviousReceipt, archive, TUTORIAL, EVIDENCE } from './engine.js';
 import { EASTER_EGGS } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
@@ -80,7 +80,7 @@ let drag;
 let stampTouch = null;
 let suppressPaperClick = false;
 let modalOpener = null;
-let phoneArchiveOpener = null;
+let archiveReturn = null;
 let interaction = freshInteraction();
 
 root.innerHTML = view.shell();
@@ -346,15 +346,20 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, interaction);
   if (panel === 'archive' && run) markup = view.archivePanel(
     archive(run, archiveQuery), filedVisitPapers(archiveQuery), archiveFocus, pinned,
-    archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending', Boolean(phoneArchiveOpener),
-    !phoneArchiveOpener && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
+    archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending', {
+      returnTo: archiveReturn?.panel,
+      canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
+    },
   );
   if (panel === 'phone' && run) {
     const filed = archive(run);
     const papers = pinned.map((id) => filed.find((row) => row.id === id)).filter(Boolean);
     markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, run.flags.phoneBack, item);
   }
-  if (panel === 'handoff' && run?.phase === 'handoff') markup = view.handoffPanel(run, EVIDENCE);
+  if (panel === 'handoff' && run?.phase === 'handoff') {
+    const records = archive(run).filter(({ record, latestReceipt }) => record && !latestReceipt).map(({ record }) => record);
+    markup = view.handoffPanel(run, EVIDENCE, records);
+  }
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
   if (panel === 'completed-shifts' && !run) {
@@ -376,9 +381,11 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const previousPaper = previousSurface?.querySelector('.return-previous');
   const archiveIndexScroll = previousSurface?.querySelector('.drawer-list')?.scrollTop;
   const phoneScroll = modalLayer.querySelector('.phone-modal .modal-body')?.scrollTop;
+  const handoffScroll = modalLayer.querySelector('.handoff-modal .modal-body')?.scrollTop;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
   if (phoneScroll !== undefined) modalLayer.querySelector('.phone-modal .modal-body')?.scrollTo(0, phoneScroll);
+  if (handoffScroll !== undefined) modalLayer.querySelector('.handoff-modal .modal-body')?.scrollTo(0, handoffScroll);
   const blockingDialog = Boolean(markup && !surface);
   booth.inert = blockingDialog || !run || Boolean(arrivalTimer || screenLayer.firstElementChild);
   screenLayer.inert = Boolean(markup);
@@ -490,10 +497,10 @@ function update(action, redraw = true) {
 
 function openPanel(name, opener) {
   if (!panel && opener instanceof HTMLElement) modalOpener = { ...opener.dataset };
-  if (name === 'archive' && panel === 'phone') {
-    phoneArchiveOpener = { ...opener?.dataset };
+  if (name === 'archive' && (panel === 'phone' || panel === 'handoff')) {
+    archiveReturn = { panel, opener: { ...opener.dataset }, scrollTop: modalLayer.querySelector('.modal-body')?.scrollTop ?? 0 };
   } else if (name !== 'archive' || panel !== 'archive') {
-    phoneArchiveOpener = null;
+    archiveReturn = null;
   }
   panel = name;
   render();
@@ -505,7 +512,7 @@ function enter(restore) {
   let workspace;
   if (restore && saved) {
     const { inspectionProgress, ...savedRun } = saved;
-    run = savedRun;
+    run = restoreRun(savedRun);
     const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
   } else {
@@ -516,7 +523,7 @@ function enter(restore) {
   panel = workspace?.panel ?? null;
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
-  phoneArchiveOpener = null;
+  archiveReturn = null;
   const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
   playSound(resumeSound ?? (run.phase === 'ending' ? 'paper' : 'shutter'));
   render(workspace?.scrollTop);
@@ -531,7 +538,7 @@ function reviewCompletedShift(id) {
   interaction = freshInteraction();
   panel = null;
   modalOpener = null;
-  phoneArchiveOpener = null;
+  archiveReturn = null;
   playSound('paper');
   render();
   focusControl(screenLayer, { act: 'archive' });
@@ -576,7 +583,7 @@ function readDocument(doc) {
 }
 
 function chooseDoc(index, opener) {
-  const doc = getCase(run)?.documents[index];
+  const doc = run?.phase === 'case' && windowCase()?.documents[index];
   if (!doc) return;
   if (panel === 'sample' && !tutorialStep()) {
     interaction.referenceDoc = index;
@@ -609,7 +616,8 @@ function updateFindings(findings) {
 }
 
 function checkBasis(index, field) {
-  const doc = getCase(run)?.documents[index];
+  if (run?.phase !== 'case' || (panel !== 'docs' && panel !== 'sample')) return;
+  const doc = windowCase()?.documents[index];
   const datum = doc?.fields[field];
   if (!datum) return;
   const [label, value] = datum;
@@ -644,7 +652,7 @@ function comparePrevious(opener) {
   const item = windowCase();
   const previous = previousInspection(item);
   if (!previous?.documents.length) return;
-  if (panel !== 'docs' && (panel !== 'archive' || phoneArchiveOpener || interaction.archiveFocus !== previous.record.id)) return;
+  if (panel !== 'docs' && (panel !== 'archive' || archiveReturn || interaction.archiveFocus !== previous.record.id)) return;
   if (panel === 'docs' && interaction.previousDoc !== null) {
     interaction.previousDoc = null;
     interaction.previousCurrentDoc = null;
@@ -660,6 +668,7 @@ function comparePrevious(opener) {
 }
 
 function openSample(opener) {
+  if (run?.phase !== 'case' || !windowCase()) return;
   interaction.returnToDocs = panel === 'docs' && !tutorialStep();
   interaction.referenceDoc = interaction.returnToDocs ? viewedDocument() : null;
   playSound('slide');
@@ -697,8 +706,9 @@ function sampleFinding(spec, inspection) {
 }
 
 function checkSample(act) {
+  if (panel !== 'sample' || run?.phase !== 'case') return;
   const sample = interaction.inspection;
-  const spec = getCase(run)?.sample;
+  const spec = windowCase()?.sample;
   if (!spec) return;
   const previousFilm = act === 'sample-film' && modalLayer.querySelector('.sample-film-sheet');
   const previousFold = previousFilm ? getComputedStyle(previousFilm).transform : null;
@@ -775,11 +785,15 @@ function revealArchiveReceipt(revealIndex) {
 }
 
 function closePanel() {
-  const returnToPhone = run && panel === 'archive' ? phoneArchiveOpener : null;
-  panel = returnToPhone ? 'phone' : null;
-  phoneArchiveOpener = null;
+  const previousPanel = run && panel === 'archive' ? archiveReturn : null;
+  panel = previousPanel?.panel ?? null;
+  archiveReturn = null;
   render();
-  if (returnToPhone) focusControl(modalLayer, returnToPhone);
+  if (previousPanel) {
+    modalLayer.querySelector('.modal-body')?.scrollTo(0, previousPanel.scrollTop);
+    const opener = focusControl(modalLayer, previousPanel.opener);
+    if (previousPanel.panel === 'handoff') opener?.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 root.addEventListener('click', (event) => {
@@ -840,6 +854,7 @@ root.addEventListener('click', (event) => {
     case 'doc': case 'reference-doc': if (run) chooseDoc(index, target); break;
     case 'basis': checkBasis(index, Number(target.dataset.field)); break;
     case 'toggle-findings':
+      if (run?.phase !== 'case') break;
       interaction.showFindings = !interaction.showFindings;
       render();
       if (interaction.showFindings) modalLayer.querySelector('#working-findings')?.scrollIntoView({ block: 'nearest' });
@@ -851,6 +866,7 @@ root.addEventListener('click', (event) => {
       focusControl(desktop, { act: 'bench-findings' });
       break;
     case 'remove-finding': {
+      if (run?.phase !== 'case') break;
       const inBenchDraft = Boolean(target.closest('.bench-draft'));
       updateFindings(interaction.findings.filter((finding) => finding.key !== key));
       playSound('paper');

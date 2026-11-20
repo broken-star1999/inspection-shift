@@ -191,10 +191,10 @@ export const DAYS = [
     cases: [
       {
         id: 9, batch: 'G-205', npc: 'luo', title: '送到窗口的二零五报告',
-        line: '昨天没送下来的那份。耳罩还在装货台，你对一下。',
+        line: '昨天等的那份送到了。你对一下签发栏。',
         answer: 'pass', reason: '本批已签发报告齐全，检样合格', response: '行，这回我把回单和报告钉在一起。',
         documents: [label('G-205', [], '防噪耳罩'), report('G-205', 'R-065', [...earmuffReport, ['签发时间', '周三 08:06']], '耳罩检验报告'), order('G-205', earmuffChecks)], sample: earmuff,
-        followUp: { caseId: 5, sameLot: true, lines: { pass: '车那边还收着回单。昨天缺的报告刚领到，你帮我核一下。', fail: '二零五从退件区搬回来了。实验室报告也拿到了。', review: '昨天没送下来的那份。耳罩还在装货台，你对一下。' } },
+        followUp: { caseId: 5, sameLot: true, lines: { pass: '车那边还收着回单。昨天缺的报告刚领到，你帮我核一下。', fail: '二零五从退件区搬回来了。实验室报告也拿到了。', review: '昨天等的那份送到了。那箱耳罩还在黄线里，你对一下。' } },
       },
       {
         id: 10, batch: 'G-248', npc: 'zhou', title: '等着上车的二四八',
@@ -237,7 +237,7 @@ export const DAYS = [
       {
         id: 14, batch: 'G-248', npc: 'luo', title: '夹回来的作废联',
         line: '二四八，这回结果签了。实验室把那张作废随货联也夹来了。',
-        answer: 'pass', reason: 'R-084 补齐了本批耐冲击结果', response: '总算出了。你把旧联留着，我喊下一位进来。',
+        answer: 'pass', reason: 'R-084 补齐了本批耐冲击结果', response: '耐冲击报告总算签了。你把旧联留着，我喊下一位进来。',
         documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-084', shieldReport, '本批复检报告'), archive('作废随货联', [['批号', 'G-248'], ['原报告编号', 'R-071'], ['状态', '已撤回'], ['复检通知', '改用 R-084']], '原随货联仅留档。')], sample: shield,
         followUp: { caseId: 10, sameLot: true, lines: { pass: '二四八的留样和补检回执。上一车那批也记在这张新报告上。', fail: '返送的二四八在这儿。这次实验室把结果签完了。', review: '黄线里面那箱二四八，这回结果签了。实验室把作废联也夹来了。' } },
       },
