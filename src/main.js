@@ -45,6 +45,7 @@ let arrivalTimer = 0;
 let drag;
 let suppressPaperClick = false;
 let modalOpener = null;
+let phoneArchiveOpener = null;
 let interaction = freshInteraction();
 
 root.innerHTML = view.shell();
@@ -254,9 +255,13 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, interaction);
   if (panel === 'archive' && run) markup = view.archivePanel(
     archive(run, archiveQuery), filedVisitPapers(archiveQuery), archiveFocus, pinned,
-    archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending',
+    archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending', Boolean(phoneArchiveOpener),
   );
-  if (panel === 'phone' && run) markup = view.phone(phoneNumber, run.phone, archive(run).filter(({ id }) => pinned.includes(id)), run.day >= 1, run.flags.phoneBack);
+  if (panel === 'phone' && run) {
+    const filed = archive(run);
+    const papers = pinned.map((id) => filed.find((row) => row.id === id)).filter(Boolean);
+    markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, run.flags.phoneBack, item);
+  }
   if (panel === 'handoff' && run?.phase === 'handoff') markup = view.handoffPanel(run, EVIDENCE);
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
@@ -270,16 +275,16 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const scroll = previousContent ? [previousContent.scrollLeft, previousContent.scrollTop] : null;
   const previousReference = previousSurface?.querySelector('.sample-reference');
   const archiveIndexScroll = previousSurface?.querySelector('.drawer-list')?.scrollTop;
+  const phoneScroll = modalLayer.querySelector('.phone-modal .modal-body')?.scrollTop;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
+  if (phoneScroll !== undefined) modalLayer.querySelector('.phone-modal .modal-body')?.scrollTo(0, phoneScroll);
   const blockingDialog = Boolean(markup && !surface);
   booth.inert = blockingDialog || !run || Boolean(arrivalTimer || screenLayer.firstElementChild);
   screenLayer.inert = Boolean(markup);
   if (!markup) {
     if (hadModal && modalOpener) {
-      const matching = [...root.querySelectorAll('button:not([disabled])')].find((element) =>
-        Object.entries(modalOpener).every(([key, value]) => element.dataset[key] === value));
-      matching?.focus({ preventScroll: true });
+      focusControl(root, modalOpener);
       modalOpener = null;
     }
     return;
@@ -305,6 +310,13 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       animateOnDesk(reference.querySelector('.sheet'), [{ translate: '.85rem .3rem', opacity: .65 }, { translate: '0 0', opacity: 1 }], 180);
     }
   }
+}
+
+function focusControl(scope, data) {
+  const control = [...scope.querySelectorAll('button:not([disabled])')].find((element) =>
+    Object.entries(data).every(([key, value]) => element.dataset[key] === value));
+  control?.focus({ preventScroll: true });
+  return control;
 }
 
 function toast(message) {
@@ -337,6 +349,11 @@ function update(action, redraw = true) {
 
 function openPanel(name, opener) {
   if (!panel && opener instanceof HTMLElement) modalOpener = { ...opener.dataset };
+  if (name === 'archive' && panel === 'phone') {
+    phoneArchiveOpener = { ...opener?.dataset };
+  } else if (name !== 'archive' || panel !== 'archive') {
+    phoneArchiveOpener = null;
+  }
   panel = name;
   render();
 }
@@ -353,6 +370,7 @@ function enter(restore) {
   }
   panel = null;
   modalOpener = null;
+  phoneArchiveOpener = null;
   playSound(run.phase === 'ending' ? 'paper' : 'shutter');
   render();
 }
@@ -541,6 +559,7 @@ function dial() {
   playSound('ring');
   const number = interaction.phoneNumber;
   update({ type: 'dial', number, caseIds: interaction.pinned });
+  modalLayer.querySelector('.phone-log')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (run.phase === 'handoff' && activeVisit()) toast('有人到窗口递留底');
 }
 
@@ -565,8 +584,11 @@ function revealArchiveReceipt(revealIndex) {
 }
 
 function closePanel() {
-  panel = null;
+  const returnToPhone = run && panel === 'archive' ? phoneArchiveOpener : null;
+  panel = returnToPhone ? 'phone' : null;
+  phoneArchiveOpener = null;
   render();
+  if (returnToPhone) focusControl(modalLayer, returnToPhone);
 }
 
 root.addEventListener('click', (event) => {
@@ -637,7 +659,7 @@ root.addEventListener('click', (event) => {
     case 'stamp': stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
     case 'archive-receipt':
-      if (!run?.records.some((record) => record.id === index)) break;
+      if (!run?.seen.includes(index)) break;
       interaction.archiveFocus = index;
       interaction.archiveQuery = '';
       openArchive(target);
@@ -654,12 +676,18 @@ root.addEventListener('click', (event) => {
       revealArchiveReceipt(act === 'archive-followup');
       break;
     case 'archive-pin': {
-      if (run?.phase === 'ending') break;
+      if (!run?.seen.includes(index) || run.phase === 'ending') break;
       const pinned = interaction.pinned;
-      interaction.pinned = pinned.includes(index) ? pinned.filter((id) => id !== index) : [...pinned.slice(-1), index];
-      toast(interaction.pinned.includes(index) ? '单据已放到电话旁' : '单据已收回交接簿');
+      const removing = pinned.includes(index);
+      const displaced = !removing && pinned.length === 2 ? archive(run).find(({ id }) => id === pinned[0]) : null;
+      interaction.pinned = removing ? pinned.filter((id) => id !== index) : [...pinned.slice(-1), index];
+      if (displaced) toast(`新单据已放到电话旁，${displaced.batch} 已收回交接簿`);
+      else toast(removing ? '单据已收回交接簿' : '单据已放到电话旁');
       playSound('paper');
       render();
+      if (panel === 'phone' && !removing) {
+        focusControl(modalLayer, { act: 'archive-receipt', i: String(index) })?.scrollIntoView({ block: 'nearest' });
+      }
       break;
     }
     case 'edit-record': interaction.archiveEditing = !interaction.archiveEditing; render(); break;

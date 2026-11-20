@@ -178,12 +178,12 @@ export function overlay(run, ending) {
   return '';
 }
 
-export function dialog(title, body, type = '') {
-  return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close" data-act="close" aria-label="关闭面板">×</button></header><div class="modal-body">${body}</div></section></div>`;
+export function dialog(title, body, type = '', footer = '') {
+  return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close" data-act="close" aria-label="关闭面板">×</button></header><div class="modal-body">${body}</div>${footer}</section></div>`;
 }
 
-function deskSurface(title, body, type, closeText, page, { headerActions = '', footer = '' } = {}) {
-  const close = closeText ? `<button class="modal-close surface-close" data-act="close" aria-label="关闭面板">${closeText}</button>` : '';
+function deskSurface(title, body, type, closeText, page, { headerActions = '', footer = '', closeLabel = '关闭面板' } = {}) {
+  const close = closeText ? `<button class="modal-close surface-close" data-act="close" aria-label="${esc(closeLabel)}">${closeText}</button>` : '';
   return `<section class="desk-surface ${type}" data-desk-surface="${type}"${page === undefined ? '' : ` data-surface-page="${esc(page)}"`} role="region" aria-labelledby="panel-title">
     ${closeText ? `<header class="desk-surface-bar"><h2 id="panel-title">${esc(title)}</h2>${headerActions ? `<div class="desk-surface-tools">${headerActions}${close}</div>` : close}</header>` : `<h2 class="visually-hidden" id="panel-title">${esc(title)}</h2>`}
     <div class="desk-surface-content">${body}</div>${footer ? `<div class="desk-surface-footer">${footer}</div>` : ''}</section>`;
@@ -294,7 +294,7 @@ export function receipt(record) {
   return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
 }
 
-export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false) {
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, returnToPhone = false) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const visitIndex = visits.length ? `<h3 class="archive-group-title">回访留底</h3>${visits.map(([key, doc]) =>
@@ -321,15 +321,21 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   }
   return deskSurface('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
     <div class="drawer-list" aria-label="留档单据">${index || '<p>没有找到匹配的单据。</p>'}</div></div>
-    <div class="archive-detail">${details}</div></div>`, 'archive-surface', '合上簿子', query);
+    <div class="archive-detail">${details}</div></div>`, 'archive-surface', returnToPhone ? '回到电话' : '合上簿子', query,
+    { closeLabel: returnToPhone ? '回到电话' : '关闭面板' });
 }
 
-export function phone(number, call, pinned, numberGuide, phoneBack) {
+export function phone(number, call, pinned, numberGuide, phoneBack, current) {
+  const canBring = current && !pinned.some(({ id }) => id === current.id);
+  const papers = pinned.length ? `<div class="phone-pinned phone-papers" aria-label="电话旁的单据"><b>电话旁</b><ul>
+    ${pinned.map(({ id, batch, title }) => `<li><button type="button" class="phone-paper" data-act="archive-receipt" data-i="${esc(id)}" aria-label="查看 ${esc(batch)} ${esc(title)}"><b>${esc(batch)}</b><span>${esc(title)}</span></button></li>`).join('')}
+  </ul></div>` : '';
+  const actions = `<footer class="modal-actions phone-actions">${canBring ? button('带本批单据', 'archive-pin', 'secondary', `data-i="${esc(current.id)}"`) : ''}${button('交接簿', 'archive')}${button(phoneBack ? '机底贴纸 · 880' : '翻看机底', 'phone-back')}</footer>`;
   return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine"><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>
     <div class="phone-side">${numberGuide ? '<div class="phone-directory"><button class="button secondary" data-act="phone-select" data-key="204">实验室 204</button></div>' : ''}
-    ${pinned.length ? `<p class="phone-pinned">电话旁 ${pinned.map(({ batch }) => esc(batch)).join('、')}</p>` : ''}
+    ${papers}
     <div class="phone-log" aria-live="polite">${call ? `<b>${esc(CHARACTERS[call.npc]?.name ?? '内线')} · ${esc(call.number)}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : '<p>拨出内线，或从交接簿拿一张单来问。</p>'}</div>
-    <div class="modal-actions">${button('交接簿', 'archive')}${button(phoneBack ? '机底贴纸 · 880' : '翻看机底', 'phone-back')}</div></div></div>`, 'phone-modal');
+    </div></div>`, 'phone-modal', actions);
 }
 
 export function handoffPanel(run, evidence) {

@@ -202,6 +202,40 @@ test('a v1 save with previously granted evidence can still acknowledge the liste
   assert.deepEqual(state.events, []);
 });
 
+test('the next arrival enters the archive after both visitors hand over their papers', () => {
+  let checked = false;
+  untilHandoff(21, { inspect: (state, item) => {
+    if (item.id === 14) {
+      state = act(state, 'dial', { number: '204', caseIds: [14, 7] });
+      return act(state, 'dial', { number: '107', caseIds: [11] });
+    }
+    if (state.records.at(-1)?.id !== 14) return state;
+
+    assert.deepEqual(state.events.map(({ key }) => key), ['trace', 'night']);
+    assert.equal(state.seen.includes(item.id), false);
+    const legacy = { ...state, seen: [...state.seen, item.id] };
+    for (const saved of [state, legacy]) {
+      let waiting = JSON.parse(JSON.stringify(saved));
+      assert.equal(archive(waiting).some(({ id }) => id === item.id), false);
+      assert.equal(archive(waiting, 'R-071').find(({ id }) => id === 14).record.id, 14);
+      assert.equal(act(waiting, 'stamp', { value: item.answer }), waiting);
+      waiting = act(waiting, 'ack-visit');
+      assert.equal(waiting.flags.traceDocument, true);
+      assert.equal(waiting.flags.nightDocument, false);
+      assert.equal(waiting.event.key, 'night');
+      assert.equal(archive(waiting).some(({ id }) => id === item.id), false);
+      waiting = act(JSON.parse(JSON.stringify(waiting)), 'ack-visit');
+      assert.equal(waiting.flags.nightDocument, true);
+      assert.equal(waiting.event, null);
+      assert.equal(archive(waiting).find(({ id }) => id === item.id).record, null);
+      assert.equal(waiting.seen.filter((id) => id === item.id).length, 1);
+    }
+    checked = true;
+    return state;
+  } });
+  assert.equal(checked, true);
+});
+
 test('sending every batch to review reports the release-ready batches that remain held', () => {
   const decisions = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [index + 1, 'review']));
   const ending = getEnding(act(untilHandoff(21, { decisions }), 'finish'));

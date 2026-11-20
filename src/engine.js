@@ -121,12 +121,15 @@ export function getPreviousReceipt(state, item = getCase(state)) {
 
 export function archive(state, query = '') {
   const key = String(query).toLowerCase().trim();
+  const waitingForArrival = state.phase === 'case' && activeVisits(state).length
+    ? getDay(state)?.cases[state.index]?.id : null;
   return state.seen.map((id) => {
     const item = getVariant(state, CASE_BY_ID.get(id));
     const record = getRecord(state, id) ?? null;
     const latestReceipt = record ? findVerifiedReceipt(state.records, record) : null;
     return { ...item, record, latestReceipt, previousReceipt: getPreviousReceipt(state, item) };
   }).filter((item) => {
+    if (item.id === waitingForArrival && !item.record) return false;
     if (!key) return true;
     const fields = item.documents.flatMap(({ title, fields, note }) => [title, fields.flat().join(' '), note]);
     return [item.batch, item.title, ...fields].some((text) => text && String(text).toLowerCase().includes(key));
@@ -180,15 +183,16 @@ function queueVisit(state, key) {
 function acknowledgeVisit(state) {
   const [visit, ...events] = activeVisits(state);
   if (!visit) return state;
-  const accepted = setFlags(state, { [`${visit.key}Document`]: true });
-  return { ...accepted, event: events[0] ?? null, events };
+  const accepted = setFlags({ ...state, event: events[0] ?? null, events }, { [`${visit.key}Document`]: true });
+  return !events.length && accepted.phase === 'case' ? startCase(accepted, accepted.index) : accepted;
 }
 
 function startCase(state, index) {
   const id = getDay(state)?.cases[index]?.id;
   if (!id) return state;
-  const seen = state.seen.includes(id) ? state.seen : [...state.seen, id];
-  return { ...state, phase: 'case', index, seen };
+  const arrived = { ...state, phase: 'case', index };
+  return activeVisits(arrived).length || arrived.seen.includes(id)
+    ? arrived : { ...arrived, seen: [...arrived.seen, id] };
 }
 
 function ship(records) {
@@ -287,7 +291,7 @@ function selectedRecords(state, action) {
 function dialLab(state, action, number) {
   const script = PHONE[number];
   if (state.flags.traceDocument) {
-    return callResult(state, number, 'chen', ['原件我留在交接板边上了。你核对一下试样来源。']);
+    return callResult(state, number, script.npc, [script.received]);
   }
   if (isVisitQueued(state, 'trace')) return callResult(state, number, 'chen', ['原件已经留出来了。我们在窗口交接一下。']);
   const ids = selectedRecords(state, action);
@@ -299,14 +303,14 @@ function dialLab(state, action, number) {
     return callResult(state, number, script.npc, [script.archiveHint], 'hint');
   }
   if (ids.has(7)) {
-    return callResult(state, number, 'chen', ['二四一的随货联？我手上先核一下。还有哪一张也写着这个尾号？'], 'hint');
+    return callResult(state, number, script.npc, [script.relatedHint], 'hint');
   }
   return callResult(state, number, script.npc, [script.greeting]);
 }
 
 function dialNight(state, action, number) {
   const script = PHONE[number];
-  if (state.flags.nightDocument) return callResult(state, number, 'sun', ['存根已经拿来了。接下来照交接板上那张办。']);
+  if (state.flags.nightDocument) return callResult(state, number, script.npc, [script.received]);
   if (isVisitQueued(state, 'night')) return callResult(state, number, 'sun', ['退回联已经找出来了。到窗口我给你。']);
   if (!selectedRecords(state, action).has(11)) {
     return callResult(state, number, script.npc, [script.greeting]);

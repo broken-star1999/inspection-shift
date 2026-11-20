@@ -98,6 +98,11 @@
 
 #game[data-modeled='true'] .booth-layout .speech { inline-size: min(72%, 37rem); }
 
+#game[data-modeled='true'] .booth-layout .speech.dispatch-event {
+  max-block-size: none;
+  overflow: visible;
+}
+
 #game[data-modeled='true'] .booth-layout .speaker {
   align-items: center;
   gap: .52rem;
@@ -458,6 +463,7 @@
     padding: .31rem .42rem;
   }
   #game[data-modeled='true'] .booth-layout :is(.speech, .training) p { font-size: .81rem; line-height: 1.34; }
+  #game[data-modeled='true'] .booth-layout .speech.dispatch-event { inline-size: min(94%, 30rem); }
   #game[data-modeled='true'] .booth-layout .speaker { padding-block-end: .11rem; margin-block-end: .13rem; }
   #game[data-modeled='true'] .booth-layout .speaker small { font-size: .64rem; }
   #game[data-modeled='true'] .booth-layout .room-status { gap: .08rem; padding: 0; }
