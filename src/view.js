@@ -1,5 +1,5 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL } from './content.js';
-import { isSupplementOnly, receiptFeedback } from './engine.js';
+import { receiptDisposition, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 
@@ -18,13 +18,8 @@ export const esc = (value = '') => String(value).replace(/[&<>"']/g, (char) => (
 const cls = (name, enabled) => enabled ? ` ${name}` : '';
 const active = (selected) => selected ? ' aria-pressed="true"' : ' aria-pressed="false"';
 
-function dispositionKey(record) {
-  if (isSupplementOnly(record)) return record.status === 'held' ? 'supplementHeld' : 'supplementReturned';
-  return record.status;
-}
-
 function dispositionLabel(record) {
-  return statuses[dispositionKey(record)] ?? '待登记';
+  return statuses[receiptDisposition(record)] ?? '待登记';
 }
 
 export function button(text, action, variant = 'secondary', attributes = '') {
@@ -48,7 +43,7 @@ export function shell() {
           <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b><span class="phone-ring-indicator" aria-hidden="true"></span></button>
           <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" fetchpriority="low" draggable="false"><b>交接簿</b></button>
         </aside>
-        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><span class="booth-cat" aria-hidden="true"></span><div class="booth-shutter" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
+        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="booth-cargo" aria-hidden="true" hidden><span class="booth-cargo-lane"></span><span class="booth-cargo-crate"></span></div><span class="booth-cat" aria-hidden="true"></span><div class="booth-shutter" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
         <aside class="booth-wing booth-right" aria-label="值班告示">
           <div id="wall-shift" data-fixture="shift"></div>
           <button class="wall-notice" data-act="rules" data-fixture="rules">查验要求<span aria-hidden="true">﹣﹣﹣</span></button>
@@ -96,6 +91,20 @@ function priorReceipt({ record, sameLot }) {
   return `<button type="button" class="prior-receipt" data-act="archive-receipt" data-i="${esc(record.id)}">
     <b>${title}</b><span>${esc(day?.title)} · ${esc(labels[record.decision])} · ${esc(dispositionLabel(record))}</span>${sameLot ? '' : '<small>留厂返工件单独核对</small>'}
   </button>`;
+}
+
+export function setRoomCargo(layer, cargo) {
+  if (!cargo) {
+    layer.hidden = true;
+    return;
+  }
+  const id = String(cargo.id);
+  const sameCase = !layer.hidden && layer.dataset.cargoId === id;
+  if (sameCase && layer.dataset.cargoRoute === cargo.route) return;
+  layer.toggleAttribute('data-cargo-moving', Boolean(cargo.animate && sameCase && layer.dataset.cargoRoute === 'ready'));
+  layer.dataset.cargoId = id;
+  layer.dataset.cargoRoute = cargo.route;
+  layer.hidden = false;
 }
 
 export function room(run, item, tutorial, pressure, sceneEvent, previous) {
@@ -492,11 +501,12 @@ export function receipt(record, previous) {
     supplementReturned: '本次补验联退回。原批已出库，仍按原单追查。',
     recallPending: '已发出召回申请，等收货方回签。',
     recalled: '已确认召回，下一班按留底复检。',
-  }[dispositionKey(record)];
+  }[receiptDisposition(record)];
   const original = previous && previous.id === record.priorShipmentId
     ? button(`查看原出货回执 · ${esc(DAYS[previous.day]?.title)}`, 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}"`)
     : '';
-  return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${original}${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
+  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record)}</div>`;
+  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + button('接着值班', 'next', 'primary') });
 }
 
 function correctionPanel(record, findings, selected, reworkBasis) {
@@ -605,7 +615,7 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     supplementHeld: statuses.supplementHeld, supplementReturned: statuses.supplementReturned, recalled: '召回确认', shipped: '已出库' };
   const currentRows = rows.filter(({ latestReceipt }) => !latestReceipt);
   const groups = Object.entries(dispositions).map(([status, title]) => {
-    const group = currentRows.filter(({ record }) => dispositionKey(record) === status);
+    const group = currentRows.filter(({ record }) => receiptDisposition(record) === status);
     if (!group.length) return '';
     const pending = status === 'recallPending';
     const documentOnly = status === 'supplementHeld' || status === 'supplementReturned';

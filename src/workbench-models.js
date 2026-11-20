@@ -60,6 +60,9 @@ function workshopMaterials() {
     pass: mat('#718d57', .64, .09), fail: mat('#9c5948', .65, .09), review: mat('#b68a45', .66, .11),
     stampMark: mat('#efe0ae', .77), graphite: mat('#3a322c', .89),
     pencil: mat('#dba939', .75), eraser: mat('#bb745e', .93),
+    cargoTop: mat('#b38753', .97, 0, paint), cargoSide: mat('#94663b', .96, 0, paint),
+    cargoTape: mat('#d6b979', .87), cargoLane: mat('#4a534a', .96, 0, paint),
+    cargoMark: mat('#e2b546', .95),
   };
 }
 
@@ -372,6 +375,46 @@ function markStroke(parent, material, x1, z1, x2, z2, thickness, y) {
   stroke.rotateZ(-Math.atan2(z2 - z1, x2 - x1));
 }
 
+function makeCargoLane(parent, m) {
+  const lane = place(parent, new THREE.Group(), .15, 1.27, -2.39);
+  flat(lane, [m.cargoLane, m.rail], 7.24, .96, .096, 0, -.079, 0, .046, .016);
+  box(lane, m.seam, 7.18, .062, .039, 0, -.105, .483);
+  for (const x of [-2.86, -.69, 1.49, 2.84]) {
+    fastener(lane, m.metal, x, -.104, .507, .018);
+  }
+
+  // The isolated bay is a painted bay on the real shelf, with front corners visible from the booth.
+  const bay = -2.11;
+  for (const side of [-1, 1]) {
+    const corner = bay + side * .62;
+    box(lane, m.cargoMark, .073, .011, .78, corner, -.015, 0);
+    box(lane, m.cargoMark, .26, .011, .063, corner - side * .094, -.015, .393);
+    box(lane, m.cargoMark, .081, .056, .017, corner, -.053, .489);
+  }
+  box(lane, m.cargoMark, 1.31, .012, .063, bay, -.015, -.393);
+
+  const cargo = place(lane, new THREE.Group(), 0, 0, 0);
+  const width = .90;
+  const depth = .65;
+  const height = .62;
+  rounded(cargo, [m.cargoTop, m.cargoSide], width, height, depth, 0, height / 2, 0, .031, .016);
+  box(cargo, m.cargoTape, .113, .012, depth + .017, .048, height + .019, 0);
+  box(cargo, m.cargoTape, .112, .146, .011, .048, height - .053, depth / 2 + .02);
+  box(cargo, m.cargoSide, width - .053, .013, .012, 0, height - .104, depth / 2 + .019);
+
+  const label = place(cargo, new THREE.Group(), -.235, .277, depth / 2 + .020);
+  label.rotation.z = -.047;
+  box(label, m.paper, .254, .167, .014, 0, 0, 0);
+  box(label, m.ink, .161, .023, .006, -.012, .046, .009);
+  box(label, m.oldInk, .119, .011, .006, -.033, .007, .009);
+  for (const x of [-.076, -.046, -.020, .013, .037, .075]) {
+    box(label, m.graphite, .013, .037, .007, x, -.039, .009);
+  }
+  box(cargo, m.oldInk, .115, .072, .007, .286, .133, depth / 2 + .023);
+  cargo.visible = false;
+  return cargo;
+}
+
 function makeStampMachine(parent, m, anchors, caps) {
   const machine = place(parent, new THREE.Group(), 3.46, deskY, 1.04);
   flat(machine, [m.machine, m.seam], 2.12, 1.014, .146, 0, .125, 0, .128, .046);
@@ -403,6 +446,14 @@ function makeStampMachine(parent, m, anchors, caps) {
       markStroke(cap, m.stampMark, -.082, .051, .082, .051, .027, .092);
     }
   }
+
+  const paper = place(machine, new THREE.Group(), 0, .139, .480);
+  flat(paper, m.paper, .56, .44, .009, 0, 0, 0, .019, .003);
+  for (const z of [-.142, -.072, .012]) box(paper, m.oldInk, .302, .003, .019, -.05, .008, z);
+  const imprint = flat(paper, m.pass, .141, .067, .006, .143, .009, .106, .012, .002);
+  imprint.rotateZ(.13);
+  paper.visible = false;
+  return { paper, imprint, inks: { pass: m.pass, fail: m.fail, review: m.review } };
 }
 
 export function createWorkbenchModels() {
@@ -419,6 +470,7 @@ export function createWorkbenchModels() {
   anchors.phone = makePhone(group, m);
   anchors.sample = makeTray(group, m);
   anchors.pencil = makePencil(group, m);
-  makeStampMachine(group, m, anchors, caps);
-  return { group, anchors, caps };
+  const outgoingSlip = makeStampMachine(group, m, anchors, caps);
+  const cargo = makeCargoLane(group, m);
+  return { group, anchors, caps, cargo, outgoingSlip };
 }

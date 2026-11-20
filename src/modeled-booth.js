@@ -8,8 +8,18 @@ const deskDepartureMs = 285;
 const deskArrivalMs = 368;
 const shutterTravelMs = 420;
 const catTravelMs = 900;
+const cargoTravelMs = 740;
+const slipDisplayMs = 620;
+const cargoStart = { x: -1.05, z: -.04, angle: -.115 };
+const cargoDestinations = {
+  ready: cargoStart,
+  shipping: { x: 3.92, z: -.045, angle: .035 },
+  returned: { x: -3.96, z: -.060, angle: -.042 },
+  held: { x: -2.11, z: -.015, angle: -.034 },
+};
+const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'review', supplementHeld: 'review', review: 'review' };
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null, shutterClosed: null, catPassing: false };
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null };
 const paperStyles = {
   label: { width: 1.04, depth: .78, bright: '#ead2a0', shade: '#c4a875', edge: '#a67b52', turn: -.081 },
   report: { width: 1.22, depth: .97, bright: '#f2e4bb', shade: '#d4c4a0', edge: '#6e7955', turn: .048 },
@@ -491,6 +501,9 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let sampleOnDesk = false;
   let sampleFilename = null;
   let portraitMotionAt = -Infinity;
+  let cargo = null;
+  let cargoMotionAt = -Infinity;
+  let slipMotionAt = -Infinity;
   let pressed = null;
   let pressedAt = -Infinity;
   let poseX = 0;
@@ -672,7 +685,18 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const waiting = frame.phase === 'waiting';
     const arriving = frame.phase === 'arriving';
     const working = arriving || frame.phase === 'case' || frame.phase === 'receipt' || frame.visit;
-    if ((waiting || arriving) && before.phase !== frame.phase) deskMotionAt = view.performance.now();
+    const now = view.performance.now();
+    const nextCargo = frame.cargo ?? (waiting ? cargo : null);
+    if (nextCargo?.id !== cargo?.id || nextCargo?.route !== cargo?.route) {
+      cargo = nextCargo;
+      cargoMotionAt = cargo?.animate && cargo.route !== 'ready' ? now : -Infinity;
+    }
+    const slip = frame.outgoingSlip;
+    if (slip?.id !== before.outgoingSlip?.id || slip?.route !== before.outgoingSlip?.route) {
+      slipMotionAt = slip?.animate ? now : -Infinity;
+      if (slip) models.outgoingSlip.imprint.material = models.outgoingSlip.inks[slipInks[slip.route] ?? 'pass'];
+    }
+    if ((waiting || arriving) && before.phase !== frame.phase) deskMotionAt = now;
     if (models.anchors?.pencil) models.anchors.pencil.visible = working && !arriving && Boolean(frame.pencil);
     const { npc: nextNpc, sampleFilename: nextSample } = frame.approach ?? {};
     if (workerNames.has(nextNpc)) loadTexture(`${art}${nextNpc}.webp`);
@@ -757,6 +781,37 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       y - height / 2 + .075, z - .40 + .030 * Math.sin(Math.PI * progress));
     cat.setPose(resting ? .65 : progress * Math.PI * 2 * 5);
     return !resting;
+  }
+
+  function placeCargo(now) {
+    const box = models.cargo;
+    const destination = cargo && cargoDestinations[cargo.route];
+    if (!destination) {
+      box.visible = false;
+      return false;
+    }
+    const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - cargoMotionAt) / cargoTravelMs, 0, 1);
+    const remainsInWindow = cargo.route === 'ready' || cargo.route === 'held';
+    box.visible = remainsInWindow || progress < 1;
+    if (!box.visible) return false;
+    const slide = cargo.route === 'held' ? 1 - (1 - progress) ** 3 : progress ** 1.5;
+    box.position.set(THREE.MathUtils.lerp(cargoStart.x, destination.x, slide), 0,
+      THREE.MathUtils.lerp(cargoStart.z, destination.z, slide));
+    box.rotation.y = THREE.MathUtils.lerp(cargoStart.angle, destination.angle, slide);
+    return progress < 1;
+  }
+
+  function placeOutgoingSlip(now) {
+    const { paper } = models.outgoingSlip;
+    const elapsed = now - slipMotionAt;
+    paper.visible = Boolean(frame.outgoingSlip && elapsed >= 42 && elapsed < slipDisplayMs);
+    if (paper.visible) {
+      const travel = reduced.matches ? 1 : 1 - (1 - THREE.MathUtils.clamp((elapsed - 42) / 152, 0, 1)) ** 2;
+      const settle = reduced.matches ? 1 : THREE.MathUtils.clamp((elapsed - 264) / 220, 0, 1);
+      paper.position.set(-.035 * settle, .139 - .034 * settle, .342 + .425 * travel + .044 * settle);
+      paper.rotation.x = .12 * settle;
+    }
+    return elapsed < slipDisplayMs;
   }
 
   function refreshLayout() {
@@ -850,6 +905,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     if (leaving && progress === 1) portrait.visible = false;
     portrait.material.color.setScalar(closing ? .81 : .98 - day * .045);
 
+    const cargoMoving = placeCargo(now);
+    const slipVisible = placeOutgoingSlip(now);
     const deskMoving = placeDesk(now);
     const catMoving = placeCat(now);
     if (reduced.matches) shutterFrom = shutterTarget;
@@ -871,7 +928,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       ready = true;
       onReady?.();
     }
-    if (shutterMoving || catMoving || deskMoving || (portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
+    if (shutterMoving || catMoving || deskMoving || cargoMoving || slipVisible || (portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 
   function captureDeskProjection() {

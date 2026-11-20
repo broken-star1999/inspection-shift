@@ -313,6 +313,11 @@ export function isSupplementOnly(record) {
   return Number.isInteger(record?.priorShipmentId) && (record.status === 'held' || record.status === 'returned') && !hasAcceptedProof(record);
 }
 
+export function receiptDisposition(record) {
+  if (isSupplementOnly(record)) return record.status === 'held' ? 'supplementHeld' : 'supplementReturned';
+  return record.status;
+}
+
 function findVerifiedReceipt(records, previous) {
   if (!previous.verifiedBy) return null;
   const next = records.find(({ id }) => id === previous.verifiedBy);
@@ -381,7 +386,7 @@ export function receiptFeedback(state) {
   if (state?.phase !== 'receipt') return null;
   const record = withPriorShipment(state.records, state.records.at(-1));
   if (!record) return null;
-  const kind = isSupplementOnly(record) ? (record.status === 'held' ? 'supplementHeld' : 'supplementReturned') : record.status;
+  const kind = receiptDisposition(record);
   let line = RECEIPT_HANDLING[record.npc]?.[kind] ?? RECEIPT_HANDLING.default[kind] ?? '';
   if (record.id === state.flags.warningCase && record.decision === 'review') line = '行，我先让他们挪进黄线里。';
   const umbrella = record.id === 17 && state.flags.umbrella ? '你也看见了？老周这两天看见我就催我晾伞。' : null;

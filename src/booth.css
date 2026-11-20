@@ -150,8 +150,81 @@
     4px 5px 0 #18291d;
 }
 
+#game:not([data-modeled='true'])[data-phase='receipt']:has(.receipt-surface) .booth-layout .room {
+  z-index: 2;
+}
+
 .booth-layout .canvas-room {
   background: #26342c url('/art/room.webp') center / cover no-repeat;
+}
+
+.booth-cargo {
+  --cargo-width: clamp(2.25rem, 10%, 5rem);
+  --cargo-position: 84%;
+  --cargo-floor: 22%;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+}
+#game[data-modeled='true'] .booth-cargo { display: none; }
+
+.booth-cargo-lane {
+  position: absolute;
+  inset: auto auto var(--cargo-floor) 4%;
+  inline-size: 23%;
+  block-size: clamp(2px, .65cqh, 4px);
+  transform: skewX(-37deg) rotate(-5deg);
+  background: #c7a257;
+  box-shadow: 0 1px #665337;
+}
+.booth-cargo-crate {
+  position: absolute;
+  inset: auto auto calc(var(--cargo-floor) + 3px) var(--cargo-position);
+  inline-size: var(--cargo-width);
+  aspect-ratio: 1.71;
+  border: 1px solid #513a27;
+  border-block-start-color: #b28651;
+  border-block-end-color: #3e2e22;
+  background:
+    linear-gradient(90deg, transparent 0 45%, #d0a66c 45% 56%, transparent 56%),
+    linear-gradient(165deg, #ad8151, #7d5635 96%);
+  box-shadow: .22rem .28rem .14rem #271e1966, inset 0 -2px #69482a;
+  transition-property: none;
+}
+.booth-cargo-crate::before,
+.booth-cargo-crate::after {
+  position: absolute;
+  content: '';
+}
+.booth-cargo-crate::before {
+  inset: -25% -1px auto -1px;
+  block-size: 25%;
+  transform: skewX(-37deg);
+  transform-origin: bottom left;
+  border: 1px solid #5a422c;
+  background:
+    linear-gradient(90deg, transparent 0 45%, #e1b87d 45% 56%, transparent 56%),
+    #b48b58;
+}
+.booth-cargo-crate::after {
+  inset: 0 auto -1px 100%;
+  inline-size: 13%;
+  transform: skewY(-39deg);
+  transform-origin: bottom left;
+  border: 1px solid #4b3727;
+  border-inline-start: none;
+  background: #765334;
+}
+.booth-cargo[data-cargo-route='shipping'] { --cargo-position: 108%; }
+.booth-cargo[data-cargo-route='returned'] { --cargo-position: calc(var(--cargo-width) * -1.45); }
+.booth-cargo[data-cargo-route='held'] { --cargo-position: 7.5%; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .booth-cargo[data-cargo-moving] .booth-cargo-crate {
+    transition: inset-inline-start 570ms cubic-bezier(.36, .08, .32, 1);
+  }
 }
 
 .booth-cat {

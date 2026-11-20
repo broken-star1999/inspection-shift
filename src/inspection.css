@@ -997,7 +997,6 @@
   align-items: center;
   min-block-size: 2.75rem;
   max-inline-size: 100%;
-  margin-block-start: .38rem;
   padding: .24rem .48rem;
   border: 1px solid #9d7d50;
   background: #eedbb2;
@@ -1009,8 +1008,13 @@
   white-space: normal;
 }
 .receipt-surface .receipt-origin:is(:hover, :focus-visible) { background: #f7e8c4; }
-.receipt-surface .desk-surface-footer { flex: 0 0 auto; display: flex; justify-content: flex-end; padding: 0 .45rem; }
-.receipt-surface .desk-surface-footer .button { min-block-size: 2.15rem; font-size: .83rem; }
+.receipt-surface .desk-surface-footer { flex: 0 0 auto; display: flex; align-items: stretch; justify-content: flex-end; gap: .38rem; padding: 0 .45rem; }
+.receipt-surface .desk-surface-footer .primary { min-block-size: 2.15rem; font-size: .83rem; }
+
+#game[data-phase='receipt'] .playfield:has(.receipt-surface) .booth-layout .room-hud .speech {
+  inset-block: calc(100% + .28rem) auto;
+  max-block-size: none;
+}
 
 .receipt-facts { display: grid; gap: .22rem; margin: .62rem 0 0; }
 .receipt-facts > div {
@@ -1289,6 +1293,7 @@
   #game[data-phase='receipt'] .receipt-surface {
     inset-inline-end: var(--receipt-side-gap);
     inline-size: var(--receipt-side-width);
+    max-block-size: 45cqh;
   }
   #game[data-phase='receipt']:has(.receipt-surface) .booth-layout .room-hud .speech {
     inset-inline-start: calc(var(--receipt-speaker-edge) - var(--fixture-x, 17cqw));
@@ -1299,15 +1304,22 @@
     overflow: visible;
     translate: none;
   }
+  .receipt-surface .receipt-slip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: .35rem;
+    rotate: none;
+  }
+  .receipt-surface .receipt-slip > .eyebrow { display: none; }
+  .receipt-surface .receipt-slip > :is(.receipt-disposition, .receipt-facts) { grid-column: 1 / -1; }
+  .receipt-surface .receipt-slip > b { margin: 0; font-size: 1.35rem; }
   .receipt-surface .desk-surface-footer .button { min-block-size: 2.75rem; }
 }
 
 @container workstation (max-height: 330px) {
   .receipt-surface .receipt-slip { padding: .52rem .61rem .56rem; }
-  .receipt-surface .receipt-slip > .eyebrow { font-size: .64rem; }
-  .receipt-surface .receipt-slip > b { margin-block: .17em .13em; font-size: 1.5rem; }
   .receipt-surface .receipt-result { padding: .15rem .34rem; font-size: .84rem; }
   .receipt-surface .receipt-disposition { padding-block: .22rem; margin-block-start: .37rem; }
   .receipt-surface .receipt-facts { margin-block-start: .38rem; }
-  .receipt-surface .receipt-origin { margin-block-start: .29rem; }
 }

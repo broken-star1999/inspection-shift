@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, TUTORIAL, EVIDENCE } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, receiptDisposition, TUTORIAL, EVIDENCE } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
@@ -96,6 +96,7 @@ let handoffFocus = null;
 let handoffDocument = null;
 let phoneReturn = null;
 let ringing = null;
+let issuedReceiptId = null;
 let interaction = freshInteraction();
 
 root.innerHTML = view.shell();
@@ -109,6 +110,7 @@ const screenLayer = root.querySelector('#screen');
 const modalLayer = root.querySelector('#modal');
 const toastBox = root.querySelector('.game-toast');
 const roomHost = root.querySelector('.canvas-room');
+const cargoHost = root.querySelector('.booth-cargo');
 const illustratedWorker = roomHost.querySelector('.static-worker');
 const modelHost = root.querySelector('.model-world');
 const soundToggle = root.querySelector('[data-act="sound"]');
@@ -391,6 +393,25 @@ function scenePaperBatch(doc, item, visit) {
   return visit ? '回访留底' : doc.fields[0]?.[1] ?? item.batch;
 }
 
+function sceneShipment(state, item, waiting) {
+  if (state?.phase === 'receipt') {
+    const record = state.records.at(-1);
+    if (!record) return {};
+    const route = receiptDisposition(record);
+    const animate = issuedReceiptId === record.id;
+    const shipment = { id: record.id, route, animate };
+    const movingCargo = ['shipping', 'returned', 'held'].includes(route);
+    return {
+      cargo: movingCargo ? shipment : null,
+      outgoingSlip: waiting ? null : shipment,
+    };
+  }
+  if (!item) return {};
+  const prior = getPreviousReceipt(state, item);
+  if (prior?.sameLot && ['shipped', 'recallPending'].includes(prior.record.status)) return {};
+  return { cargo: { id: item.id, route: 'ready', animate: false } };
+}
+
 function setScene() {
   const approaching = arrival?.stage === 'approach';
   const waiting = arrival && !approaching;
@@ -420,11 +441,14 @@ function setScene() {
   const delivered = visitDocument(visit, sceneRun);
   const documents = item?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
+  const shipment = !visit && !closingShot ? sceneShipment(sceneRun, item, waiting) : {};
+  view.setRoomCargo(cargoHost, shipment.cargo);
   scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit), shutterClosed, catPassing,
     documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
-    keepVisitor: arrival?.keepVisitor ?? false, approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined) });
+    keepVisitor: arrival?.keepVisitor ?? false, approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
+    ...shipment });
 }
 
 function render(resumeScroll) {
@@ -583,7 +607,17 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   (restored || firstAction || focusables[0])?.focus({ preventScroll: true });
   if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
     const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
-    animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
+    const printsHere = object?.classList.contains('receipt-slip') && !hadModal && root.dataset.modeled === 'true' &&
+      issuedReceiptId !== null && run.records.at(-1)?.id === issuedReceiptId;
+    if (printsHere && !reducedMotion.matches) {
+      object.animate?.([
+        { translate: '0 1rem', opacity: 0 },
+        { translate: '0 1rem', opacity: 0, offset: .42, easing: 'cubic-bezier(.2,.78,.27,1)' },
+        { translate: '0 0', opacity: 1 },
+      ], 410);
+    } else {
+      animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
+    }
   } else if (surface && surface.dataset.surfacePage !== previousSurface?.dataset.surfacePage) {
     const oldPaper = surface.querySelector('.return-previous');
     let sheet = surface.querySelector('.doc-grid:is(.pair, .spread) > .sheet:last-child, .doc-grid:not(.pair, .spread) > .sheet');
@@ -721,6 +755,7 @@ function enter(restore) {
   cancelArrivalPause();
   cancelClosingShot();
   reviewingHistory = false;
+  issuedReceiptId = null;
   let workspace;
   let arrivalAction;
   let savedCorrection;
@@ -1252,6 +1287,7 @@ function stamp(value) {
     return;
   }
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
+    issuedReceiptId = run.records.at(-1).id;
     clearTimeout(toastTimer);
     toastBox.textContent = '';
     playSound('stamp');

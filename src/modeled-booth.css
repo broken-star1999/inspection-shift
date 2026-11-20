@@ -317,6 +317,10 @@
   background: #262719d1;
 }
 
+#game[data-modeled='true'][data-phase='receipt'] .booth-layout .stamp:disabled b {
+  visibility: hidden;
+}
+
 #game[data-modeled='true'] .booth-layout [data-fixture='rules']::after {
   content: '查验要求';
   position: absolute;
