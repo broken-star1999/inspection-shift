@@ -40,9 +40,11 @@ let endings = Array.isArray(collection) ? collection.filter((key) => ['routine',
 let run = null;
 let panel = null;
 let scenery;
+let modeledReady = false;
 let toastTimer;
 let arrivalTimer = 0;
 let drag;
+let stampTouch = null;
 let suppressPaperClick = false;
 let modalOpener = null;
 let phoneArchiveOpener = null;
@@ -59,6 +61,7 @@ const screenLayer = root.querySelector('#screen');
 const modalLayer = root.querySelector('#modal');
 const toastBox = root.querySelector('.game-toast');
 const roomHost = root.querySelector('.canvas-room');
+const illustratedWorker = roomHost.querySelector('.static-worker');
 const modelHost = root.querySelector('.model-world');
 const soundToggle = root.querySelector('[data-act="sound"]');
 const fullscreenToggle = root.querySelector('[data-act="fullscreen"]');
@@ -87,12 +90,37 @@ function placeFixtures() {
   }
 }
 
+function showModeledScene() {
+  if (!modeledReady || root.dataset.modeled === 'true' || panel || drag) return;
+  if (!arrivalTimer && (run?.phase === 'case' || run?.phase === 'receipt' || activeVisit())) return;
+  root.dataset.modeled = 'true';
+}
+
+function suspendModeledScene() {
+  modeledReady = false;
+  if (root.dataset.modeled !== 'true') return;
+  if (drag) endDrag(drag);
+  stampTouch = null;
+  delete root.dataset.modeled;
+  setScene();
+}
+
 async function startScene() {
   const baseUrl = import.meta.env.BASE_URL;
   try {
     const { mountModeledBooth } = await import('./modeled-booth.js');
-    scenery = mountModeledBooth(modelHost, { baseUrl, onLayout: (layout) => { fixtureLayout = layout; placeFixtures(); } });
-    if (scenery) root.dataset.modeled = 'true';
+    scenery = mountModeledBooth(modelHost, {
+      baseUrl,
+      onLayout(layout) {
+        fixtureLayout = layout;
+        placeFixtures();
+      },
+      onReady() {
+        modeledReady = true;
+        showModeledScene();
+      },
+      onUnavailable: suspendModeledScene,
+    });
   } catch { /* The illustrated booth remains available when 3D is unavailable. */ }
   if (!scenery) {
     try {
@@ -223,6 +251,13 @@ function setScene() {
   const phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
   const item = windowCase();
   const npc = visit?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
+  if (illustratedWorker && root.dataset.modeled !== 'true' && roomHost.dataset.sceneReady !== 'true') {
+    if (npc) {
+      const image = view.asset(`${npc}.webp`);
+      if (illustratedWorker.getAttribute('src') !== image) illustratedWorker.src = image;
+    }
+    illustratedWorker.hidden = !npc;
+  }
   const appearance = item ? sampleAppearance(item.sample) : null;
   const side = interaction.inspection.back ? '-back' : '';
   scenery?.setFrame({ day: run?.day ?? 0, phase, npc: npc || null,
@@ -248,6 +283,7 @@ function render() {
   hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous) : '';
   desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item), ...heldObjects() }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
+  showModeledScene();
   if (root.dataset.modeled === 'true') placeFixtures();
   const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
   const delayOpen = screenLayer.querySelector('details.ending-delay')?.open;
@@ -772,7 +808,6 @@ root.addEventListener('click', (event) => {
   }
 });
 
-let stampTouch = null;
 root.addEventListener('touchstart', (event) => {
   const button = event.target.closest('[data-act="stamp"]');
   stampTouch = root.dataset.modeled === 'true' && button && !button.disabled && event.touches.length === 1
@@ -823,7 +858,8 @@ desktop.addEventListener('pointerdown', (event) => {
   const paper = event.target.closest('[data-drag="paper"]');
   if (!paper || event.button !== 0 || run?.phase !== 'case') return;
   const index = Number(paper.dataset.i);
-  const project = scenery?.captureDeskProjection?.() ?? captureDeskProjection(desktop) ?? ((x, y) => stagePoint(root, x, y));
+  const projection = root.dataset.modeled === 'true' ? scenery?.captureDeskProjection?.() : null;
+  const project = projection ?? captureDeskProjection(desktop) ?? ((x, y) => stagePoint(root, x, y));
   drag = { paper, index, pointerId: event.pointerId, project, origin: project(event.clientX, event.clientY), offset: interaction.positions[index] ?? { x: 0, y: 0 }, moved: false };
 });
 

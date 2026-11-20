@@ -170,7 +170,7 @@ function projectBox(box, camera, width, height) {
   return { x: left, y: top, w: right - left, h: bottom - top };
 }
 
-export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, onLayout } = {}) {
+export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, onLayout, onReady, onUnavailable } = {}) {
   if (!host) return null;
   const ownerDocument = host.ownerDocument;
   const view = ownerDocument.defaultView;
@@ -188,6 +188,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
   const reduced = view.matchMedia('(prefers-reduced-motion: reduce)');
   const art = `${baseUrl.replace(/\/?$/, '/')}art/`;
+  const roomPath = `${art}room.webp`;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#202e24');
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -210,6 +211,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   const loader = new THREE.TextureLoader();
   const textures = new Map();
   let destroyed = false;
+  let contextLost = false;
+  let ready = false;
   let raf = 0;
   let width = 0;
   let height = 0;
@@ -224,7 +227,24 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let layoutDirty = true;
 
   function invalidate() {
-    if (!destroyed && !raf) raf = view.requestAnimationFrame(draw);
+    if (!destroyed && !contextLost && !raf) raf = view.requestAnimationFrame(draw);
+  }
+
+  function loseContext(event) {
+    event.preventDefault();
+    if (destroyed || contextLost) return;
+    contextLost = true;
+    ready = false;
+    if (raf) view.cancelAnimationFrame(raf);
+    raf = 0;
+    onUnavailable?.();
+  }
+
+  function restoreContext() {
+    if (destroyed || !contextLost) return;
+    contextLost = false;
+    layoutDirty = true;
+    invalidate();
   }
 
   function loadTexture(path, onReady) {
@@ -242,6 +262,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       entry.listeners.clear();
       invalidate();
     }, undefined, () => {
+      if (destroyed) return;
       entry.failed = true;
       entry.listeners.clear();
       invalidate();
@@ -261,7 +282,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   );
   backdrop.position.set(BOOTH_METRICS.window.x, BOOTH_METRICS.window.y, -3.62);
   backdrop.scale.set(8.2, 4.2, 1);
-  loadTexture(`${art}room.webp`, (texture) => {
+  loadTexture(roomPath, (texture) => {
     const aspect = texture.image.width / texture.image.height;
     const h = Math.max(4.2, 8.2 / aspect);
     backdrop.scale.set(h * aspect, h, 1);
@@ -463,7 +484,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
   function draw(now) {
     raf = 0;
-    if (destroyed) return;
+    if (destroyed || contextLost) return;
     syncSize();
     if (!width || !height) return;
     const x = reduced.matches ? 0 : poseX;
@@ -474,7 +495,9 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const closing = frame.phase === 'summary' || frame.phase === 'handoff' || frame.phase === 'ending';
     daylight.intensity = closing ? .86 : 1.31 - day * .16;
     practical.intensity = closing ? 12.8 : 9.1 + day * 2;
-    backdrop.material.color.setRGB(closing ? .72 : .9 + .04 * (1 - day), closing ? .74 : .92, closing ? .74 : .89 + .06 * day);
+    if (backdrop.material.map) {
+      backdrop.material.color.setRGB(closing ? .72 : .9 + .04 * (1 - day), closing ? .74 : .92, closing ? .74 : .89 + .06 * day);
+    }
 
     const leaving = frame.phase === 'waiting';
     const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - portraitMotionAt) / (leaving ? 280 : 340), 0, 1);
@@ -490,15 +513,21 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     for (const { key, cap, baseY } of caps) cap.position.y = baseY - (pressed === key ? pressDepth : 0);
     scene.updateMatrixWorld(true);
     renderer.render(scene, camera);
+    if (renderer.getContext().isContextLost()) return;
     if (layoutDirty) {
       layoutDirty = false;
       refreshLayout();
+    }
+    const room = textures.get(roomPath);
+    if (!ready && (room.ready || room.failed)) {
+      ready = true;
+      onReady?.();
     }
     if ((portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 
   function captureDeskProjection() {
-    if (!width || !height || destroyed) return null;
+    if (!width || !height || !ready || destroyed) return null;
     const rect = host.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
     const rotated = host.closest('.game-shell')?.dataset.rotated === 'true';
@@ -520,6 +549,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
   canvas.setAttribute('aria-hidden', 'true');
   Object.assign(canvas.style, { display: 'block', width: '100%', height: '100%', pointerEvents: 'none' });
+  canvas.addEventListener('webglcontextlost', loseContext);
+  canvas.addEventListener('webglcontextrestored', restoreContext);
   host.append(canvas);
   host.dataset.renderer = 'three-webgl';
   const resizeObserver = view.ResizeObserver ? new view.ResizeObserver(invalidate) : null;
@@ -550,6 +581,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       resizeObserver?.disconnect();
       view.removeEventListener('resize', invalidate);
       reduced.removeEventListener('change', invalidate);
+      canvas.removeEventListener('webglcontextlost', loseContext);
+      canvas.removeEventListener('webglcontextrestored', restoreContext);
       disposeObject(scene);
       for (const { texture } of textures.values()) texture.dispose();
       renderer.dispose();

@@ -6,10 +6,33 @@
     <meta name="theme-color" content="#131a17" />
     <meta name="description" content="在南渡防护用品厂的质检窗口替五天班。看样、对单、签字，还有几份留底等你自己翻到。" />
     <link rel="icon" type="image/webp" href="/art/sample.webp" />
+    <link rel="preload" as="image" href="/art/room.webp" fetchpriority="high" />
     <title>质检员的一天</title>
+    <style>
+      .boot-splash {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        align-items: center;
+        padding: clamp(1.5rem, 8vw, 8rem);
+        background: linear-gradient(90deg, #131e18f5, #1b2d23b8), url('/art/room.webp') center / cover #1b2a22;
+        color: #f4dfb2;
+      }
+      .boot-splash h1 {
+        margin: .15em 0 .35em;
+        color: #f9e4b8;
+        font: 900 clamp(2rem, 8vw, 5.4rem) / 1.14 'Songti SC', SimSun, serif;
+      }
+      .boot-splash p { margin: 0; font: 600 1rem / 1.5 system-ui, sans-serif; }
+      .boot-splash [role='status'] { color: #dec18b; }
+    </style>
   </head>
   <body>
-    <div id="game" class="game-shell"></div>
+    <div id="game" class="game-shell">
+      <section class="boot-splash" aria-labelledby="boot-title">
+        <div><p>南渡防护用品厂</p><h1 id="boot-title">质检员的一天</h1><p role="status">正在打开值班窗口…</p></div>
+      </section>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

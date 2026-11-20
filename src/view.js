@@ -30,10 +30,10 @@ export function shell() {
       <div class="model-world" aria-hidden="true"></div>
       <div class="booth-layout">
         <aside class="booth-wing booth-left" aria-label="值班工具">
-          <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" draggable="false"><b>内线电话</b></button>
-          <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" draggable="false"><b>交接簿</b></button>
+          <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b></button>
+          <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" fetchpriority="low" draggable="false"><b>交接簿</b></button>
         </aside>
-        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
+        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
         <aside class="booth-wing booth-right" aria-label="值班告示">
           <div id="wall-shift" data-fixture="shift"></div>
           <button class="wall-notice" data-act="rules" data-fixture="rules">查验要求<span aria-hidden="true">﹣﹣﹣</span></button>
