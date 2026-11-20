@@ -6,6 +6,7 @@ import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
 import { intakeComparison, projectComparison } from './document-comparison.js';
+import { handoffComparison } from './handoff-comparison.js';
 import * as view from './view.js';
 import './style.css';
 import './booth.css';
@@ -95,6 +96,7 @@ let reportIndex = null;
 let correctionDraft = null;
 let handoffFocus = null;
 let handoffDocument = null;
+let handoffPairOpen = false;
 let phoneReturn = null;
 let ringing = null;
 let issuedReceiptId = null;
@@ -573,7 +575,11 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   if (panel === 'handoff' && run?.phase === 'handoff') {
     const rows = archive(run).filter(({ record }) => record);
-    markup = view.handoffPanel(run, EVIDENCE, rows, { focus: handoffFocus, documentIndex: handoffDocument, correctionFindings, batchPapers, reworkBasis });
+    const pair = handoffComparison(rows, handoffFocus);
+    markup = view.handoffPanel(run, EVIDENCE, rows, {
+      focus: handoffFocus, documentIndex: handoffDocument, correctionFindings, batchPapers, reworkBasis,
+      canCompare: Boolean(pair), comparison: handoffPairOpen ? pair : null,
+    });
   }
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
@@ -704,10 +710,15 @@ function persistRun() {
     ...context, panel: workspacePanel, scrollTop: archivedPanel ? archiveReturn.scrollTop : body?.scrollTop ?? 0,
     returnTo: workspacePanel === 'phone' ? phoneReturn : undefined,
   } : undefined;
+  const handoffParent = panel === 'archive' && archiveReturn?.panel === 'handoff' ? archiveReturn : null;
+  const pairWorkspace = run.phase === 'handoff' && handoffPairOpen && (panel === 'handoff' || handoffParent) ? {
+    id: handoffFocus, documentIndex: handoffDocument, scrollTop: handoffParent?.detailScroll ?? body?.scrollTop ?? 0,
+  } : null;
   saved = {
     ...run,
     ...(arrival ? { arrivalAction: arrival.action } : {}),
     ...(run.phase === 'handoff' && correctionDraft ? { correctionDraft } : {}),
+    ...(pairWorkspace ? { handoffPair: pairWorkspace } : {}),
     inspectionProgress: captureInspectionProgress(getCase(run), interaction, workspace),
   };
   writeStorage(SAVE_KEY, saved);
@@ -717,8 +728,9 @@ function persistWorkspaceScroll() {
   clearTimeout(workspaceScrollTimer);
   const body = workspaceBody();
   const workspace = saved?.inspectionProgress?.workspace;
-  const scrollTop = ['archive', 'handoff'].includes(panel) ? (activeCorrection() ? saved?.correctionDraft?.scrollTop : undefined)
-    : workspace?.panel === panel ? workspace.scrollTop : undefined;
+  let scrollTop = workspace?.panel === panel ? workspace?.scrollTop : undefined;
+  if (panel === 'handoff' && handoffPairOpen) scrollTop = saved?.handoffPair?.scrollTop;
+  else if (activeCorrection()) scrollTop = saved?.correctionDraft?.scrollTop;
   if (!body || scrollTop === undefined || Math.abs(body.scrollTop - scrollTop) < 1) return;
   // Passive scroll saves must not replace newer progress from another tab.
   if (JSON.stringify(readStorage(SAVE_KEY)) === JSON.stringify(saved)) persistRun();
@@ -780,10 +792,12 @@ function enter(restore) {
   let workspace;
   let arrivalAction;
   let savedCorrection;
+  let savedPair;
   if (restore && saved) {
-    const { inspectionProgress, arrivalAction: savedArrival, correctionDraft: draft, ...savedRun } = saved;
+    const { inspectionProgress, arrivalAction: savedArrival, correctionDraft: draft, handoffPair: pair, ...savedRun } = saved;
     arrivalAction = savedArrival;
     savedCorrection = draft;
+    savedPair = pair;
     run = restoreRun(savedRun);
     const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
@@ -807,6 +821,7 @@ function enter(restore) {
   reportIndex = null;
   handoffFocus = null;
   handoffDocument = null;
+  handoffPairOpen = false;
   correctionDraft = restoreCorrectionDraft(savedCorrection);
   const next = windowAdvance(arrivalAction);
   if (needsArrival(next)) {
@@ -814,6 +829,7 @@ function enter(restore) {
     pauseBeforeArrival(arrivalAction, next, true, true);
     return;
   }
+  if (savedPair && restoreHandoffPair(savedPair)) return;
   if (correctionDraft && !activeVisit()) {
     panel = correctionDraft.fromBoard ? 'handoff' : 'archive';
     modalOpener = { act: panel };
@@ -931,6 +947,7 @@ function finishWindowAdvance(value, restoreFocus) {
       modalOpener = { act: 'handoff' };
       handoffFocus = visit.caseId;
       handoffDocument = null;
+      handoffPairOpen = false;
       if (!confirmed) toast('这份回执需要再核对');
     } else {
       const paper = { rework: '复核联', acceptance: '到货验收联' }[visit.kind] ?? '留底';
@@ -1469,6 +1486,29 @@ function openHandoff(opener) {
   revealHandoffSelection();
 }
 
+function restoreHandoffPair(workspace) {
+  if (run?.phase !== 'handoff' || activeVisit() || correctionDraft?.id === workspace.id) return false;
+  const rows = archive(run).filter(({ record }) => record);
+  if (!handoffComparison(rows, workspace.id)) return false;
+  const row = rows.find(({ id }) => id === workspace.id);
+  panel = 'handoff';
+  modalOpener = { act: 'handoff' };
+  handoffFocus = row.id;
+  handoffDocument = hasHandoffDocument(row, workspace.documentIndex) ? workspace.documentIndex : null;
+  handoffPairOpen = true;
+  playSound('paper');
+  render(Number.isFinite(workspace.scrollTop) ? Math.max(0, workspace.scrollTop) : 0);
+  return true;
+}
+
+function toggleHandoffPair() {
+  if (panel !== 'handoff' || activeCorrection() || !handoffComparison(archive(run).filter(({ record }) => record), handoffFocus)) return;
+  handoffPairOpen = !handoffPairOpen;
+  playSound('paper');
+  render(0);
+  focusControl(modalLayer, { act: 'handoff-compare' });
+}
+
 function revealHandoffSelection(focus = false) {
   const board = modalLayer.querySelector('.handoff-board');
   const selected = board?.querySelector('[data-act="handoff-focus"][aria-pressed="true"]');
@@ -1477,9 +1517,10 @@ function revealHandoffSelection(focus = false) {
 }
 
 function selectHandoff(id, reveal) {
-  if (panel !== 'handoff' || handoffFocus === id) return;
+  if (panel !== 'handoff' || (handoffFocus === id && !handoffPairOpen)) return;
   if (id !== 'attachments' && !archive(run).some((row) => row.id === id && row.record)) return;
   captureCorrectionScroll();
+  handoffPairOpen = false;
   handoffFocus = id;
   const draft = correctionDraft?.id === id ? correctionDraft : null;
   handoffDocument = draft?.documentIndex ?? null;
@@ -1682,6 +1723,7 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'edit-record': {
+      if (panel === 'handoff' && handoffPairOpen) break;
       const row = correctableRow(correctionFocus());
       if (!row) break;
       const editing = activeCorrection();
@@ -1745,6 +1787,7 @@ root.addEventListener('click', (event) => {
     }
     case 'egg': update({ type: 'explore', key }, false); interaction.egg = key; playSound('paper'); openPanel('egg', target); break;
     case 'handoff': openHandoff(target); break;
+    case 'handoff-compare': toggleHandoffPair(); break;
     case 'handoff-focus': selectHandoff(index, !target.closest('.handoff-board')); break;
     case 'handoff-attachments': selectHandoff('attachments', false); break;
     case 'handoff-doc': {

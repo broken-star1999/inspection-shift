@@ -684,7 +684,30 @@ export function phone(number, call, pinned, numberGuide, phoneBack, current, { r
     </div></div>`, 'phone-modal', actions, { closeText, closeLabel, closeClass: 'phone-hangup' });
 }
 
-export function handoffPanel(run, evidence, rows, { focus, documentIndex, correctionFindings = null, batchPapers = [], reworkBasis } = {}) {
+function handoffPairSide(row, source, original) {
+  const { id, batch, record, documents, latestReceipt, previousReceipt } = row;
+  const day = DAYS[record.day]?.title;
+  const papers = documents.map(({ title, fields }) => {
+    const numbers = fields.filter(([label]) => label === '报告编号' || label === '原报告编号').map(([, value]) => value);
+    return { title, numbers };
+  });
+  const primaryPaper = papers.find(({ numbers }) => numbers.length);
+  const reference = primaryPaper ? `<span>${esc(primaryPaper.title)}</span><strong>${esc(primaryPaper.numbers.join(' · '))}</strong>` : `<span>实收 ${papers.length} 份</span>`;
+  const paperList = papers.filter((paper) => paper !== primaryPaper).map(({ title, numbers }) =>
+    `<li><span>${esc(title)}</span>${numbers.length ? `<small>${esc(numbers.join(' · '))}</small>` : ''}</li>`).join('');
+  return `<section class="handoff-pair-side"><header class="handoff-pair-head">
+    <div class="handoff-pair-source"><small>${source}</small><h4>${esc(day)} <small class="handoff-pair-batch">${esc(batch)}</small></h4></div>
+    <span class="handoff-pair-stamp">${esc(labels[record.decision])}</span>
+    <p class="handoff-pair-disposition"><small>${latestReceipt ? '前次去向' : '现去向'}</small> <b>${esc(dispositionLabel(record))}</b></p></header>
+    <div class="handoff-pair-actions">${button(`核对${esc(day)}这笔`, 'handoff-focus', 'secondary handoff-pair-open', `data-i="${esc(id)}" aria-label="核对${esc(day)}这笔 ${source} ${esc(batch)}"`)}
+      <div class="handoff-pair-reference">${reference}</div></div>
+    ${paperList ? `<ul class="handoff-pair-papers" aria-label="该次来件其余原单">${paperList}</ul>` : ''}
+    ${original && original.record.id === record.priorShipmentId ? '<p class="handoff-pair-note">补验时原批已出库。</p>' : ''}
+    <details class="handoff-pair-receipt"><summary>展开回执</summary>${archivedReceipt(record, latestReceipt, previousReceipt)}</details>
+  </section>`;
+}
+
+export function handoffPanel(run, evidence, rows, { focus, documentIndex, correctionFindings = null, batchPapers = [], reworkBasis, comparison = null, canCompare = false } = {}) {
   const following = new Map(rows.filter(({ previousReceipt }) => previousReceipt).map((row) => [row.previousReceipt.record.id, row]));
   const batchPaperNotes = new Map(batchPapers.map(({ caseId, document }) => [caseId, ` · 有${batchPaperLabels[document.kind].tab}`]));
   const provenance = (row) => {
@@ -706,6 +729,7 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
   const attachmentKeys = ['trace', 'night'].filter((key) => run.flags[`${key}Document`]);
   const attachmentIndex = attachmentKeys.length ? button('交接附件', 'handoff-attachments', 'secondary handoff-attachments-entry', active(focus === 'attachments')) : '';
   const row = rows.find(({ id }) => id === focus);
+  const comparing = row && comparison;
   let header = '<h3>出货回执</h3>';
   let detail = '<p class="handoff-empty">从板上选一张回执核对。</p>';
   let actions = `${button('回看全周出货', 'archive')}${button('拉铃交班', 'finish', 'primary')}`;
@@ -716,6 +740,13 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
       const attached = run.flags[`${key}Attached`];
       return `<div class="handoff-evidence">${sheet(evidence[key])}${button(attached ? '已夹入 · 取回' : '夹入交接板', 'attach', attached ? 'primary' : 'secondary', `data-key="${key}" aria-label="${attached ? '取回' : '夹入'}${esc(evidence[key].title)}"`)}</div>`;
     }).join('')}</div>`;
+  } else if (comparing) {
+    const { earlier, later, sameLot } = comparison;
+    const [firstSource, lastSource] = sameLot ? ['前次来件', '后次来件'] : ['原批', '留厂件'];
+    const closeComparison = button('收起并排', 'handoff-compare', 'secondary handoff-detail-compare', active(true));
+    header = `<div class="handoff-detail-heading handoff-pair-heading"><div class="handoff-detail-name"><h3>${esc(row.batch)}</h3><small>${firstSource} · ${lastSource}</small></div>
+      <div class="handoff-detail-tools">${closeComparison}</div></div>`;
+    detail = `<div class="handoff-pair" aria-label="同号来件回执对照">${handoffPairSide(earlier, firstSource)}${handoffPairSide(later, lastSource, sameLot ? earlier : null)}</div>`;
   } else if (row) {
     const { record, latestReceipt, previousReceipt, documents } = row;
     const next = following.get(row.id);
@@ -730,8 +761,11 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
         button(types[type] ?? '归档', 'handoff-doc', 'tab', `data-i="${index}"${active(index === documentIndex)} aria-label="${esc(title)}" title="${esc(title)}"`)).join('')}
       ${attachedPapers.map(({ document }) => button(batchPaperLabels[document.kind].tab, 'handoff-doc', 'tab',
         `data-key="${esc(document.kind)}"${active(document === doc)} aria-label="${esc(document.title)}"`)).join('')}</nav>`;
+    const editAction = !latestReceipt && !editing ? button('更正开单', 'edit-record', 'secondary handoff-detail-edit', `data-i="${esc(row.id)}"`) : '';
+    const compareAction = canCompare && !editing ? button('并排核对', 'handoff-compare', 'secondary handoff-detail-compare', active(false)) : '';
+    const tools = compareAction ? `<div class="handoff-detail-tools">${compareAction}${editAction}</div>` : editAction;
     header = `<div class="handoff-detail-heading"><div class="handoff-detail-name"><h3>${esc(row.batch)}</h3><small>${esc(provenance(row))}</small></div><span class="handoff-detail-status">${esc(dispositionLabel(latestReceipt ?? record))}</span>
-      ${!latestReceipt && !editing ? button('更正开单', 'edit-record', 'secondary handoff-detail-edit', `data-i="${esc(row.id)}"`) : ''}</div>${tabs}`;
+      ${tools}</div>${tabs}`;
     const related = [
       previousReceipt && button(previousReceipt.sameLot ? '前次回执' : '原批回执', 'handoff-focus', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`),
       (latestReceipt || next) && button(next?.previousReceipt.sameLot === false ? '留厂件回执' : '后续回执', 'handoff-focus', 'secondary', `data-i="${esc(latestReceipt?.id ?? next.id)}"`),
@@ -745,7 +779,7 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
 
   return dialog('周五交接', `<div class="handoff-paper handoff-sheet"><p class="handoff-instruction">点批号核对原单，改章另开更正联。</p>
     <div class="handoff-workspace"><nav class="handoff-board" aria-label="批次与附件">${attachmentIndex}${groups || '<p>没有可查的回执。</p>'}</nav>
-    <section class="handoff-detail" aria-label="选中的交接单"><header class="handoff-detail-head">${header}</header><div class="handoff-detail-scroll">${detail}</div></section></div></div>`, 'handoff-modal',
+    <section class="handoff-detail${cls('handoff-comparing', comparing)}" aria-label="${comparing ? '两次来件的交接单' : '选中的交接单'}"><header class="handoff-detail-head">${header}</header><div class="handoff-detail-scroll">${detail}</div></section></div></div>`, 'handoff-modal',
   `<footer class="modal-actions handoff-actions">${actions}</footer>`);
 }
 

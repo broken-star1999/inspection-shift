@@ -1013,6 +1013,142 @@
 }
 .handoff-detail-tabs .tab[aria-pressed='true'] { background: #e7cf9c; border-color: #d8ab70; color: #473224; }
 .handoff-detail-tabs .tab:not([aria-pressed='true']):is(:hover, :focus-visible) { background: #69523a; }
+.handoff-detail-head:has(.handoff-detail-tools) { grid-template-columns: minmax(0, 1fr) auto auto; }
+.handoff-detail-head:has(.handoff-detail-tools) .handoff-detail-tabs { grid-column: 1 / -1; }
+.handoff-detail-tools {
+  grid-area: 1 / 3;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: .24rem;
+}
+.handoff-detail-head .handoff-detail-compare,
+.handoff-detail-head .handoff-detail-tools .handoff-detail-edit {
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  padding: .23rem .41rem;
+  font: 750 .78rem / 1.22 var(--mono);
+  white-space: nowrap;
+}
+.handoff-detail-head .handoff-detail-compare[aria-pressed='true'] {
+  background: #e7cf9c;
+  border-color: #d8ab70;
+  color: #473224;
+  text-shadow: none;
+}
+.handoff-comparing > .handoff-detail-head { padding-block: .22rem; }
+.handoff-detail-head:has(.handoff-pair-heading) { grid-template-columns: minmax(0, 1fr) auto; }
+.handoff-pair-heading .handoff-detail-tools { grid-area: 1 / 2; }
+.handoff-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: .43rem;
+}
+.handoff-pair-side {
+  min-inline-size: 0;
+  padding: .42rem .49rem;
+  border: 1px solid #b89b6e;
+  border-inline-start: 2px solid #a98054;
+  border-radius: 1px 4px 2px 1px;
+  background: linear-gradient(135deg, #f0e2be, #e0c99b);
+  box-shadow: inset 0 1px #fbebce, .12rem .18rem #33261c88;
+  color: #473426;
+}
+.handoff-pair-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: .14rem .24rem;
+}
+.handoff-pair-source { min-inline-size: 0; }
+.handoff-pair-source > small { display: block; color: #75583b; font: 730 .71rem / 1.25 var(--mono); }
+.handoff-pair-source h4 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .1rem .36rem;
+  margin: .08rem 0 0;
+  font: 830 .90rem / 1.19 var(--mono);
+}
+.handoff-pair-batch { font-size: .93em; white-space: nowrap; }
+.handoff-pair-stamp {
+  padding: .14rem .27rem;
+  border: 1px solid #a68b63;
+  color: #624730;
+  font: 780 .71rem / 1.17 var(--mono);
+  white-space: nowrap;
+}
+.handoff-pair-disposition {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #4c3929;
+  font: 780 .77rem / 1.25 var(--mono);
+  overflow-wrap: anywhere;
+}
+.handoff-pair-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .28rem;
+  margin-block-start: .25rem;
+}
+.handoff-pair-reference {
+  order: -1;
+  display: grid;
+  gap: .04rem;
+  min-inline-size: 0;
+  color: #5c4431;
+  font: 730 .73rem / 1.25 var(--mono);
+}
+.handoff-pair-reference span { overflow-wrap: anywhere; }
+.handoff-pair-reference strong { color: #493724; white-space: nowrap; }
+.handoff-pair-side .handoff-pair-open {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  padding: .23rem .36rem;
+  border-color: #a08059;
+  background: #e4cda1;
+  color: #513a26;
+  box-shadow: inset 0 1px #fae6bc, .09rem .1rem #5d453464;
+  font: 770 .75rem / 1.23 var(--mono);
+  text-align: start;
+  text-shadow: none;
+}
+.handoff-pair-side .handoff-pair-open:is(:hover, :focus-visible) { background: #f3dfb7; }
+.handoff-pair-papers {
+  display: grid;
+  gap: .13rem;
+  margin: .35rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: #5c4431;
+  font: 720 .74rem / 1.3 var(--mono);
+}
+.handoff-pair-papers > li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .06rem .28rem;
+  padding-block-start: .16rem;
+  border-block-start: 1px solid #af90625a;
+}
+.handoff-pair-papers small { color: #493724; font-size: 1em; white-space: nowrap; }
+.handoff-pair-note { margin: .34rem 0 0; color: #695039; font-size: .76rem; line-height: 1.35; }
+.handoff-pair-receipt { margin-block-start: .35rem; }
+.handoff-pair-receipt > summary {
+  align-content: center;
+  min-block-size: 2.75rem;
+  padding: .2rem .27rem;
+  border-block-start: 1px solid #a78a5d67;
+  color: #65492d;
+  cursor: pointer;
+  font: 730 .75rem / 1.23 var(--mono);
+}
+.handoff-pair-receipt > .archive-receipt { margin-block-end: 0; }
 .handoff-detail-scroll { flex: 1 1 auto; padding: .42rem .48rem .56rem; }
 .handoff-detail-scroll > :is(.archive-receipt, .sheet):last-child { margin-block-end: 0; }
 .handoff-detail-scroll .handoff-attachments { margin-block-start: 0; }
@@ -1361,6 +1497,9 @@
   .handoff-detail-head { padding: .21rem .35rem .27rem; }
   .handoff-detail-head h3 { font-size: .84rem; }
   .handoff-detail-head:has(.handoff-detail-heading) { gap: .19rem .28rem; }
+  .handoff-pair { gap: .34rem; }
+  .handoff-pair-side { padding: .31rem .36rem .38rem; }
+  .handoff-pair-papers { margin-block-start: .25rem; }
   .handoff-detail-tabs { gap: .19rem; }
   .handoff-detail-tabs .tab, .handoff-detail-head .handoff-detail-edit { padding-inline: .35rem; font-size: .75rem; }
   .handoff-detail-scroll { padding: .29rem .35rem .39rem; }
