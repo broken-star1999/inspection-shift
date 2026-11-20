@@ -43,6 +43,8 @@ export function freshInteraction(carry = {}) {
     ...caseProgress(null, null),
     doc: 0,
     compare: null,
+    referenceDoc: null,
+    returnToDocs: false,
     archiveFocus: null,
     archiveQuery: '',
     archiveEditing: false,

@@ -235,9 +235,10 @@ export function documents(item, index, compare, tutorial, progress) {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
     return `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
   }).join('');
+  const sampleAction = tutorial ? '' : button('拿起检样', 'sample', 'reference-control');
   return deskSurface('桌面单据', `${draft.list}${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
     <div class="doc-grid${cls('pair', other)}">${sheet(doc, index, inspection)}${other ? sheet(other, compare, inspection) : ''}</div>
-    <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions: draft.header });
+    <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions: sampleAction + draft.header });
 }
 
 export function sample(item, inspection, tutorial, progress) {
@@ -247,18 +248,28 @@ export function sample(item, inspection, tutorial, progress) {
   const appearance = sampleAppearance(spec);
   const packaged = kind === 'yellow' && !unpacked;
   const visual = sampleObservation(spec, inspection);
-  const draft = findingsDraft(readFindings(progress), progress?.showFindings);
+  const findings = readFindings(progress);
+  const draft = findingsDraft(findings, progress?.showFindings);
+  const referenceIndex = progress?.referenceDoc;
+  const reference = !tutorial && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
+  const referencePicker = reference ? `<aside class="sample-reference" data-reference-doc="${referenceIndex}"><nav class="doc-tabs reference-tabs" aria-label="对照单据">
+    ${item.documents.map(({ title }, index) => button(esc(title), 'reference-doc', 'tab', `data-i="${index}"${active(index === referenceIndex)}`)).join('')}
+    </nav>${sheet(reference, referenceIndex, { selected: new Set(findings.map(({ key }) => key)) })}</aside>` : '';
+  const canCompare = !tutorial && item.documents.length > 0;
+  const referenceActions = canCompare
+    ? `${progress?.returnToDocs ? button('回到单据', 'reference-back', 'reference-control') : ''}${button(reference ? '收起单据' : '对照单据', 'reference', 'reference-control', active(Boolean(reference)))}`
+    : '';
   let control = '';
   if (packaged) control = sampleHotspot('unpack', 'pack-handle', '拆袋', '拆开包装');
   if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜', film ? '放回保护膜' : '揭开膜角', film);
   if (appearance.clasp && back && !tug) control = clasp
     ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查')
     : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件');
-  return deskSurface(`${item.batch} · ${appearance.name}`, `${draft.list}${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-inspector"><div class="sample-visual sample-stage${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
+  return deskSurface(`${item.batch} · ${appearance.name}`, `${draft.list}${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
     ${sampleArt(spec, appearance, back, measured && spec.reading, control)}${spec.reading ? sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '量规', measured ? '取出量规' : '放进量规', measured) : ''}</div><div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
     ${measured && spec.reading ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
     <div class="modal-actions">${packaged ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
-    ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: draft.header });
+    ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div></div>${referencePicker}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: referenceActions + draft.header });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false) {

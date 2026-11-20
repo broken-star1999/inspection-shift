@@ -51,7 +51,7 @@
 .surface-close:hover { background: #ead09a; color: #33281a; }
 
 .desk-surface-tools { flex: 0 0 auto; display: flex; align-items: flex-end; gap: .36rem; }
-.desk-surface-tools .findings-toggle {
+.desk-surface-tools :is(.findings-toggle, .reference-control) {
   min-block-size: 2.1rem;
   padding: .24rem .54rem;
   border-color: #9e855c;
@@ -60,13 +60,22 @@
   font: 760 .77rem / 1.2 var(--mono);
   white-space: nowrap;
 }
-.desk-surface-tools .findings-toggle[aria-expanded='true'] {
+.desk-surface-tools .findings-toggle[aria-expanded='true'],
+.desk-surface-tools .reference-control[aria-pressed='true'] {
   border-color: #b69561;
   background: #dcc391;
   color: #40311e;
   text-shadow: none;
 }
-.desk-surface-tools .findings-toggle:hover { filter: brightness(1.11); }
+.desk-surface-tools :is(.findings-toggle, .reference-control):hover { filter: brightness(1.11); }
+
+.desk-surface-bar:has(.reference-control) { gap: .45rem; }
+.desk-surface-bar:has(.reference-control) h2 {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .desk-surface-content {
   min-block-size: 0;
@@ -124,6 +133,33 @@
 .sample-surface .sample-stage { background: #43503f; border-color: #899278; border-radius: 3px; }
 .sample-surface .sample-stage img { transform-origin: 50% 52%; }
 .sample-surface .sample-findings { background: #222e25ab; border: 0; border-inline-start: 2px solid #9f9366; }
+
+.sample-surface:has(.sample-workbench.with-reference) { inline-size: min(77cqw, 62rem); }
+
+.sample-workbench.with-reference {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: clamp(.62rem, 1.45cqw, 1.15rem);
+}
+
+.sample-workbench.with-reference > * { min-inline-size: 0; }
+
+#game .sample-surface .sample-workbench.with-reference .sample-inspector {
+  grid-template-columns: minmax(0, 1fr);
+  gap: .44rem;
+}
+
+#game .sample-surface .sample-workbench.with-reference .sample-findings {
+  inline-size: 100%;
+  rotate: none;
+}
+
+.sample-reference .sheet { border-radius: 2px 6px 3px 2px; }
+.desk-surface .sample-reference .reference-tabs { margin-block-end: .36rem; }
+.desk-surface .sample-reference .reference-tabs .tab:not([aria-pressed='true']) { background: #343c2e; }
+.desk-surface .sample-reference .reference-tabs .tab[aria-pressed='true'] { border-color: #b79a66; }
+
 .archive-surface { inset-inline-start: clamp(1rem, 8.3cqw, 7rem); inline-size: min(74cqw, 63rem); }
 .archive-surface .desk-surface-content { background: linear-gradient(130deg, #5b3d30, #3c2f27); box-shadow: 0 4px #302317, 4px 9px 15px #13160fad, inset 0 1px #aa866a; }
 .archive-surface .archive-detail { border-inline-start-color: #c4a5816b; }
@@ -244,12 +280,16 @@
   .desk-surface-content { padding: .4rem .42rem .46rem; }
   .desk-surface-bar h2, .surface-close { font-size: .73rem; }
   .surface-close { min-block-size: 1.77rem; }
-  .desk-surface-tools .findings-toggle { min-block-size: 1.77rem; padding-inline: .37rem; font-size: .72rem; }
+  .desk-surface-tools :is(.findings-toggle, .reference-control) { min-block-size: 1.77rem; padding-inline: .37rem; font-size: .72rem; }
   .desk-surface .modal-actions { gap: .3rem; margin-block-start: .35rem; }
   .desk-surface .modal-actions .button, .desk-surface .doc-tabs .tab { min-block-size: 1.92rem; padding: .25rem .47rem; font-size: .75rem; }
   .desk-surface .doc-grid { gap: .43rem; }
   .desk-surface .sample-inspector { gap: .45rem; }
   .sample-surface .sample-stage { min-block-size: 5.1rem; }
+  .sample-workbench.with-reference { gap: .55rem; }
+  .sample-reference .sheet { padding: .47rem .57rem; }
+  .sample-reference .fields > div { grid-template-columns: minmax(4em, .56fr) minmax(0, 1fr); gap: .34rem; padding-block: .21rem; }
+  .sample-reference .fields dd { font-size: .81rem; }
   .archive-receipt { margin-block-end: .45rem; padding: .38rem .53rem .46rem; }
   .receipt-facts > div { font-size: .82rem; }
   .receipt-facts > .receipt-findings { grid-template-columns: minmax(0, 1fr); gap: .18rem; }
@@ -260,6 +300,7 @@
 @container workstation (max-width: 720px) {
   .desk-surface { inset-inline-start: .66rem; inline-size: min(72cqw, 43rem); }
   .documents-surface:not(:has(.doc-grid.pair)) { inline-size: min(72cqw, 36rem); }
+  .sample-surface:has(.sample-workbench.with-reference) { inline-size: calc(100cqw - 1.32rem); }
   .archive-surface { inline-size: min(88cqw, 59rem); }
   .receipt-surface { inset-inline-start: auto; inset-inline-end: 1rem; inline-size: min(52cqw, 22rem); }
 }
