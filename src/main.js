@@ -80,7 +80,8 @@ bindViewport(root, ({ fullscreen, immersive, rotated }) => {
 
 function placeFixtures() {
   for (const element of fixtureElements) {
-    const rect = fixtureLayout[element.dataset.fixture];
+    const fixture = element.dataset.fixture;
+    const rect = fixtureLayout[fixture === 'findings' ? 'pass' : fixture];
     element.toggleAttribute('data-fixture-visible', Boolean(rect));
     if (!rect) continue;
     const { x, y, w, h } = rect;
@@ -88,6 +89,10 @@ function placeFixtures() {
     element.style.setProperty('--fixture-y', `${y.toFixed(1)}px`);
     element.style.setProperty('--fixture-w', `${w.toFixed(1)}px`);
     element.style.setProperty('--fixture-h', `${h.toFixed(1)}px`);
+    if (fixture === 'findings' && fixtureLayout.sample) {
+      const sample = fixtureLayout.sample;
+      element.style.setProperty('--fixture-sample-bottom', `${(sample.y + sample.h).toFixed(1)}px`);
+    }
   }
 }
 
@@ -281,7 +286,9 @@ function render(resumeScroll) {
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
   hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous) : '';
-  desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item), ...heldObjects() }) : '';
+  desktop.innerHTML = item ? view.desk(run, item, step, {
+    ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(),
+  }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   showModeledScene();
   if (root.dataset.modeled === 'true') placeFixtures();
@@ -543,7 +550,10 @@ function chooseDoc(index, opener) {
 function updateFindings(findings) {
   interaction.findings = findings;
   interaction.note = findings.at(-1)?.text ?? '';
-  if (!findings.length) interaction.showFindings = false;
+  if (!findings.length) {
+    interaction.showFindings = false;
+    interaction.benchFindingsOpen = false;
+  }
 }
 
 function checkBasis(index, field) {
@@ -669,9 +679,12 @@ function checkSample(act) {
 }
 
 function stamp(value) {
-  if (arrivalTimer || (panel && !['docs', 'sample', 'archive'].includes(panel)) || activeVisit() || run?.phase !== 'case') return;
+  if (arrivalTimer || activeVisit() || run?.phase !== 'case') return;
+  if (panel) {
+    if (['docs', 'sample', 'archive'].includes(panel)) toast('先回到台面，再用开单机盖章');
+    return;
+  }
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
-    panel = null;
     clearTimeout(toastTimer);
     toastBox.textContent = '';
     playSound('stamp');
@@ -768,11 +781,22 @@ root.addEventListener('click', (event) => {
       render();
       if (interaction.showFindings) modalLayer.querySelector('#working-findings')?.scrollIntoView({ block: 'nearest' });
       break;
-    case 'remove-finding':
+    case 'bench-findings':
+      if (panel || run?.phase !== 'case') break;
+      interaction.benchFindingsOpen = !interaction.benchFindingsOpen;
+      render();
+      focusControl(desktop, { act: 'bench-findings' });
+      break;
+    case 'remove-finding': {
+      const inBenchDraft = Boolean(target.closest('.bench-draft'));
       updateFindings(interaction.findings.filter((finding) => finding.key !== key));
       playSound('paper');
       render();
+      if (inBenchDraft && !focusControl(desktop, { act: 'bench-findings' })) {
+        focusControl(desktop, { act: 'sample', fixture: 'sample' });
+      }
       break;
+    }
     case 'compare': compareDocs(); break;
     case 'previous-compare': comparePrevious(target); break;
     case 'previous-doc': {
@@ -860,12 +884,21 @@ root.addEventListener('touchstart', (event) => {
     : null;
 }, { passive: true });
 
+function withinStampTap(start, touch) {
+  return start.identifier === touch.identifier && Math.hypot(start.clientX - touch.clientX, start.clientY - touch.clientY) <= 12;
+}
+
+root.addEventListener('touchmove', (event) => {
+  if (stampTouch && (event.touches.length !== 1 || !withinStampTap(stampTouch, event.touches[0]))) {
+    stampTouch = null;
+  }
+}, { passive: true });
+
 root.addEventListener('touchend', (event) => {
   const start = stampTouch;
   stampTouch = null;
   const end = event.changedTouches[0];
-  if (!start || !end || event.touches.length || start.identifier !== end.identifier) return;
-  if (Math.hypot(start.clientX - end.clientX, start.clientY - end.clientY) > 12) return;
+  if (!start || !end || event.touches.length || !withinStampTap(start, end)) return;
   const button = start.target.closest('[data-act="stamp"]');
   if (!button || button.disabled || !button.contains(document.elementFromPoint(end.clientX, end.clientY))) return;
   // Touch browsers can suppress the first synthesized click after a drag.
@@ -885,6 +918,13 @@ root.addEventListener('submit', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented || event.isComposing) return;
+  const target = event.target;
+  if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
+      target.matches('[data-act="stamp"], [data-act="next"]')) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === 'Tab' && modalLayer.querySelector('[aria-modal="true"]')) {
     const controls = [...modalLayer.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
     const first = controls[0];
@@ -893,10 +933,13 @@ document.addEventListener('keydown', (event) => {
     if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   }
   if (event.key === 'Escape' && panel) { event.preventDefault(); closePanel(); }
-  if (!run || event.target instanceof HTMLInputElement || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (panel === 'phone' && /^\d$/.test(event.key) && interaction.phoneNumber.length < 5) {
-    setPhoneNumber(interaction.phoneNumber + event.key);
-  } else if (['1', '2', '3'].includes(event.key)) stamp(['pass', 'fail', 'review'][Number(event.key) - 1]);
+  const editable = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'));
+  if (!run || editable || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (panel === 'phone' && /^\d$/.test(event.key)) {
+    if (interaction.phoneNumber.length < 5) setPhoneNumber(interaction.phoneNumber + event.key);
+    return;
+  }
+  if (!event.repeat && ['1', '2', '3'].includes(event.key)) stamp(['pass', 'fail', 'review'][Number(event.key) - 1]);
 });
 
 desktop.addEventListener('pointerdown', (event) => {

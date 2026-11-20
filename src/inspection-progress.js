@@ -35,6 +35,7 @@ function caseProgress(item, progress) {
     },
     signed: progress?.signed === true,
     orderSeen: progress?.orderSeen === true,
+    benchFindingsOpen: progress?.benchFindingsOpen === true,
   };
 }
 

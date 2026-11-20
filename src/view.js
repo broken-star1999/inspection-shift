@@ -116,13 +116,18 @@ function sampleHotspot(action, className, text, label, pressed = null) {
 
 export function desk(run, item, tutorial, interaction) {
   if (!item) return '';
-  const { note, positions, pencil, inspection, heldDocuments, sampleHeld } = interaction;
+  const { note, positions, pencil, inspection, heldDocuments, sampleHeld, stampBlocked, benchFindingsOpen } = interaction;
   const appearance = sampleAppearance(item.sample);
+  const findings = readFindings(interaction);
+  const benchDraft = run.phase === 'case' && !stampBlocked && findings.length ? `<aside class="bench-draft" data-fixture="findings">
+    ${button(`查验依据 ${findings.length}`, 'bench-findings', 'bench-draft-toggle', `aria-expanded="${Boolean(benchFindingsOpen)}" aria-controls="bench-findings"`)}
+    <div class="bench-draft-body" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, true) : ''}</div>
+  </aside>` : '';
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, tutorial, positions[index], heldDocuments.includes(index))).join('')}</div>
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
     <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="检查${appearance.name}"><span class="sample-visual sample-preview-art${cls('turned', inspection.back)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, inspection.back, false)}</span><span class="sample-caption">${appearance.name}</span></button></section>
-    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
-      <p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上选一项作为依据'}</p></aside>`;
+    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
+      ${benchDraft ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
 
 function endingReceipt(record, detail) {
@@ -193,7 +198,7 @@ export function instructions(how) {
   return dialog(how ? '接班说明' : '桌边查验卡', `<div class="rule-sheet"><p>先认箱签，按送检联核对收到的报告。看批号、签发和检验项目，再按实际品类查镜片、罩壳、手套接缝或插片。</p>
     <ol><li><b>通过</b>　样品合格，有效报告能对应这批，并覆盖送检要求。</li><li><b>不通过</b>　实物确有裂纹、划伤、扣件问题或已查明的错型、超差。</li><li><b>要求审查</b>　报告没交、对不上或没验齐，先隔离，等对方补证或安排复检。</li></ol>
     <p>有换签时对照登记上的旧号和新号。样品上的保护膜可以揭角。核对过的旧单会留在交接簿。</p>
-    ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。电脑也可用 1、2、3 开单，Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
+    ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。可以先记下查验依据。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
 function sheet(doc, index, inspection) {

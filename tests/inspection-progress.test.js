@@ -16,6 +16,7 @@ test('restores current inspection work after a JSON round trip', () => {
     inspection: { back: true, film: true, clasp: true, tug: true, measured: true, unpacked: true },
     signed: true,
     orderSeen: true,
+    benchFindingsOpen: true,
     doc: 1,
     compare: 0,
     previousDoc: 0,
@@ -38,6 +39,7 @@ test('restores current inspection work after a JSON round trip', () => {
     inspection: work.inspection,
     signed: true,
     orderSeen: true,
+    benchFindingsOpen: true,
   });
   saved.pinned.push(9);
   saved.positions[1].x = 0;
