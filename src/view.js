@@ -63,14 +63,23 @@ export function wallShift(run) {
     <div class="batch-progress" aria-label="当班来件 ${run.index + 1} / 4">${day.cases.map((_, index) => `<span class="${index <= run.index ? 'done' : ''}"></span>`).join('')}</div></div>`;
 }
 
-export function room(run, item, tutorial, firstIssue, pressure, sceneEvent) {
+function priorReceipt({ record, sameLot }) {
+  const day = DAYS[record.day];
+  const title = sameLot ? '查看上次回执' : '查看原批回执';
+  return `<button type="button" class="prior-receipt" data-act="archive-receipt" data-i="${esc(record.id)}">
+    <b>${title}</b><span>${esc(day?.title)} · ${esc(labels[record.decision])} · ${esc(statuses[record.status])}</span>${sameLot ? '' : '<small>留厂返工件单独核对</small>'}
+  </button>`;
+}
+
+export function room(run, item, tutorial, firstIssue, pressure, sceneEvent, previous) {
   const day = DAYS[run.day];
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
   const record = run.phase === 'receipt' ? run.records.at(-1) : null;
   const line = sceneEvent?.line ?? record?.response ?? item?.line ?? day.intro;
+  const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
   return `<div class="speech${cls('dispatch-event', sceneEvent)}" aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
       <p>${esc(line)}</p>${pressure && !sceneEvent && !record ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
-      ${sceneEvent ? button('收下留底', 'event-next', 'primary') : ''}</div>
+      ${sceneEvent ? button('收下留底', 'event-next', 'primary') : earlier}</div>
     ${tutorial && !sceneEvent ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>` : firstIssue ? `<div class="training"><span class="tutorial-index">查验卡</span><small>老周</small><p>${esc(firstIssue)}</p></div>` : ''}`;
 }
 
@@ -118,7 +127,16 @@ export function overlay(run, ending) {
   if (run.phase === 'brief') return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(day.subtitle)}</h3><p>${esc(day.intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
   if (run.phase === 'summary') {
     const records = run.records.filter(({ day: dayIndex }) => dayIndex === run.day);
-    return `<div class="stage-overlay"><section class="brief-card summary-card"><div class="eyebrow">${day.title} · 收班回执</div><h2>当班交接</h2><ul class="summary-list">${records.map((record) => `<li><b>${record.batch}</b><span>${labels[record.decision]} · ${statuses[record.status]}</span></li>`).join('')}</ul><p>${esc(day.outro)}</p>${button('下一班', 'advance-day', 'primary')}</section></div>`;
+    return `<div class="stage-overlay"><section class="brief-card summary-card">
+      <header class="summary-head"><div class="eyebrow">${day.title} · 收班回执</div><h2>当班交接</h2></header>
+      <div class="summary-body"><ul class="summary-list">${records.map((record) => {
+        const batch = esc(record.batch);
+        const decision = esc(labels[record.decision]);
+        const destination = esc(statuses[record.status]);
+        return `<li><button type="button" class="summary-record" data-act="archive-receipt" data-i="${esc(record.id)}" aria-label="查看 ${batch} 回执，${decision}，${destination}"><b>${batch}</b><span>${decision} · ${destination}</span></button></li>`;
+      }).join('')}</ul><p>${esc(day.outro)}</p></div>
+      <footer class="summary-footer">${button('下一班', 'advance-day', 'primary')}</footer>
+    </section></div>`;
   }
   if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button('打电话', 'phone')}${button('交接', 'handoff', 'primary')}</div></section></div>`;
   if (run.phase === 'ending') {
@@ -252,9 +270,10 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   let details = '<p class="archive-empty">选一张留底，可以翻看原来的单据。</p>';
   if (visit) details = sheet(visit);
   if (row) {
-    const { latestReceipt } = row;
+    const { latestReceipt, previousReceipt } = row;
     const canAmend = handoff && row.record && !latestReceipt;
     details = `<div class="modal-actions archive-actions">${button(selected.includes(row.id) ? '已放到电话旁 · 取回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
+      ${previousReceipt ? button(previousReceipt.sameLot ? '查看前次回执' : '查看前次同号回执', 'archive-followup', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`) : ''}
       ${latestReceipt ? button('查看后续回执', 'archive-followup', 'secondary', `data-i="${latestReceipt.id}"`) : ''}
       ${canAmend ? button(editing ? '取消更正' : '更正开单', 'edit-record') : ''}</div>
       ${editing && canAmend ? `<div class="stamp-buttons archive-correction">${stampButtons(false, false, 'recheck')}</div>` : ''}

@@ -95,10 +95,11 @@ function getRecord(state, id) {
 }
 
 function getDialogue(state, item) {
-  if (item.nightResponse && state.flags.nightDocument) return item.nightResponse;
-  if (item.id === 12 && state.flags.pencil) return `${item.line} 你看，我给笔尾绑了截木头，这下它滚不了了。`;
-  const previous = item.followUp && getRecord(state, item.followUp.caseId)?.decision;
-  return item.followUp?.lines[previous] ?? item.line;
+  const previous = getPreviousReceipt(state, item)?.record.decision;
+  const line = item.followUp?.lines[previous] ?? item.line;
+  if (item.nightResponse && state.flags.nightDocument) return `${line} ${item.nightResponse}`;
+  if (item.id === 12 && state.flags.pencil) return `${line} 你看，我给笔尾绑了截木头，这下它滚不了了。`;
+  return line;
 }
 
 export function getCase(state) {
@@ -111,13 +112,20 @@ export function getCase(state) {
   return { ...item, line: getDialogue(state, item), pressure, pressureLine };
 }
 
+export function getPreviousReceipt(state, item = getCase(state)) {
+  const followUp = item?.followUp;
+  if (!followUp) return null;
+  const record = getRecord(state, followUp.caseId);
+  return record ? { record, sameLot: followUp.sameLot === true } : null;
+}
+
 export function archive(state, query = '') {
   const key = String(query).toLowerCase().trim();
   return state.seen.map((id) => {
     const item = getVariant(state, CASE_BY_ID.get(id));
     const record = getRecord(state, id) ?? null;
     const latestReceipt = record ? findVerifiedReceipt(state.records, record) : null;
-    return { ...item, record, latestReceipt };
+    return { ...item, record, latestReceipt, previousReceipt: getPreviousReceipt(state, item) };
   }).filter((item) => {
     if (!key) return true;
     const fields = item.documents.flatMap(({ title, fields, note }) => [title, fields.flat().join(' '), note]);

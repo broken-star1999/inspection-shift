@@ -229,7 +229,7 @@ export const DAYS = [
         answer: 'pass', reason: '原件显示 G-111 更为 G-211', response: '昨天说是我夹错的。也有可能吧，我今天先把单收好。',
         documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签原件', [['原箱批号', 'G-111'], ['现箱批号', 'G-211'], ['签发人', '库管二班'], ['签发时间', '周四 07:48'], seal])], sample: glove,
         followUp: { caseId: 11, sameLot: true, lines: { pass: '我重对过出货栏，这是原件，你再把它夹在昨天那一联旁边。', fail: '不是返工出来的。昨晚重新找了原签，这回我带在最上面。', review: '这次是原件。我自己顺着出货栏对了一遍。' } },
-        nightResponse: '孙姐跟我说了。我把两份都留下，下次就能看出是谁先收的。',
+        nightResponse: '孙姐也给我留了那晚的回执。',
       },
       {
         id: 14, batch: 'G-248', npc: 'luo', title: '夹回来的作废联',

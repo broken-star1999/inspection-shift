@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createRun, dispatch, getCase, getEnding, TUTORIAL } from '../src/engine.js';
+import { archive, createRun, dispatch, getCase, getEnding, getPreviousReceipt, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -265,6 +265,47 @@ test('a new sample from the factory remainder cannot replace the receipt for shi
   const corrected = act(state, 'recheck', { id: 4, value: 'review' });
   assert.equal(corrected.records.find(({ id }) => id === 4).status, 'recalled');
   assert.equal(corrected.records.find(({ id }) => id === 15).status, 'returned');
+});
+
+test('a returning delivery finds the exact previous stamp and status after a save reload', () => {
+  const expected = new Map([
+    [9, { id: 5, decision: 'review', status: 'held', sameLot: true }],
+    [13, { id: 11, decision: 'review', status: 'held', sameLot: true }],
+    [14, { id: 10, decision: 'fail', status: 'returned', sameLot: true }],
+    [15, { id: 4, decision: 'pass', status: 'shipped', sameLot: false }],
+  ]);
+  const checked = new Set();
+  untilHandoff(21, { decisions: { 4: 'pass', 10: 'fail' }, inspect: (state, item) => {
+    const restored = JSON.parse(JSON.stringify(state));
+    const previous = getPreviousReceipt(restored);
+    assert.deepEqual(archive(restored).find(({ id }) => id === item.id).previousReceipt, previous);
+    const target = expected.get(item.id);
+    if (!target) {
+      assert.equal(previous, null);
+    } else {
+      const { id, decision, status } = previous.record;
+      assert.equal(previous.record, restored.records.find((row) => row.id === target.id));
+      assert.deepEqual({ id, decision, status, sameLot: previous.sameLot }, target);
+      checked.add(item.id);
+    }
+    return state;
+  } });
+  assert.deepEqual(checked, new Set(expected.keys()));
+});
+
+test('the night receipt adds context without replacing the previous decision in Tang’s dialogue', () => {
+  for (const previous of ['pass', 'fail', 'review']) {
+    untilHandoff(21, { decisions: { 11: previous }, inspect: (state, item) => {
+      if (item.id === 11) return act(state, 'dial', { number: '107', caseIds: [11] });
+      if (item.id === 13) {
+        assert.ok(state.flags.nightDocument);
+        assert.equal(item.line, `${item.followUp.lines[previous]} ${item.nightResponse}`);
+        const beforeReceipt = { ...state, flags: { ...state.flags, nightDocument: false } };
+        assert.equal(getCase(beforeReceipt).line, item.followUp.lines[previous]);
+      }
+      return state;
+    } });
+  }
 });
 
 test('night receipt and self-call stay independent of the three endings', () => {

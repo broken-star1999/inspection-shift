@@ -1,4 +1,4 @@
-import { createRun, dispatch, getCase, getDay, getEnding, archive, TUTORIAL, EVIDENCE } from './engine.js';
+import { createRun, dispatch, getCase, getDay, getEnding, getPreviousReceipt, archive, TUTORIAL, EVIDENCE } from './engine.js';
 import { EASTER_EGGS } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
@@ -224,14 +224,17 @@ function render() {
   const item = windowCase();
   const step = item ? tutorialStep() : null;
   const visit = arrivalTimer ? null : activeVisit();
+  const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
-  hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, visit) : '';
+  hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous) : '';
   desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item), ...heldObjects() }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   if (root.dataset.modeled === 'true') placeFixtures();
+  const summaryScroll = screenLayer.querySelector('.summary-body')?.scrollTop;
   screenLayer.innerHTML = run
     ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null))
     : view.home(saved?.phase === 'ending' ? null : saved, endings);
+  if (summaryScroll !== undefined) screenLayer.querySelector('.summary-body')?.scrollTo(0, summaryScroll);
   setScene();
   renderModal(item, step);
 }
@@ -508,6 +511,13 @@ function openArchive(opener) {
   openPanel('archive', opener);
 }
 
+function revealArchiveReceipt(revealIndex) {
+  if (revealIndex) {
+    modalLayer.querySelector('.drawer-list [aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, 0);
+}
+
 function closePanel() {
   panel = null;
   render();
@@ -573,6 +583,13 @@ root.addEventListener('click', (event) => {
     case 'sample': playSound('slide'); openPanel('sample', target); break;
     case 'stamp': stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
+    case 'archive-receipt':
+      if (!run?.records.some((record) => record.id === index)) break;
+      interaction.archiveFocus = index;
+      interaction.archiveQuery = '';
+      openArchive(target);
+      revealArchiveReceipt(true);
+      break;
     case 'archive-focus': case 'archive-followup': case 'archive-evidence':
       interaction.archiveFocus = act === 'archive-evidence' ? key : index;
       if (act === 'archive-followup' && !archive(run, interaction.archiveQuery).some((row) => row.id === index)) {
@@ -581,8 +598,7 @@ root.addEventListener('click', (event) => {
       interaction.archiveEditing = false;
       playSound('paper');
       render();
-      if (act === 'archive-followup') modalLayer.querySelector('.drawer-list [aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
-      modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, 0);
+      revealArchiveReceipt(act === 'archive-followup');
       break;
     case 'archive-pin': {
       const pinned = interaction.pinned;
