@@ -1,4 +1,5 @@
 import { normalizeFindings } from './inspection-findings.js';
+import { EASTER_EGGS } from './content.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -68,6 +69,9 @@ function workspaceProgress(item, work, context = {}) {
     const compare = documentIndex(work.compare, count);
     workspace.doc = doc;
     workspace.compare = compare === doc ? null : compare;
+    if (panel === 'docs' && !guided && EASTER_EGGS.cat.slots.includes(item.id) && work.clipboardBack === true) {
+      workspace.clipboardBack = true;
+    }
     if (!guided && count === 3 && work.spreadAll === true) workspace.spreadAll = true;
 
     const previousDoc = documentIndex(work.previousDoc, prior?.documentCount);
@@ -90,6 +94,7 @@ export function freshInteraction(carry = {}) {
     ...caseProgress(null, null),
     doc: 0,
     compare: null,
+    clipboardBack: false,
     spreadAll: false,
     previousDoc: null,
     previousCurrentDoc: null,

@@ -48,7 +48,7 @@ export function shell() {
           <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b><span class="phone-ring-indicator" aria-hidden="true"></span></button>
           <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" fetchpriority="low" draggable="false"><b>交接簿</b></button>
         </aside>
-        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="booth-shutter" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
+        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><span class="booth-cat" aria-hidden="true"></span><div class="booth-shutter" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
         <aside class="booth-wing booth-right" aria-label="值班告示">
           <div id="wall-shift" data-fixture="shift"></div>
           <button class="wall-notice" data-act="rules" data-fixture="rules">查验要求<span aria-hidden="true">﹣﹣﹣</span></button>
@@ -267,7 +267,7 @@ export function instructions(how) {
     ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。可以先记下查验依据。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
-function sheet(doc, index, inspection) {
+function sheet(doc, index, inspection, clipboardFront = false) {
   const action = inspection?.action ?? 'basis';
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
@@ -276,8 +276,21 @@ function sheet(doc, index, inspection) {
     const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
     return `<div><dt>${esc(key)}</dt><dd>${fieldValue}</dd></div>`;
   }).join('');
-  return `<article class="sheet sheet-${doc.type}"><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small><h3>${esc(doc.title)}</h3><dl class="fields">
+  return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}"><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small><h3>${esc(doc.title)}</h3>${clipboardFront ? clipboardFlip(false) : ''}<dl class="fields">
     ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
+}
+
+function clipboardFlip(back) {
+  return `<div class="clipboard-actions">${button(back ? '翻回正面' : '翻看夹板背面', 'clipboard-back', 'secondary clipboard-flip')}</div>`;
+}
+
+function clipboardBack(caseId) {
+  const { title, fields, slots, returnLine } = EASTER_EGGS.cat;
+  return `<div class="doc-grid clipboard-grid"><article class="sheet clipboard-back-face"><span class="clipboard-back-clip" aria-hidden="true"></span>
+    <div class="cat-inspection-badge"><div class="cat-badge-sketch" aria-hidden="true"><span class="cat-badge-head"></span><span class="cat-badge-body"></span><span class="cat-badge-tail"></span></div>
+      <h3>${esc(title)}</h3><dl class="cat-badge-fields">${fields.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>
+      ${caseId === slots[1] ? `<p class="cat-badge-note">${esc(returnLine)}</p>` : ''}</div>
+    ${clipboardFlip(true)}</article></div>`;
 }
 
 function findingLines(findings, removeAction = '') {
@@ -298,12 +311,12 @@ function returnTabs(documents, action, selected, label) {
     button(esc(title), action, 'tab', `data-i="${index}"${active(index === selected)}`)).join('')}</nav>`;
 }
 
-function returnComparison(item, index, previous, previousIndex, inspection) {
+function returnComparison(item, index, previous, previousIndex, activeSheet) {
   const day = DAYS.find(({ cases }) => cases.some(({ id }) => id === item.id))?.title;
   const { record, documents, sameLot } = previous;
   return `<div class="return-comparison">
     <section class="return-current"><div class="return-source"><b>${sameLot ? '本次来件' : '留厂件'}</b><small>${esc(day)}</small></div>
-      ${returnTabs(item.documents, 'doc', index, '切换本次单据')}${sheet(item.documents[index], index, inspection)}</section>
+      ${returnTabs(item.documents, 'doc', index, '切换本次单据')}${activeSheet(item.documents[index], index)}</section>
     <section class="return-previous" data-previous-doc="${previousIndex}"><div class="return-source"><b>${sameLot ? '前次留底' : '原批留底'}</b><small>${esc(DAYS[record.day]?.title)}</small>
       <span class="return-disposition">${esc(labels[record.decision])} · ${esc(dispositionLabel(record))}</span></div>
       ${returnTabs(documents, 'previous-doc', previousIndex, '切换留底单据')}${sheet(documents[previousIndex])}</section>
@@ -313,11 +326,16 @@ function returnComparison(item, index, previous, previousIndex, inspection) {
 export function documents(item, index, compare, tutorial, progress, previous) {
   const doc = item.documents[index];
   if (!doc) return '';
-  const extras = [3, 15].includes(item.id) ? button('翻工艺夹板背面', 'egg', 'secondary', 'data-key="cat"') : item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
+  const clipboardIndex = EASTER_EGGS.cat.documents[item.id];
+  if (clipboardIndex !== undefined && progress.clipboardBack) {
+    return deskSurface('工艺夹板背面', clipboardBack(item.id), 'documents-surface', '放回台面', 'clipboard-back');
+  }
+  const extras = item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
   const other = item.documents[compare];
   const signature = tutorial?.key === 'signature';
   const findings = readFindings(progress);
   const inspection = { signature, selected: new Set(findings.map(({ key }) => key)) };
+  const activeSheet = (page, position) => sheet(page, position, inspection, position === clipboardIndex);
   const draft = findingsDraft(findings, progress.showFindings);
   const guide = signature ? `${progress.signed ? '签发已核对。' : '点报告上的「已签发」。'}${progress.orderSeen ? '送检联已核对。' : '再并排翻看送检联的检验项目。'}` : tutorial?.line;
   const sampleAction = tutorial ? '' : button('拿起检样', 'sample', 'reference-control');
@@ -332,16 +350,16 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const spreading = canSpread && progress.spreadAll === true;
   const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
   const headerActions = previousAction + spreadAction + sampleAction + phoneAction + draft.header;
-  if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, inspection)}`,
+  if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, activeSheet)}`,
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
-  if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread">${item.documents.map((page, index) => sheet(page, index, inspection)).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
+  if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread">${item.documents.map(activeSheet).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
     'documents-surface', '放回台面', 'spread', { headerActions });
   const tabs = item.documents.map(({ title, type }, position) => {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
     return `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
   }).join('');
   return deskSurface('桌面单据', `${draft.list}${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
-    <div class="doc-grid${cls('pair', other)}">${sheet(doc, index, inspection)}${other ? sheet(other, compare, inspection) : ''}</div>
+    <div class="doc-grid${cls('pair', other)}">${activeSheet(doc, index)}${other ? activeSheet(other, compare) : ''}</div>
     <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions });
 }
 
@@ -585,6 +603,7 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
 }
 
 export function egg(key, caseId) {
+  if (key === 'cat') return '';
   const extra = EASTER_EGGS[key];
   return dialog(extra.title, `<div class="egg-note"><p>${esc(extra.line)}</p>${caseId === extra.slots[1] ? `<p>${esc(extra.returnLine)}</p>` : ''}</div>`, 'egg-modal');
 }

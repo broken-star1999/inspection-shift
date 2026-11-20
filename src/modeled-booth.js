@@ -7,8 +7,9 @@ const baseFov = 38;
 const deskDepartureMs = 285;
 const deskArrivalMs = 368;
 const shutterTravelMs = 420;
+const catTravelMs = 900;
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null, shutterClosed: null };
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null, shutterClosed: null, catPassing: false };
 const paperStyles = {
   label: { width: 1.04, depth: .78, bright: '#ead2a0', shade: '#c4a875', edge: '#a67b52', turn: -.081 },
   report: { width: 1.22, depth: .97, bright: '#f2e4bb', shade: '#d4c4a0', edge: '#6e7955', turn: .048 },
@@ -243,6 +244,120 @@ function makeWindowShutter(window) {
   return { root, setCoverage };
 }
 
+function makeFactoryCat(shadowTexture) {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  root.visible = false;
+  const coat = (color) => new THREE.MeshStandardMaterial({ color, roughness: .91, flatShading: true });
+  const fur = coat('#bf7746');
+  const stripe = coat('#693b30');
+  const milk = coat('#efcda0');
+  const pink = coat('#b97662');
+  const eye = coat('#31372a');
+  const ellipsoid = new THREE.IcosahedronGeometry(.5, 1);
+  function tuft(parent, material, x, y, z, width, height, depth) {
+    const mesh = new THREE.Mesh(ellipsoid, material);
+    mesh.position.set(x, y, z);
+    mesh.scale.set(width, height, depth);
+    parent.add(mesh);
+    return mesh;
+  }
+
+  const shadow = contactShadow(shadowTexture, 1.43, .50, .44);
+  shadow.position.set(.04, .005, 0);
+  root.add(shadow);
+  tuft(body, fur, .045, .362, 0, .86, .337, .354);
+  tuft(body, fur, .310, .369, -.012, .383, .361, .333);
+  tuft(body, milk, -.235, .298, .072, .442, .214, .236);
+  for (const x of [-.105, .105, .307]) {
+    tuft(body, stripe, x, .420, .131, .096, .199, .091).rotation.z = -.44;
+  }
+
+  const head = new THREE.Group();
+  head.position.set(-.405, .483, .024);
+  head.rotation.y = .26;
+  body.add(head);
+  tuft(head, fur, 0, 0, 0, .316, .295, .301);
+  tuft(head, milk, -.108, -.048, .073, .214, .126, .209);
+  tuft(head, stripe, -.190, -.032, .064, .052, .053, .071);
+  tuft(head, stripe, -.009, .032, .131, .167, .055, .047).rotation.z = -.20;
+  tuft(head, eye, -.085, .038, .124, .053, .042, .043);
+  tuft(head, milk, -.098, .048, .145, .017, .015, .010);
+
+  const outline = new THREE.Shape();
+  outline.moveTo(-.073, -.021);
+  outline.lineTo(.071, -.023);
+  outline.lineTo(.012, .152);
+  outline.closePath();
+  const earShape = new THREE.ExtrudeGeometry(outline, { depth: .055, bevelEnabled: false, curveSegments: 1 });
+  earShape.translate(0, 0, -.0275);
+  const innerEar = new THREE.ShapeGeometry(outline);
+  for (const [x, z, tilt] of [[-.084, -.086, .14], [.048, .082, -.18]]) {
+    const ear = new THREE.Mesh(earShape, stripe);
+    ear.position.set(x, .092, z);
+    ear.rotation.z = tilt;
+    const inner = new THREE.Mesh(innerEar, pink);
+    inner.scale.set(.63, .68, 1);
+    inner.position.set(0, .008, .028);
+    ear.add(inner);
+    head.add(ear);
+  }
+
+  const legs = [];
+  for (const front of [true, false]) {
+    for (const near of [false, true]) {
+      const side = near ? 1 : -1;
+      const hip = new THREE.Group();
+      hip.position.set(front ? -.235 : .314, .305, side * .108);
+      body.add(hip);
+      tuft(hip, fur, 0, -.075, 0, front ? .105 : .146, .225, .116);
+      const ankle = new THREE.Group();
+      ankle.position.y = -.163;
+      hip.add(ankle);
+      tuft(ankle, front ? milk : fur, 0, -.046, 0, .072, .148, .078);
+      tuft(ankle, milk, -.040, -.104, .006, .140, .073, .094);
+      legs.push({ hip, ankle, front, offset: front === near ? 0 : Math.PI });
+    }
+  }
+
+  const tail = new THREE.Group();
+  tail.position.set(.366, .417, -.040);
+  body.add(tail);
+  const tailPath = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(.198, .091, -.025),
+    new THREE.Vector3(.399, .247, -.024),
+    new THREE.Vector3(.437, .387, .004),
+    new THREE.Vector3(.359, .441, .025),
+  ]);
+  const rings = 14;
+  const sides = 5;
+  const tailShape = new THREE.TubeGeometry(tailPath, rings, .044, sides, false);
+  const pigments = [];
+  for (let ring = 0; ring <= rings; ring++) {
+    const color = ring <= 2 || (ring >= 5 && ring <= 6) || ring >= 11 ? stripe.color : fur.color;
+    for (let vertex = 0; vertex <= sides; vertex++) pigments.push(color.r, color.g, color.b);
+  }
+  tailShape.setAttribute('color', new THREE.Float32BufferAttribute(pigments, 3));
+  tail.add(new THREE.Mesh(tailShape, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .92, flatShading: true })));
+  tuft(tail, stripe, .359, .441, .025, .079, .083, .084);
+
+  function setPose(stride) {
+    const lift = Math.sin(stride * 2);
+    body.position.y = .008 + .012 * lift;
+    body.rotation.z = .019 * lift;
+    tail.rotation.x = .19 * Math.sin(stride - .55);
+    tail.rotation.z = .054 * Math.sin(stride);
+    for (const { hip, ankle, front, offset } of legs) {
+      const cycle = stride + offset;
+      hip.rotation.z = .48 * Math.sin(cycle);
+      ankle.rotation.z = (front ? -.24 : .24) * (.49 + .45 * Math.cos(cycle));
+    }
+  }
+  return { root, setPose };
+}
+
 function buildPaper(doc, index, count, ownerDocument, shadowTexture, standalone) {
   const style = paperStyles[doc.type] ?? paperStyles.archive;
   const footprint = Math.min(1, 3 / count);
@@ -369,6 +484,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let shutterFrom = 0;
   let shutterTarget = 0;
   let shutterMotionAt = -Infinity;
+  let catMotionAt = -Infinity;
   let paperSet = [];
   let paperKey = null;
   let deskMotionAt = -Infinity;
@@ -478,6 +594,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   const staticBounds = Object.fromEntries(Object.entries(models.anchors ?? {}).map(([key, object]) =>
     [key, new THREE.Box3().setFromObject(object)]));
   const shadowTexture = createContactTexture();
+  const cat = makeFactoryCat(shadowTexture);
+  scene.add(cat.root);
   const stampBounds = new THREE.Box3();
   for (const key of ['pass', 'fail', 'review']) {
     if (staticBounds[key]) stampBounds.union(staticBounds[key]);
@@ -540,6 +658,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     if (destroyed) return;
     const before = frame;
     frame = { ...initialFrame, ...next };
+    if (frame.catPassing && !before.catPassing) catMotionAt = view.performance.now();
     const nextShutter = Number(frame.shutterClosed ?? shutterRestPhases.has(frame.phase));
     if (!shutterSettled || before.phase === 'home' || frame.phase === 'home' || reduced.matches) {
       shutterFrom = shutterTarget = nextShutter;
@@ -625,6 +744,19 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     });
     place(sample, sampleRest, sampleOnDesk && sample.material.map?.image, 24, .69);
     return active;
+  }
+
+  function placeCat(now) {
+    const resting = reduced.matches;
+    const elapsed = now - catMotionAt;
+    cat.root.visible = frame.catPassing && (resting || elapsed < catTravelMs);
+    if (!cat.root.visible) return false;
+    const progress = resting ? .56 : THREE.MathUtils.clamp(elapsed / catTravelMs, 0, 1);
+    const { x, y, z, width, height } = BOOTH_METRICS.window;
+    cat.root.position.set(x + THREE.MathUtils.lerp(width / 2 + .83, -width / 2 - .96, progress),
+      y - height / 2 + .075, z - .40 + .030 * Math.sin(Math.PI * progress));
+    cat.setPose(resting ? .65 : progress * Math.PI * 2 * 5);
+    return !resting;
   }
 
   function refreshLayout() {
@@ -719,6 +851,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     portrait.material.color.setScalar(closing ? .81 : .98 - day * .045);
 
     const deskMoving = placeDesk(now);
+    const catMoving = placeCat(now);
     if (reduced.matches) shutterFrom = shutterTarget;
     const coverage = shutterCoverage(now);
     shutter.setCoverage(coverage);
@@ -738,7 +871,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       ready = true;
       onReady?.();
     }
-    if (shutterMoving || deskMoving || (portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
+    if (shutterMoving || catMoving || deskMoving || (portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 
   function captureDeskProjection() {

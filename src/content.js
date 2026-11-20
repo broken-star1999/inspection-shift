@@ -174,9 +174,10 @@ export const HANDOFF = {
 export const EASTER_EGGS = {
   cat: {
     slots: [3, 15],
+    documents: { 3: 2, 15: 1 },
     title: '巡检临时工牌',
-    line: '岗位：巡检。工作范围：晒太阳。',
-    returnLine: '上面多了一行字：「因在岗睡觉，调夜班。」',
+    fields: [['岗位', '巡检'], ['工作范围', '晒太阳']],
+    returnLine: '因在岗睡觉，调夜班。',
   },
   umbrella: {
     slots: [16, 17],

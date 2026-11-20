@@ -93,6 +93,22 @@ test('loads legacy saves and accepts only usable values from a stored inspection
   });
 });
 
+test('restores a turned clipboard only for its current inspection and keeps the front comparison', () => {
+  const work = { ...freshInteraction(), doc: 1, compare: 0, clipboardBack: true };
+  const clipboardCase = { ...item, id: 15 };
+  const saved = captureInspectionProgress(clipboardCase, work, { panel: 'docs', scrollTop: 18 });
+  assert.equal(saved.workspace.clipboardBack, true);
+  const restored = restoreInspectionProgress(JSON.parse(JSON.stringify(saved)), clipboardCase, [], {});
+  assert.equal(restored.clipboardBack, true);
+  assert.equal(restored.doc, 1);
+  assert.equal(restored.compare, 0);
+  assert.equal(restored.workspace.scrollTop, 18);
+
+  const repurposed = { ...saved, caseId: item.id };
+  assert.equal(restoreInspectionProgress(repurposed, item, [], {}).clipboardBack, false);
+  assert.equal(restoreInspectionProgress(saved, clipboardCase, [], { guided: true }).clipboardBack, false);
+});
+
 test('restores the current and prior papers separately and falls back to the saved current pair', () => {
   const itemWithPrior = { id: 9, documents: [{ type: 'label' }, { type: 'report' }, { type: 'order' }] };
   const prior = { id: 5, documentCount: 2 };

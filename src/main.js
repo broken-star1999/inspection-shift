@@ -79,6 +79,8 @@ let modeledReady = false;
 let toastTimer;
 let arrivalTimer = 0;
 let arrival = null;
+let closingShotTimer = 0;
+let closingShot = null;
 let workspaceScrollTimer = 0;
 let drag;
 let toolDrag = null;
@@ -389,11 +391,14 @@ function setScene() {
   const sceneRun = approaching ? arrival.next : run;
   const visit = waiting ? null : activeVisit(sceneRun);
   const phase = approaching ? 'arriving' : waiting ? 'waiting' : (run?.phase ?? 'home');
-  const shutterClosed = !visit && (phase === 'summary' || phase === 'brief' || phase === 'ending');
+  const catPassing = closingShot === 'cat';
+  const shutterClosed = !visit && !catPassing && (phase === 'summary' || phase === 'brief' || phase === 'ending');
   if (shutterClosed && phase === 'summary' && root.dataset.shutter === 'open') playSound('shutter');
   root.dataset.shutter = shutterClosed ? 'closed' : 'open';
+  if (catPassing) root.dataset.catPassing = 'true';
+  else delete root.dataset.catPassing;
   const item = !waiting && !visit && sceneRun ? getCase(sceneRun) : null;
-  const npc = waiting ? (arrival.keepVisitor ? visitorAt(run) : null)
+  const npc = closingShot ? null : waiting ? (arrival.keepVisitor ? visitorAt(run) : null)
     : visit?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
   if (illustratedWorker && root.dataset.modeled !== 'true' && roomHost.dataset.sceneReady !== 'true') {
     if (npc) {
@@ -409,7 +414,7 @@ function setScene() {
   const delivered = visitDocument(visit, sceneRun);
   const documents = item?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
-  scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit), shutterClosed,
+  scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit), shutterClosed, catPassing,
     documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
@@ -437,7 +442,7 @@ function render(resumeScroll) {
   const visit = arrivalTimer ? null : activeVisit();
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
-  hud.innerHTML = run && !arrivalTimer && (run.phase !== 'summary' || visit)
+  hud.innerHTML = run && !arrivalTimer && !closingShot && (run.phase !== 'summary' || visit)
     ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous)
     : '';
   const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
@@ -453,8 +458,9 @@ function render(resumeScroll) {
   const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
   const delayOpen = screenLayer.querySelector('details.ending-delay')?.open;
   screenLayer.innerHTML = run
-    ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory, incomingCall))
+    ? (arrivalTimer || visit || closingShot ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory, incomingCall))
     : view.home(saved, endings, completedShifts.size);
+  if (closingShot === 'cat') screenLayer.innerHTML = '<span class="visually-hidden" role="status">窗外，厂猫走过了装货台。</span>';
   if (settingDownCloseSheet) {
     animateOnDesk(screenLayer.querySelector('.shift-close-sheet'), [
       { translate: '.8rem 1.35rem', rotate: '-.9deg', opacity: .65 },
@@ -538,7 +544,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (handoffDetailScroll !== undefined) modalLayer.querySelector('.handoff-detail-scroll')?.scrollTo(0, handoffDetailScroll);
   const blockingDialog = Boolean(markup && !surface);
   const screenCoversBooth = Boolean(screenLayer.firstElementChild) && run?.phase !== 'summary';
-  booth.inert = blockingDialog || !run || Boolean(arrivalTimer) || screenCoversBooth;
+  booth.inert = blockingDialog || !run || Boolean(arrivalTimer || closingShot) || screenCoversBooth;
   screenLayer.inert = Boolean(markup);
   if (!markup) {
     if (hadModal && modalOpener) {
@@ -586,7 +592,7 @@ function focusControl(scope, data) {
 function toast(message) {
   clearTimeout(toastTimer);
   toastBox.textContent = message;
-  toastTimer = setTimeout(() => { toastBox.textContent = ''; }, 2350);
+  toastTimer = message ? setTimeout(() => { toastBox.textContent = ''; }, 2350) : 0;
 }
 
 function workspaceContext() {
@@ -685,6 +691,7 @@ function openPanel(name, opener) {
 
 function enter(restore) {
   cancelArrivalPause();
+  cancelClosingShot();
   reviewingHistory = false;
   let workspace;
   let arrivalAction;
@@ -738,6 +745,7 @@ function reviewCompletedShift(id) {
   const completed = completedShifts.get(id);
   if (run || panel !== 'completed-shifts' || !completed) return;
   cancelArrivalPause();
+  cancelClosingShot();
   run = completed;
   reviewingHistory = true;
   interaction = freshInteraction();
@@ -755,6 +763,37 @@ function cancelArrivalPause() {
   clearTimeout(arrivalTimer);
   arrivalTimer = 0;
   arrival = null;
+}
+
+function cancelClosingShot() {
+  clearTimeout(closingShotTimer);
+  closingShotTimer = 0;
+  closingShot = null;
+}
+
+function finishShift() {
+  if (run?.phase !== 'handoff') return;
+  panel = null;
+  playSound('bell');
+  const ended = update({ type: 'finish' }, false);
+  if (ended) toast('');
+  if (!ended || !run.flags.cat) {
+    render();
+    return;
+  }
+  const still = reducedMotion.matches;
+  closingShot = 'cat';
+  render();
+  closingShotTimer = setTimeout(() => {
+    closingShot = 'shutter';
+    playSound('shutter');
+    render();
+    closingShotTimer = setTimeout(() => {
+      cancelClosingShot();
+      render();
+      focusControl(screenLayer, { act: 'archive' });
+    }, still ? 0 : 420);
+  }, still ? 650 : 1050);
 }
 
 function focusNextWindowAction() {
@@ -852,6 +891,7 @@ function chooseDoc(index, opener) {
     render();
     return;
   }
+  interaction.clipboardBack = false;
   if (panel === 'docs' && interaction.previousDoc !== null) {
     interaction.previousCurrentDoc = index;
   } else if (panel === 'docs' && interaction.compare !== null && !interaction.spreadAll) {
@@ -1255,6 +1295,7 @@ root.addEventListener('click', (event) => {
     case 'home': {
       const fromHistory = reviewingHistory;
       cancelArrivalPause();
+      cancelClosingShot();
       run = null;
       reviewingHistory = false;
       phoneReturn = null;
@@ -1413,6 +1454,19 @@ root.addEventListener('click', (event) => {
     case 'phone-select': setPhoneNumber(key); break;
     case 'phone-back': update({ type: 'explore', key: 'phone-back' }); break;
     case 'dial': dial(); break;
+    case 'clipboard-back': {
+      if (panel !== 'docs' || !EASTER_EGGS.cat.slots.includes(windowCase()?.id)) break;
+      interaction.clipboardBack = !interaction.clipboardBack;
+      if (interaction.clipboardBack) update({ type: 'explore', key: 'cat' }, false);
+      playSound('paper');
+      render(0);
+      const face = modalLayer.querySelector(interaction.clipboardBack ? '.clipboard-back-face' : '.sheet-clipboard');
+      animateOnDesk(face, [
+        { transform: 'perspective(620px) rotateY(-62deg)', opacity: .64 },
+        { transform: 'perspective(620px) rotateY(0deg)', opacity: 1 },
+      ], 235);
+      break;
+    }
     case 'egg': update({ type: 'explore', key }, false); interaction.egg = key; playSound('paper'); openPanel('egg', target); break;
     case 'handoff': openHandoff(target); break;
     case 'handoff-focus': selectHandoff(index, !target.closest('.handoff-board')); break;
@@ -1428,7 +1482,7 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'attach': update({ type: 'attach', key, value: !run.flags[`${key}Attached`] }); playSound('paper'); break;
-    case 'finish': panel = null; playSound('bell'); update({ type: 'finish' }); break;
+    case 'finish': finishShift(); break;
     case 'shade': if (event.target === target) closePanel(); break;
     case 'close': if (!panel && run?.phase === 'receipt') return; closePanel(); break;
   }

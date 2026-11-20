@@ -154,6 +154,37 @@
   background: #26342c url('/art/room.webp') center / cover no-repeat;
 }
 
+.booth-cat {
+  --window-cat-width: clamp(2.42rem, 7.2cqw, 4.5rem);
+  position: absolute;
+  z-index: 1;
+  inset: auto 0 clamp(.29rem, 2.5cqh, .81rem) 0;
+  display: none;
+  block-size: calc(var(--window-cat-width) * .68);
+  overflow: clip;
+  pointer-events: none;
+}
+#game[data-cat-passing='true']:not([data-modeled='true']) .booth-cat { display: block; }
+.booth-cat::before {
+  position: absolute;
+  inset: auto auto 0 62%;
+  inline-size: var(--window-cat-width);
+  block-size: 100%;
+  content: '';
+  clip-path: polygon(1% 52%, 7% 42%, 12% 30%, 11% 7%, 21% 24%, 33% 22%, 40% 9%, 43% 38%, 59% 33%, 72% 37%, 84% 29%, 89% 18%, 85% 10%, 79% 9%, 78% 1%, 89% 1%, 97% 13%, 99% 28%, 96% 40%, 88% 48%, 76% 55%, 73% 69%, 80% 88%, 77% 94%, 69% 92%, 64% 77%, 59% 70%, 53% 84%, 55% 98%, 46% 100%, 43% 89%, 48% 65%, 37% 62%, 29% 75%, 20% 93%, 10% 93%, 12% 87%, 22% 75%, 24% 63%, 16% 63%, 8% 59%);
+  background:
+    radial-gradient(ellipse at 18% 43%, #ffdb8a 0 2.5%, transparent 3%),
+    repeating-linear-gradient(107deg, transparent 0 16%, #6c422c7a 17% 20%, transparent 21% 29%),
+    linear-gradient(155deg, #cc9b66, #9c6240 59%, #69402d);
+}
+@media (prefers-reduced-motion: no-preference) {
+  #game[data-cat-passing='true']:not([data-modeled='true']) .booth-cat::before { animation: booth-cat-crosses .9s linear both; }
+}
+@keyframes booth-cat-crosses {
+  from { inset-inline-start: 100%; }
+  to { inset-inline-start: calc(-1 * var(--window-cat-width)); }
+}
+
 .booth-shutter {
   position: absolute;
   inset: 0;
