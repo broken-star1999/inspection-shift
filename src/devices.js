@@ -361,6 +361,17 @@ const effects = {
     rustle(ctx, time, { from: 1450, to: 510, duration: 0.035, level: 0.3 });
     tone(ctx, time, { from: 185, to: 96, duration: 0.044, level: 0.21 });
   },
+  clasp(ctx, time) {
+    rustle(ctx, time, { from: 1650, to: 2450, duration: 0.052, level: 0.2 });
+    tone(ctx, time + 0.024, { from: 740, to: 290, duration: 0.033, level: 0.23 });
+  },
+  tug(ctx, time) {
+    rustle(ctx, time, { from: 880, to: 490, duration: 0.087, level: 0.24, attack: 0.014 });
+  },
+  claspRelease(ctx, time) {
+    rustle(ctx, time, { from: 1880, to: 970, duration: 0.068, level: 0.27, attack: 0.008 });
+    tone(ctx, time + 0.037, { from: 460, to: 235, duration: 0.078, level: 0.18 });
+  },
   shutter(ctx, time) {
     rustle(ctx, time, { from: 920, to: 330, duration: 0.47, level: 0.43, attack: 0.06 });
     for (let step = 0; step < 5; step++) wood(ctx, time + 0.05 + step * 0.072, 0.22 + step * 0.04);

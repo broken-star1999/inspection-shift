@@ -77,6 +77,7 @@ let toastTimer;
 let arrivalTimer = 0;
 let workspaceScrollTimer = 0;
 let drag;
+let claspPull = null;
 let stampTouch = null;
 let suppressPaperClick = false;
 let modalOpener = null;
@@ -194,7 +195,7 @@ function resetGaze() {
 
 function followGaze(time) {
   gaze.frame = 0;
-  if (drag) { gaze.time = 0; return; }
+  if (drag || claspPull) { gaze.time = 0; return; }
   if (reducedMotion.matches || root.dataset.rotated === 'true') { resetGaze(); return; }
   const elapsed = gaze.time ? Math.min(time - gaze.time, 48) : 16;
   const blend = 1 - Math.exp(-elapsed / 82);
@@ -213,7 +214,7 @@ function followGaze(time) {
 function setGazeTarget(x, y) {
   gaze.targetX = Math.max(-1, Math.min(1, x));
   gaze.targetY = Math.max(-1, Math.min(1, y));
-  if (!gaze.frame && !drag) gaze.frame = requestAnimationFrame(followGaze);
+  if (!gaze.frame && !drag && !claspPull) gaze.frame = requestAnimationFrame(followGaze);
 }
 
 root.addEventListener('pointerdown', (event) => {
@@ -221,6 +222,7 @@ root.addEventListener('pointerdown', (event) => {
 }, { capture: true });
 
 root.addEventListener('pointermove', (event) => {
+  if (claspPull) return;
   if (drag && drag.pointerId !== event.pointerId) return;
   if (event.pointerType !== 'mouse') { if (!drag) resetGaze(); return; }
   if (!run || root.dataset.rotated === 'true' || reducedMotion.matches) return;
@@ -271,11 +273,13 @@ function viewedDocument() {
   return interaction.previousCurrentDoc ?? interaction.doc;
 }
 
-function heldObjects() {
+function heldObjects(item) {
   const sampleHeld = panel === 'sample';
   let heldDocuments = [];
   if (panel === 'docs') {
-    heldDocuments = interaction.previousDoc === null ? [interaction.doc, interaction.compare] : [viewedDocument()];
+    if (interaction.previousDoc !== null) heldDocuments = [viewedDocument()];
+    else if (interaction.spreadAll && item?.documents.length === 3) heldDocuments = [0, 1, 2];
+    else heldDocuments = [interaction.doc, interaction.compare];
   }
   if (sampleHeld && interaction.referenceDoc !== null) heldDocuments = [interaction.referenceDoc];
   return {
@@ -301,7 +305,7 @@ function setScene() {
   scenery?.setFrame({ day: run?.day ?? 0, phase, npc: npc || null,
     documents: item?.documents.map((doc) => ({ type: doc.type, title: doc.title, batch: doc.fields[0]?.[1] ?? item.batch })) ?? [],
     sample: appearance ? { ...interaction.inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
-    positions: interaction.positions, pencil: showPencil(item), ...heldObjects() });
+    positions: interaction.positions, pencil: showPencil(item), ...heldObjects(item) });
 }
 
 function render(resumeScroll) {
@@ -319,7 +323,7 @@ function render(resumeScroll) {
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
   hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous) : '';
   desktop.innerHTML = item ? view.desk(run, item, step, {
-    ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(),
+    ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(item),
   }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   showModeledScene();
@@ -407,7 +411,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
   } else if (surface && surface.dataset.surfacePage !== previousSurface?.dataset.surfacePage) {
     const oldPaper = surface.querySelector('.return-previous');
-    let sheet = surface.querySelector('.doc-grid.pair .sheet:last-child, .doc-grid:not(.pair) .sheet');
+    let sheet = surface.querySelector('.doc-grid:is(.pair, .spread) > .sheet:last-child, .doc-grid:not(.pair, .spread) > .sheet');
     if (oldPaper) {
       sheet = oldPaper.dataset.previousDoc !== previousPaper?.dataset.previousDoc
         ? oldPaper.querySelector('.sheet') : surface.querySelector('.return-current .sheet');
@@ -593,9 +597,10 @@ function chooseDoc(index, opener) {
   }
   if (panel === 'docs' && interaction.previousDoc !== null) {
     interaction.previousCurrentDoc = index;
-  } else if (panel === 'docs' && interaction.compare !== null) {
+  } else if (panel === 'docs' && interaction.compare !== null && !interaction.spreadAll) {
     if (index !== interaction.doc) interaction.compare = index;
   } else {
+    interaction.spreadAll = false;
     interaction.doc = index;
     interaction.compare = null;
     interaction.previousDoc = null;
@@ -646,6 +651,14 @@ function compareDocs() {
   readDocument(item.documents[interaction.compare]);
   playSound('slide');
   render();
+}
+
+function spreadDocuments() {
+  const item = windowCase();
+  if (panel !== 'docs' || run?.phase !== 'case' || item?.documents.length !== 3 || tutorialStep() || interaction.previousDoc !== null) return;
+  interaction.spreadAll = !interaction.spreadAll;
+  playSound('slide');
+  render(0);
 }
 
 function comparePrevious(opener) {
@@ -712,11 +725,21 @@ function checkSample(act) {
   if (!spec) return;
   const previousFilm = act === 'sample-film' && modalLayer.querySelector('.sample-film-sheet');
   const previousFold = previousFilm ? getComputedStyle(previousFilm).transform : null;
+  let sound = 'slide';
   switch (act) {
     case 'sample-flip': sample.back = !sample.back; break;
     case 'sample-film': sample.film = !sample.film; break;
-    case 'sample-clasp': sample.clasp = true; break;
-    case 'sample-tug': sample.tug = true; update({ type: 'tutorial', key: 'sample' }, false); break;
+    case 'sample-clasp':
+      if (!sample.back || sample.clasp || !sampleAppearance(spec).clasp) return;
+      sample.clasp = true;
+      sound = 'clasp';
+      break;
+    case 'sample-tug':
+      if (!sample.back || !sample.clasp || sample.tug || !sampleAppearance(spec).clasp) return;
+      sample.tug = true;
+      sound = ['loose', 'broken'].includes(spec.kind) ? 'claspRelease' : 'tug';
+      update({ type: 'tutorial', key: 'sample' }, false);
+      break;
     case 'sample-measure': sample.measured = !sample.measured; break;
     case 'sample-unpack': sample.unpacked = true; break;
     case 'sample-basis': {
@@ -727,7 +750,7 @@ function checkSample(act) {
       break;
     }
   }
-  playSound(act === 'sample-clasp' || act === 'sample-tug' ? 'click' : 'slide');
+  playSound(sound);
   render();
   const graphic = modalLayer.querySelector('.sample-stage .sample-object');
   if (act === 'sample-flip') {
@@ -877,6 +900,7 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'compare': compareDocs(); break;
+    case 'compare-all': spreadDocuments(); break;
     case 'previous-compare': comparePrevious(target); break;
     case 'previous-doc': {
       const previous = previousInspection();
@@ -1020,6 +1044,38 @@ document.addEventListener('keydown', (event) => {
   }
   if (!event.repeat && ['1', '2', '3'].includes(event.key)) stamp(['pass', 'fail', 'review'][Number(event.key) - 1]);
 });
+
+modalLayer.addEventListener('pointerdown', (event) => {
+  const handle = event.target.closest('[data-act="sample-tug"]');
+  if (!handle || event.button !== 0 || !event.isPrimary || claspPull) return;
+  const stage = handle.closest('.sample-stage');
+  const origin = stagePoint(root, event.clientX, event.clientY);
+  claspPull = { stage, origin, pointerId: event.pointerId, pulled: false };
+  handle.setPointerCapture(event.pointerId);
+});
+
+window.addEventListener('pointermove', (event) => {
+  if (!claspPull || event.pointerId !== claspPull.pointerId) return;
+  const { stage, origin } = claspPull;
+  const point = stagePoint(root, event.clientX, event.clientY);
+  const distance = Math.hypot(point.x - origin.x, point.y - origin.y);
+  claspPull.pulled ||= distance >= 9;
+  stage.style.setProperty('--clasp-pull', `${Math.min(18, distance).toFixed(1)}px`);
+});
+
+function endClaspPull(event) {
+  if (!claspPull || (event.type !== 'blur' && event.pointerId !== claspPull.pointerId)) return;
+  const { stage, pulled } = claspPull;
+  claspPull = null;
+  stage.style.removeProperty('--clasp-pull');
+  if (event.type === 'pointerup' && pulled && stage.isConnected) checkSample('sample-tug');
+  setGazeTarget(gaze.targetX, gaze.targetY);
+}
+
+window.addEventListener('pointerup', endClaspPull);
+window.addEventListener('pointercancel', endClaspPull);
+window.addEventListener('lostpointercapture', endClaspPull);
+window.addEventListener('blur', endClaspPull);
 
 desktop.addEventListener('pointerdown', (event) => {
   const paper = event.target.closest('[data-drag="paper"]');

@@ -38,6 +38,40 @@ test('reinspection preserves product identity and physical clues follow what was
   assert.equal(sampleAppearance(items.get(18).sample).clasp, false);
 });
 
+test('the two G-208 models share a shell and disclose the marking when turned over', () => {
+  const { sample, documents, variants } = items.get(8);
+  const alternate = { ...sample, ...variants[1].sample };
+  assert.deepEqual(sampleAppearance(alternate), sampleAppearance(sample));
+  assert.equal(sampleObservation(alternate, {}), sampleObservation(sample, {}));
+  assert.match(sampleObservation(sample, { back: true }), /内框刻字：型号 A/);
+  assert.match(sampleObservation(alternate, { back: true }), /内框刻字：型号 B/);
+  assert.ok(documents.find(({ type }) => type === 'order').fields.some(([name, value]) => name === '指定型号' && value === 'A'));
+});
+
+test('G-212 states the accepted pull behavior without distinguishing the samples before a tug', () => {
+  const { sample, documents, variants } = items.get(12);
+  const alternate = { ...sample, ...variants[1].sample };
+  assert.deepEqual(sampleAppearance(alternate), sampleAppearance(sample));
+  assert.ok(documents.find(({ type }) => type === 'order').fields.some(([name, value]) => name === '扣合要求' && /轻拉.*不得脱开/.test(value)));
+  for (const inspection of [{}, { back: true }, { back: true, clasp: true }]) {
+    assert.equal(sampleObservation(alternate, inspection), sampleObservation(sample, inspection));
+  }
+  assert.match(sampleObservation(sample, { back: true, clasp: true, tug: true }), /仍然闭合/);
+  assert.match(sampleObservation(alternate, { back: true, clasp: true, tug: true }), /弹了开/);
+});
+
+test('G-218 keeps the reported, measured and allowed thickness in distinct sources', () => {
+  const { documents, sample, title, response } = items.get(18);
+  const papers = Object.fromEntries(documents.map(({ type, fields }) => [type, Object.fromEntries(fields)]));
+  const observations = [title, sampleObservation(sample, {}), sampleObservation(sample, { back: true })].join(' ');
+  assert.doesNotMatch(observations, /薄件|偏薄|低于|超差|1\.80|2\.00/);
+  assert.doesNotMatch(response, /单上写|记下/);
+  assert.equal(sample.reading, '1.80 mm');
+  assert.equal(papers.report.厚度, '2.10 mm');
+  assert.equal(papers.order.厚度范围, '2.00–2.20 mm');
+  assert.equal(papers.report.厚度范围, undefined);
+});
+
 test('peeling film and pulling a rear clasp report only their respective observations', () => {
   const film = items.get(2).sample;
   const crack = items.get(4).sample;

@@ -106,21 +106,28 @@ function stampButtons(instructed, disabled = false, action = 'stamp') {
 
 const sampleRatios = { vented: 508 / 318, compact: 508 / 284, shield: 357 / 363, clip: 496 / 218, glove: 282 / 363, earmuff: 396 / 363 };
 
-function sampleArt(spec, appearance, back, measurement, control = '') {
+function claspArt(spec, inspection) {
+  const result = inspection.tug && ['loose', 'broken'].includes(spec.kind) ? spec.kind : '';
+  const state = inspection.tug ? (result ? 'released' : 'tested') : (inspection.clasp ? 'latched' : 'open');
+  return `<span class="sample-clasp-state" data-clasp="${state}"${result ? ` data-clasp-result="${result}"` : ''} aria-hidden="true"><span class="sample-clasp-strap"></span><span class="sample-clasp-hook"></span></span>`;
+}
+
+function sampleArt(spec, appearance, back, measurement, control = '', inspection = null) {
   const ratio = sampleRatios[appearance.key] ?? 720 / (back ? 384 : 382);
   const lensFilm = !back && (spec.kind === 'film' || spec.kind === 'crack');
   return `<span class="sample-object" style="--sample-ratio:${ratio}">
     <img src="${asset(`${appearance.stem}${back ? '-back' : ''}.webp`)}" alt="${appearance.name}${back ? '背面' : appearance.front ?? '正面'}" draggable="false">
     ${lensFilm ? `<span class="sample-film-sheet" aria-hidden="true">${spec.kind === 'film' ? '<span class="sample-film-trace"></span>' : ''}</span>` : ''}
     ${!back && spec.kind === 'crack' ? '<span class="sample-lens-crack" aria-hidden="true"></span>' : ''}
+    ${back && spec.model ? `<span class="model-mark" aria-hidden="true">${esc(spec.model)}</span>` : ''}
+    ${back && appearance.clasp && inspection ? claspArt(spec, inspection) : ''}
     ${control}</span>
     ${lensFilm ? '' : '<span class="sample-mark" aria-hidden="true"></span>'}
-    ${back && spec.model ? `<span class="model-mark">${esc(spec.model)}</span>` : ''}
     ${measurement ? `<span class="sample-gauge" aria-hidden="true"><span class="gauge-rail"></span><span class="gauge-jaw"></span><span class="gauge-display">${esc(spec.reading)}</span></span>` : ''}`;
 }
 
 function sampleHotspot(action, className, text, label, pressed = null) {
-  return `<button type="button" class="sample-hotspot ${className}" data-act="sample-${action}" aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
+  return `<button type="button" class="sample-hotspot ${className}" data-act="sample-${action}"${action === 'tug' ? ' data-drag="clasp"' : ''} aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
 }
 
 export function desk(run, item, tutorial, interaction) {
@@ -270,9 +277,14 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const previousAction = canCompare ? button(previous.sameLot
     ? (comparing ? '收起旧单' : '对照前次单据')
     : (comparing ? '收起原批' : '对照原批单据'), 'previous-compare', 'reference-control', active(comparing)) : '';
-  const headerActions = previousAction + sampleAction + draft.header;
+  const canSpread = !tutorial && !comparing && item.documents.length === 3;
+  const spreading = canSpread && progress.spreadAll === true;
+  const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
+  const headerActions = previousAction + spreadAction + sampleAction + draft.header;
   if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, inspection)}`,
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
+  if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread">${item.documents.map((page, index) => sheet(page, index, inspection)).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
+    'documents-surface', '放回台面', 'spread', { headerActions });
   const tabs = item.documents.map(({ title, type }, position) => {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
     return `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
@@ -307,7 +319,8 @@ export function sample(item, inspection, tutorial, progress) {
     ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查')
     : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件');
   return deskSurface(`${item.batch} · ${appearance.name}`, `${draft.list}${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
-    ${sampleArt(spec, appearance, back, measured && spec.reading, control)}${spec.reading ? sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '量规', measured ? '取出量规' : '放进量规', measured) : ''}</div><div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
+    ${sampleArt(spec, appearance, back, measured && spec.reading, control, inspection)}${spec.reading ? sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '量规', measured ? '取出量规' : '放进量规', measured) : ''}</div><div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
+    ${back && appearance.clasp && clasp && !tug ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}
     ${measured && spec.reading ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
     <div class="modal-actions">${packaged ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
     ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div></div>${referencePicker}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: referenceActions + draft.header });

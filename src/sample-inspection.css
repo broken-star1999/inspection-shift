@@ -39,6 +39,72 @@
   object-fit: fill;
 }
 
+.sample-visual .sample-object > .model-mark {
+  position: absolute;
+  z-index: 4;
+  inset: 46% auto auto 55%;
+  translate: -50% -50%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #e5ebef;
+  font: 850 clamp(.70rem, 2.2cqh, .9rem) / 1 var(--mono);
+  text-shadow: 1px 1px #253743, 0 0 2px #1b2538;
+  pointer-events: none;
+}
+.sample-visual[data-appearance='vented'] .sample-object > .model-mark {
+  inset: 29% auto auto 50%;
+  color: #ffe4ad;
+  text-shadow: 1px 1px #593318, 0 0 2px #714318;
+}
+
+.sample-stage:has(.sample-clasp-state) { padding-block: .25rem .83rem; }
+.sample-clasp-state {
+  --clasp-x: 80.3%;
+  --clasp-y: 60%;
+  --clasp-size: clamp(.62rem, 3.5cqh, .93rem);
+  --clasp-gap: 0px;
+  --clasp-angle: 0deg;
+  --clasp-edge: #a9b49c;
+  position: absolute;
+  z-index: 4;
+  inset: var(--clasp-y) auto auto var(--clasp-x);
+  inline-size: var(--clasp-size);
+  block-size: calc(var(--clasp-size) * .7);
+  translate: -50% -50%;
+  pointer-events: none;
+}
+.sample-stage[data-appearance='compact'] .sample-clasp-state { --clasp-x: 91.2%; --clasp-y: 65.7%; }
+.sample-stage[data-appearance='vented'] .sample-clasp-state { --clasp-x: 91.8%; --clasp-y: 52.5%; }
+.sample-clasp-state[data-clasp='open'] { --clasp-gap: .28rem; --clasp-angle: -16deg; }
+.sample-clasp-state[data-clasp='latched'] { --clasp-edge: #dcc594; }
+.sample-clasp-state[data-clasp='tested'] { --clasp-edge: #c3d6b8; }
+.sample-clasp-state[data-clasp='released'] { --clasp-gap: .64rem; --clasp-angle: 25deg; --clasp-edge: #e4a270; }
+.sample-clasp-strap,
+.sample-clasp-hook {
+  position: absolute;
+  display: block;
+  border: 1px solid var(--clasp-edge);
+  border-radius: .08rem;
+  box-shadow: 1px 1px #17241d;
+}
+.sample-clasp-strap {
+  inset: 28% auto auto 0;
+  inline-size: calc(var(--clasp-size) * .68 + var(--clasp-pull, 0px) * .5);
+  block-size: 46%;
+  background: #34443b;
+}
+.sample-clasp-hook {
+  inset: 0 auto auto 54%;
+  inline-size: 52%;
+  block-size: 100%;
+  transform-origin: 12% 48%;
+  transform: translateX(calc(var(--clasp-gap) + var(--clasp-pull, 0px) * .67)) rotate(var(--clasp-angle));
+  background: #24342e;
+}
+.sample-stage:has(.sample-clasp-state[data-clasp-result]) > .sample-mark { display: none; }
+.sample-findings .sample-clasp-feedback { font-weight: 740; }
+
 .sample-film-sheet,
 .sample-lens-crack {
   position: absolute;
@@ -147,6 +213,9 @@
 .sample-stage .sample-object .pack-handle { inset: 0 -3% auto auto; }
 .sample-stage .sample-object :is(.clasp-handle, .gauge-handle) { inset: auto -3% 0 auto; }
 .sample-stage.measured .sample-object .gauge-handle { inset-block-start: 0; inset-block-end: auto; }
+.sample-stage .sample-object > .clasp-handle { inset: auto -.9rem -.61rem auto; }
+.sample-stage .clasp-handle[data-drag='clasp'] { touch-action: none; cursor: grab; }
+.sample-stage .clasp-handle[data-drag='clasp']:active { cursor: grabbing; }
 
 .sample-stage .sample-hotspot:focus-visible {
   outline: 2px solid #ffe5ac;

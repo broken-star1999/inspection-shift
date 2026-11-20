@@ -142,6 +142,28 @@ test('preserves a sample reference and its return to papers while respecting gui
   assert.equal(resume.compare, 0);
 });
 
+test('restores three spread papers directly or on return from the sample', () => {
+  const sampleItem = { ...item, documents: [...item.documents, { type: 'order' }], sample: { kind: 'clip' } };
+  const work = {
+    ...freshInteraction(),
+    doc: 1,
+    compare: 0,
+    spreadAll: true,
+    referenceDoc: 2,
+    returnToDocs: true,
+  };
+  for (const panel of ['docs', 'sample']) {
+    const saved = JSON.parse(JSON.stringify(captureInspectionProgress(sampleItem, work, { panel, scrollTop: 19 })));
+    const resumed = restoreInspectionProgress(saved, sampleItem, [7], {});
+    assert.deepEqual(resumed.workspace, { panel, scrollTop: 19 });
+    assert.equal(resumed.spreadAll, true);
+    assert.equal(resumed.compare, 0);
+    assert.equal(restoreInspectionProgress(saved, sampleItem, [7], { guided: true }).spreadAll, false);
+    assert.equal(restoreInspectionProgress(saved, item, [7], {}).spreadAll, false);
+    assert.equal(restoreInspectionProgress(saved, { ...sampleItem, id: 8 }, [7], {}).spreadAll, false);
+  }
+});
+
 test('phone saves only its surface and cannot open during a receipt, visitor or different case', () => {
   const work = Object.assign(freshInteraction({ phoneNumber: '204', pinned: [5, 7] }), {
     doc: 1, compare: 0, referenceDoc: 0, returnToDocs: true, note: '已选依据',

@@ -1196,7 +1196,6 @@ button:disabled { opacity: .46; }
 .sample-mark { position: absolute; pointer-events: none; }
 .sample-visual[data-kind='line'] .sample-mark { inset: auto auto 29% 25%; inline-size: 14%; border-bottom: 2px solid #493c24; transform: rotate(8deg); }
 .sample-stage[data-kind='broken'].turned .sample-mark { inset: 57% 19% auto auto; inline-size: 11%; block-size: 10%; border-block-end: 2px dashed #ffc78a; transform: rotate(-14deg); }
-.sample-stage[data-kind='loose'].turned.pulled .sample-mark { inset: 48% 13% auto auto; inline-size: 1rem; block-size: 1rem; border-right: 3px solid #ffc78a; border-bottom: 3px solid #ffc78a; transform: rotate(-35deg) translate(.25rem,.2rem); }
 .sample-visual[data-kind='yellow']:not(.unpacked) .sample-mark {
   inset: 10% 8%;
   border: 2px solid #e1c47a;
@@ -1220,7 +1219,6 @@ button:disabled { opacity: .46; }
 .gauge-rail { position: absolute; inset: 18% 28% 18% 8%; background: repeating-linear-gradient(90deg, transparent 0 .45rem, #3a4b40 .45rem .51rem); }
 .gauge-jaw { position: absolute; inset: auto 66% 80% 23%; block-size: 186%; border-inline: 4px solid #a8b596; border-block-end: 4px solid #a8b596; }
 .gauge-display { position: absolute; inset: 8% 3% 8% auto; display: grid; place-items: center; padding-inline: .32rem; background: #c9d6a2; font: 850 clamp(.56rem, 1.35cqw, .83rem) / 1 var(--mono); }
-.model-mark { position: absolute; inset: auto 15% 22% auto; padding: .12em .35em; border: 1px solid #cbbd8f; background: #182a1e; color: #f4d5a5; font: 850 .85rem / 1 var(--mono); }
 
 .receipt-slip > b { display: block; margin: .24em 0 .18em; font: 870 1.86rem / 1.2 var(--mono); }
 .receipt-slip p { margin: .7rem 0 0; color: #715538; font-size: .91rem; }

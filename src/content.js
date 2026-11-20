@@ -179,7 +179,7 @@ export const DAYS = [
         sample: { kind: 'clear', appearance: 'vented', front: '视窗无伤。接口型号刻在框的内侧。', back: '内框刻字：型号 A。', model: 'A' },
         variants: [
           {},
-          { answer: 'fail', reason: '检样刻字 B，发货要求 A', response: '还真拿错了。库里左边那两格贴得太像。', sample: { kind: 'wrongModel', appearance: 'compact', front: '视窗无伤。接口型号刻在框的内侧。', back: '内框刻字：型号 B。', model: 'B' } },
+          { answer: 'fail', reason: '检样刻字 B，发货要求 A', response: '还真拿错了。库里左边那两格贴得太像。', sample: { kind: 'wrongModel', back: '内框刻字：型号 B。', model: 'B' } },
         ],
       },
     ],
@@ -212,7 +212,7 @@ export const DAYS = [
         id: 12, batch: 'G-212', npc: 'xu', title: '响了一声的卡扣',
         line: '这批扣子偏紧。压到头的时候响一声，你听听。',
         answer: 'pass', reason: '扣合后轻拉保持闭合', response: '行，我回去教他们怎么按，好多人按到一半就松手。',
-        documents: standard('G-212', 'R-083'),
+        documents: [label('G-212'), report('G-212', 'R-083'), order('G-212', [['检验项目', '外观、扣合'], ['扣合要求', '按合后轻拉，扣件不得脱开']])],
         sample: { kind: 'clear', appearance: 'compact', front: '镜片无伤，卡扣放开时张得比较大。', back: '按紧有一声咔哒。再轻拉，扣件仍然闭合。' },
         variants: [
           {},
@@ -273,11 +273,11 @@ export const DAYS = [
         documents: [label('无法识别', [['残留', '只剩空白底纸']], '防噪耳罩'), report('G-217', 'R-087', earmuffReport), order('G-217', earmuffChecks)], sample: earmuff,
       },
       {
-        id: 18, batch: 'G-218', npc: 'xu', title: '量出来的薄件',
+        id: 18, batch: 'G-218', npc: 'xu', title: '卡扣插片的厚度',
         line: '这盒颜色跟昨天的一样。你量一下这个地方。',
-        answer: 'fail', reason: '实测 1.80 mm，低于 2.00 mm', response: '这盒会滑出来。你单上写薄了，我带回装配二线。',
+        answer: 'fail', reason: '实测 1.80 mm，低于 2.00 mm', response: '这盒装上去会滑出来。我带回装配二线。',
         documents: [label('G-218', [], '卡扣插片'), report('G-218', 'R-088', [['厚度', '2.10 mm'], seal]), order('G-218', [['检查部位', '卡扣插片'], ['厚度范围', '2.00–2.20 mm']])],
-        sample: { kind: 'thin', appearance: 'clip', front: '一枚灰色插片。厚薄需要放进量规确认。', back: '插片两端平整。量规的下限标线是 2.00 mm。', reading: '1.80 mm' },
+        sample: { kind: 'thin', appearance: 'clip', front: '一枚灰色插片。厚薄需要放进量规确认。', back: '插片两端平整，中间的平面可以贴住量规。', reading: '1.80 mm' },
       },
       {
         id: 19, batch: 'G-219', npc: 'tang', title: '小唐自己对过的单',

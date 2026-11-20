@@ -118,7 +118,10 @@
 }
 .documents-surface .doc-grid > :first-child { border-radius: 1px 7px 2px 1px; }
 .documents-surface .doc-grid.pair > :last-child { border-radius: 5px 1px 3px 1px; }
-.documents-surface:not(:has(.doc-grid.pair, .return-comparison)) { inline-size: min(42cqw, 35rem); }
+.documents-surface:not(:has(.doc-grid.pair, .doc-grid.spread, .return-comparison)) { inline-size: min(42cqw, 35rem); }
+.documents-surface:has(.doc-grid.spread) { inline-size: min(78cqw, 64rem); }
+.doc-grid.spread { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.doc-grid.spread .sheet { min-inline-size: 0; border-radius: 1px 4px 2px 1px; }
 .desk-surface .field-value {
   padding: .06rem .12rem;
   border: 0;
@@ -454,7 +457,8 @@
 
 @container workstation (max-height: 540px) {
   .desk-surface { inset-block-end: .38rem; max-block-size: calc(100cqh - 3.5rem); }
-  .documents-surface:not(:has(.doc-grid.pair, .return-comparison)) { inline-size: min(60cqw, 36rem); }
+  .documents-surface:not(:has(.doc-grid.pair, .doc-grid.spread, .return-comparison)) { inline-size: min(60cqw, 36rem); }
+  .documents-surface:has(.doc-grid.spread) { inset-inline-start: .66rem; inline-size: calc(100cqw - 1.32rem); }
   .desk-surface-content { padding: .4rem .42rem .46rem; }
   .desk-surface-bar h2, .surface-close { font-size: .73rem; }
   .surface-close { min-block-size: 1.77rem; }
@@ -462,6 +466,15 @@
   .desk-surface .modal-actions { gap: .3rem; margin-block-start: .35rem; }
   .desk-surface .modal-actions .button, .desk-surface .doc-tabs .tab { min-block-size: 1.92rem; padding: .25rem .47rem; font-size: .75rem; }
   .desk-surface .doc-grid { gap: .43rem; }
+  .doc-grid.spread .sheet { padding: .39rem .47rem .52rem; }
+  .doc-grid.spread .sheet > h3 { margin-block: .15em .32em; }
+  .doc-grid.spread .fields > div {
+    grid-template-columns: minmax(3.48rem, .6fr) minmax(0, 1fr);
+    gap: .29rem;
+    padding-block: .2rem;
+  }
+  .doc-grid.spread .fields dt { font-size: .75rem; }
+  .doc-grid.spread .fields dd { font-size: .87rem; }
   .desk-surface .sample-inspector { gap: .45rem; }
   .sample-surface .sample-stage { min-block-size: 5.1rem; }
   .sample-workbench.with-reference { gap: .55rem; }
@@ -492,7 +505,7 @@
 
 @container workstation (max-width: 720px) {
   .desk-surface { inset-inline-start: .66rem; inline-size: min(72cqw, 43rem); }
-  .documents-surface:not(:has(.doc-grid.pair, .return-comparison)) { inline-size: min(72cqw, 36rem); }
+  .documents-surface:not(:has(.doc-grid.pair, .doc-grid.spread, .return-comparison)) { inline-size: min(72cqw, 36rem); }
   .documents-surface:has(.return-comparison) { inline-size: calc(100cqw - 1.32rem); }
   .sample-surface:has(.sample-workbench.with-reference) { inline-size: calc(100cqw - 1.32rem); }
   .archive-surface { inline-size: min(88cqw, 59rem); }

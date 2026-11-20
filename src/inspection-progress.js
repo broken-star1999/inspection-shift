@@ -61,6 +61,7 @@ function workspaceProgress(item, work, { prior, guided } = {}) {
     const compare = documentIndex(work.compare, count);
     workspace.doc = doc;
     workspace.compare = compare === doc ? null : compare;
+    if (!guided && count === 3 && work.spreadAll === true) workspace.spreadAll = true;
 
     const previousDoc = documentIndex(work.previousDoc, prior?.documentCount);
     const previousCurrentDoc = documentIndex(work.previousCurrentDoc, count);
@@ -82,6 +83,7 @@ export function freshInteraction(carry = {}) {
     ...caseProgress(null, null),
     doc: 0,
     compare: null,
+    spreadAll: false,
     previousDoc: null,
     previousCurrentDoc: null,
     referenceDoc: null,
