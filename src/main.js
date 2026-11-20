@@ -1,4 +1,4 @@
-import { createRun, dispatch, getCase, getDay, getEnding, getPreviousReceipt, archive, TUTORIAL, EVIDENCE } from './engine.js';
+import { createRun, createFollowingRun, dispatch, getCase, getDay, getEnding, getPreviousReceipt, archive, TUTORIAL, EVIDENCE } from './engine.js';
 import { EASTER_EGGS } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
@@ -16,6 +16,8 @@ import './sample-inspection.css';
 const root = document.querySelector('#game');
 const SAVE_KEY = 'nandu-inspection-save-v1';
 const COLLECTION_KEY = 'nandu-inspection-endings-v1';
+const COMPLETED_KEY = 'nandu-inspection-completed-v1';
+const ENDING_IDS = ['routine', 'trace', 'issue'];
 const ARRIVAL_PAUSE_MS = 1150;
 
 function readStorage(key) {
@@ -33,11 +35,41 @@ function validSave(value) {
     Array.isArray(value.records) && Array.isArray(value.seen) && Array.isArray(value.pending) && Array.isArray(value.phoneLog);
 }
 
+function readEndingIds() {
+  const collection = readStorage(COLLECTION_KEY);
+  return Array.isArray(collection) ? collection.filter((id) => ENDING_IDS.includes(id)) : [];
+}
+
+function readCompletedShifts() {
+  const history = readStorage(COMPLETED_KEY);
+  const shifts = new Map();
+  if (!Array.isArray(history)) return shifts;
+  for (const entry of history) {
+    if (!ENDING_IDS.includes(entry?.id) || shifts.has(entry.id) ||
+      entry.run?.phase !== 'ending' || !validSave(entry.run)) continue;
+    shifts.set(entry.id, entry.run);
+  }
+  return shifts;
+}
+
+function rememberCompletedShift(finished) {
+  const { inspectionProgress, ...snapshot } = finished;
+  const { id } = getEnding(snapshot);
+  const previous = new Map([...completedShifts, ...readCompletedShifts()]);
+  previous.delete(id);
+  completedShifts = new Map([[id, snapshot], ...previous]);
+  endings = [...new Set([...readEndingIds(), ...endings, ...completedShifts.keys()])];
+  writeStorage(COMPLETED_KEY, Array.from(completedShifts, ([id, run]) => ({ id, run })));
+  writeStorage(COLLECTION_KEY, endings);
+}
+
 let saved = readStorage(SAVE_KEY);
 if (!validSave(saved)) saved = null;
-const collection = readStorage(COLLECTION_KEY);
-let endings = Array.isArray(collection) ? collection.filter((key) => ['routine', 'trace', 'issue'].includes(key)) : [];
+let completedShifts = readCompletedShifts();
+let endings = [...new Set([...readEndingIds(), ...completedShifts.keys()])];
+if (saved?.phase === 'ending' && !completedShifts.has(getEnding(saved).id)) rememberCompletedShift(saved);
 let run = null;
+let reviewingHistory = false;
 let panel = null;
 let scenery;
 let modeledReady = false;
@@ -295,8 +327,8 @@ function render(resumeScroll) {
   const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
   const delayOpen = screenLayer.querySelector('details.ending-delay')?.open;
   screenLayer.innerHTML = run
-    ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null))
-    : view.home(saved, endings);
+    ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory))
+    : view.home(saved, endings, completedShifts.size);
   const delayDetails = screenLayer.querySelector('details.ending-delay');
   if (delayDetails && delayOpen) delayDetails.open = true;
   if (recapScroll !== undefined) screenLayer.querySelector('.summary-body, .ending-body')?.scrollTo(0, recapScroll);
@@ -325,6 +357,13 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'handoff' && run?.phase === 'handoff') markup = view.handoffPanel(run, EVIDENCE);
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
+  if (panel === 'completed-shifts' && !run) {
+    const entries = Array.from(completedShifts, ([id, completed]) => {
+      const { title, stamp } = getEnding(completed);
+      return { id, title, label: stamp };
+    });
+    markup = view.dialog('交班存根', view.completedShifts(entries), 'completed-shifts-modal');
+  }
   if (!markup && run?.phase === 'receipt' && !activeVisit()) markup = view.receipt(run.records.at(-1));
 
   const focused = document.activeElement;
@@ -410,7 +449,7 @@ function workspaceBody() {
 }
 
 function persistRun() {
-  if (!run) return;
+  if (!run || reviewingHistory) return;
   const body = workspaceBody();
   const context = body ? workspaceContext() : undefined;
   const workspace = context ? { ...context, panel, scrollTop: body.scrollTop } : undefined;
@@ -438,16 +477,12 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function update(action, redraw = true) {
-  if (!run) return false;
+  if (!run || reviewingHistory) return false;
   const before = run;
   run = dispatch(run, action);
   if (run !== before) {
     if (getCase(before)?.id !== getCase(run)?.id) interaction = freshInteraction(interaction);
-    if (run.phase === 'ending') {
-      const id = getEnding(run).id;
-      if (!endings.includes(id)) endings = [...endings, id];
-      writeStorage(COLLECTION_KEY, endings);
-    }
+    if (run.phase === 'ending') rememberCompletedShift(run);
   }
   if (redraw) render();
   return run !== before;
@@ -466,6 +501,7 @@ function openPanel(name, opener) {
 
 function enter(restore) {
   cancelArrivalPause();
+  reviewingHistory = false;
   let workspace;
   if (restore && saved) {
     const { inspectionProgress, ...savedRun } = saved;
@@ -473,7 +509,8 @@ function enter(restore) {
     const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
   } else {
-    run = createRun();
+    const lastCompleted = saved?.phase === 'ending' ? saved : completedShifts.values().next().value;
+    run = endings.length ? createFollowingRun(lastCompleted) : createRun();
     interaction = freshInteraction();
   }
   panel = workspace?.panel ?? null;
@@ -483,6 +520,21 @@ function enter(restore) {
   const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
   playSound(resumeSound ?? (run.phase === 'ending' ? 'paper' : 'shutter'));
   render(workspace?.scrollTop);
+}
+
+function reviewCompletedShift(id) {
+  const completed = completedShifts.get(id);
+  if (run || panel !== 'completed-shifts' || !completed) return;
+  cancelArrivalPause();
+  run = completed;
+  reviewingHistory = true;
+  interaction = freshInteraction();
+  panel = null;
+  modalOpener = null;
+  phoneArchiveOpener = null;
+  playSound('paper');
+  render();
+  focusControl(screenLayer, { act: 'archive' });
 }
 
 function cancelArrivalPause() {
@@ -739,12 +791,23 @@ root.addEventListener('click', (event) => {
   if (act.startsWith('sample-')) { checkSample(act); return; }
   switch (act) {
     case 'how': case 'rules': openPanel(act, target); break;
+    case 'completed-shifts': if (!run && completedShifts.size) openPanel('completed-shifts', target); break;
+    case 'review-shift': reviewCompletedShift(key); break;
     case 'sound': setMuted(!isMuted()); playSound('click'); render(); break;
     case 'fullscreen': void toggleFullscreen(root); break;
     case 'new': if (saved && saved.phase !== 'ending') openPanel('restart', target); else enter(false); break;
     case 'start': enter(false); break;
     case 'resume': enter(true); break;
-    case 'home': cancelArrivalPause(); run = null; resetGaze(); closePanel(); break;
+    case 'home': {
+      const fromHistory = reviewingHistory;
+      cancelArrivalPause();
+      run = null;
+      reviewingHistory = false;
+      resetGaze();
+      closePanel();
+      if (fromHistory) focusControl(screenLayer, { act: 'completed-shifts' });
+      break;
+    }
     case 'start-day': playSound('shutter'); update({ type: 'start-day' }); break;
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
     case 'next': {

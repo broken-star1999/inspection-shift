@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createRun, dispatch, getCase, getEnding, getPreviousReceipt, TUTORIAL } from '../src/engine.js';
+import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getPreviousReceipt, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
 }
 
-function untilHandoff(seed, { decisions = {}, inspect = (state) => state } = {}) {
-  let state = createRun(seed);
+function untilHandoff(seed, { decisions = {}, inspect = (state) => state, initialState = createRun(seed) } = {}) {
+  let state = initialState;
   while (state.phase !== 'handoff') {
     if (state.phase !== 'case' && state.event) state = act(state, 'ack-visit');
     else if (state.phase === 'brief') state = act(state, 'start-day');
@@ -39,6 +39,35 @@ test('first stamp stays at the desk until all four guided checks are done', () =
   assert.equal(Object.hasOwn(state.records[0], 'findings'), false);
   assert.equal(act(state, 'stamp', { value: 'pass' }), state);
   assert.equal(getCase(act(state, 'next')).id, 2);
+});
+
+test('an experienced week can begin without a previous snapshot and stamp the first case immediately', () => {
+  const seed = 'experienced replay';
+  const original = createRun(seed);
+  const experienced = createFollowingRun(null, seed);
+  assert.deepEqual(experienced, { ...original, tutorial: TUTORIAL.length });
+  const first = act(experienced, 'start-day');
+  assert.equal(getCase(first).id, 1);
+  const stamped = act(first, 'stamp', { value: 'pass' });
+  assert.equal(stamped.phase, 'receipt');
+  assert.equal(stamped.records[0].id, 1);
+});
+
+test('an experienced replay changes an otherwise identical specimen pair and keeps the new seed', () => {
+  const seed = 21;
+  const specimenVariants = (state) => archive(state).filter(({ id }) => id === 8 || id === 12).map(({ variant }) => variant);
+  const previous = act(untilHandoff(seed), 'finish');
+  const replay = createFollowingRun(previous, seed);
+  assert.equal(replay.seed, seed);
+  assert.deepEqual(replay.flags, createRun(seed).flags);
+  assert.ok([8, 12].includes(replay.variantOverride.caseId));
+  const played = untilHandoff(seed, { initialState: JSON.parse(JSON.stringify(replay)) });
+  const priorVersions = specimenVariants(previous);
+  const newVersions = specimenVariants(played);
+  assert.equal(newVersions.filter((variant, index) => variant !== priorVersions[index]).length, 1);
+  const next = createFollowingRun(act(played, 'finish'), seed);
+  assert.equal(next.variantOverride, undefined);
+  assert.deepEqual(specimenVariants(untilHandoff(seed, { initialState: next })), priorVersions);
 });
 
 test('a receipt preserves selected findings alongside the legacy note after reload', () => {
@@ -89,7 +118,7 @@ test('same seed remains playable after JSON restore and contains one of each pre
     ['5,6,7,8', '5,8,7,6'],
     ['9,10,11,12', '12,10,11,9'],
     ['13,15,14,16', '13,16,14,15'],
-    ['17,18,19,20'],
+    ['17,18,19,20', '17,19,18,20'],
   ];
   for (const [day, allowed] of allowedOrders.entries()) {
     const orders = weeks.map((week) => week.records.filter((record) => record.day === day).map(({ id }) => id).join(','));
@@ -98,17 +127,23 @@ test('same seed remains playable after JSON restore and contains one of each pre
 });
 
 test('a saved week without the schedule marker retains its original arrival order', () => {
-  let state = createRun(9);
+  const state = createRun(9);
   delete state.schedule;
-  state = act(state, 'start-day');
-  for (const { key } of TUTORIAL.slice(0, -1)) state = act(state, 'tutorial', { key });
-  while (state.records.length < 17) {
-    if (state.phase === 'case') state = act(state, 'stamp', { value: getCase(state).answer });
-    else if (state.phase === 'receipt') state = act(state, 'next');
-    else if (state.phase === 'brief') state = act(state, 'start-day');
-    else state = act(state, 'advance-day');
-  }
-  assert.deepEqual(state.records.map(({ id }) => id), Array.from({ length: 17 }, (_, index) => index + 1));
+  const week = untilHandoff(9, { initialState: state });
+  assert.deepEqual(week.records.map(({ id }) => id), Array.from({ length: 20 }, (_, index) => index + 1));
+});
+
+test('a version-one arrival schedule keeps its Friday cases across a midweek reload', () => {
+  const seed = 21;
+  const week = untilHandoff(seed, { initialState: { ...createRun(seed), schedule: 1 }, inspect: (state) => {
+    const restored = JSON.parse(JSON.stringify(state));
+    assert.equal(getCase(restored).id, getCase(state).id);
+    return restored;
+  } });
+  assert.deepEqual(week.records.map(({ id }) => id), [1,2,3,4,5,8,7,6,12,10,11,9,13,16,14,15,17,18,19,20]);
+  const current = untilHandoff(seed);
+  assert.deepEqual(current.records.slice(0, -4), week.records.slice(0, -4));
+  assert.deepEqual(current.records.slice(-4).map(({ id }) => id), [17,19,18,20]);
 });
 
 test('trace needs both archived records, the lab visit and submission at handoff', () => {

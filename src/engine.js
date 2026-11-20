@@ -8,7 +8,9 @@ const ARRIVAL_ORDERS = {
   1: [[5, 6, 7, 8], [5, 8, 7, 6]],
   2: [[9, 10, 11, 12], [12, 10, 11, 9]],
   3: [[13, 15, 14, 16], [13, 16, 14, 15]],
+  4: [[17, 18, 19, 20], [17, 19, 18, 20]],
 };
+const REPLAY_VARIANT_CASES = [8, 12].map((id) => CASE_BY_ID.get(id));
 const TUTORIAL_KEYS = ['label', 'report', 'signature', 'sample', 'stamp'];
 export const TUTORIAL = tutorialContent.map((step, index) => ({ ...step, key: TUTORIAL_KEYS[index] }));
 
@@ -42,7 +44,7 @@ export function createRun(seed) {
   const runSeed = makeSeed(seed);
   return {
     version: 1,
-    schedule: 1,
+    schedule: 2,
     phase: 'brief',
     day: 0,
     index: 0,
@@ -75,17 +77,36 @@ export function createRun(seed) {
   };
 }
 
+export function createFollowingRun(previousRun, seed) {
+  const run = { ...createRun(seed), tutorial: TUTORIAL.length };
+  if (!previousRun || REPLAY_VARIANT_CASES.some((item) => variantIndex(previousRun, item) !== variantIndex(run, item))) {
+    return run;
+  }
+  const item = REPLAY_VARIANT_CASES[seededChoice(run.seed, 130, REPLAY_VARIANT_CASES.length)];
+  const index = (variantIndex(run, item) + 1) % item.variants.length;
+  return { ...run, variantOverride: { caseId: item.id, index } };
+}
+
 export function getDay(state) {
   const day = DAYS[state.day];
   const options = ARRIVAL_ORDERS[state.day];
-  if (!options || state.schedule !== 1) return day ?? null;
+  const permitsShuffle = state.schedule === 2 || (state.schedule === 1 && state.day < 4);
+  if (!options || !permitsShuffle) return day ?? null;
   const order = options[seededChoice(state.seed, 120 + state.day, options.length)];
   return { ...day, cases: order.map((id) => CASE_BY_ID.get(id)) };
 }
 
+function variantIndex(state, item) {
+  const override = state.variantOverride;
+  if (override?.caseId === item.id && Number.isInteger(override.index) && override.index >= 0 && override.index < item.variants.length) {
+    return override.index;
+  }
+  return seededChoice(state.seed, item.id, item.variants.length);
+}
+
 function getVariant(state, item) {
   if (!item.variants?.length) return item;
-  const index = seededChoice(state.seed, item.id, item.variants.length);
+  const index = variantIndex(state, item);
   const variant = item.variants[index];
   return { ...item, ...variant, sample: { ...item.sample, ...variant.sample }, variant: index };
 }

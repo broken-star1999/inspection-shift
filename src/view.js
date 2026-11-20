@@ -48,16 +48,25 @@ export function shell() {
   </div>`;
 }
 
-export function home(save, endings) {
+export function home(save, endings, completedCount = 0) {
   let actions = button('接班', 'start', 'primary');
   if (save?.phase === 'ending') actions = button('查看上周交班', 'resume', 'primary') + button('接新一周', 'start');
   else if (save) actions = button(`继续值班 <small>${DAYS[save.day].title}</small>`, 'resume', 'primary') + button('重新接班', 'new');
+  const history = completedCount > 0
+    ? button(`<b>交班记录</b><span>${endings.length}／3</span>`, 'completed-shifts', 'home-history')
+    : endings.length ? `<span>交班记录 ${endings.length}／3</span>` : '<span>五个工作日</span>';
   return `<section class="home-screen"><div class="home-art" aria-hidden="true"></div><div class="home-body">
     <div class="title-paper"><div class="eyebrow">南渡防护用品厂 · 代班通知</div><h1>质检员<br><em>的一天</em></h1>
       <p class="title-description">在出货窗口替五天班。<br>看样，对单，然后签你的名字。</p>
       <div class="home-actions">${actions}</div>
     </div><div class="home-sign" aria-hidden="true"><i></i><span>发货抽检窗口</span><b>01</b></div></div>
-    <footer class="home-footer"><span>出货交接室</span>${endings.length ? `<span>交班记录 ${endings.length}／3</span>` : '<span>五个工作日</span>'}</footer></section>`;
+    <footer class="home-footer"><span>出货交接室</span>${history}</footer></section>`;
+}
+
+export function completedShifts(entries) {
+  return `<ul class="completed-shifts">${entries.map(({ id, title, label }) => `<li>
+    <button type="button" class="completed-shift" data-act="review-shift" data-key="${esc(id)}"><span><b>${esc(title)}</b>${label ? `<small>${esc(label)}</small>` : ''}</span><span class="completed-shift-arrow" aria-hidden="true">›</span></button>
+  </li>`).join('')}</ul>`;
 }
 
 export function wallShift(run) {
@@ -139,7 +148,7 @@ function endingReceipt(record, detail) {
   </button>`;
 }
 
-function endingView(ending) {
+function endingView(ending, reviewingHistory) {
   const { delayed, delayedReceipts, traceReceipt, traceDisposition } = ending;
   let note = esc(ending.detail);
   if (ending.issues.length) {
@@ -150,19 +159,19 @@ function endingView(ending) {
   }
   const trace = traceReceipt ? endingReceipt(traceReceipt, traceDisposition.replace(`${traceReceipt.batch} `, '')) : esc(traceDisposition);
   if (ending.id === 'trace' && trace) note = trace;
-  return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}">
-    <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · 交班存根</div><h2>${esc(ending.title)}</h2></header>
+  return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}${cls('ending-history', reviewingHistory)}">
+    <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · ${reviewingHistory ? '历史交班存根 <span class="ending-history-label">只读</span>' : '交班存根'}</div><h2>${esc(ending.title)}</h2></header>
     <div class="ending-body"><p>${esc(ending.line)}</p><div class="ending-note">${note}</div>
       ${ending.id === 'issue' && trace ? `<div class="ending-note">${trace}</div>` : ''}
       ${delayed.count ? `<details class="ending-delay"><summary><b>仍未放行</b> ${delayed.count} 批来件已符合放行要求</summary>
         <ul class="ending-receipts">${delayedReceipts.map((record) => `<li>${endingReceipt(record, statuses[record.status])}</li>`).join('')}</ul></details>` : ''}
       <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
     </div>
-    <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button('返回窗口', 'home')}${button('再接一周', 'new', 'primary')}</footer>
+    <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(reviewingHistory ? '返回首页' : '返回窗口', 'home')}${reviewingHistory ? '' : button('再接一周', 'new', 'primary')}</footer>
   </section></div>`;
 }
 
-export function overlay(run, ending) {
+export function overlay(run, ending, reviewingHistory = false) {
   const day = DAYS[run.day];
   if (run.phase === 'brief') return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(day.subtitle)}</h3><p>${esc(day.intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
   if (run.phase === 'summary') {
@@ -179,7 +188,7 @@ export function overlay(run, ending) {
     </section></div>`;
   }
   if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button('打电话', 'phone')}${button('交接', 'handoff', 'primary')}</div></section></div>`;
-  if (run.phase === 'ending') return endingView(ending);
+  if (run.phase === 'ending') return endingView(ending, reviewingHistory);
   return '';
 }
 
