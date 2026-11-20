@@ -267,6 +267,9 @@ function windowCase() {
 function filedSupportingPapers(query) {
   const term = query.trim().toLowerCase();
   const visits = Object.entries(EVIDENCE).filter(([key]) => run.flags[`${key}Document`]);
+  const recalls = run.records.filter((record) => record.recallReceipt).map((record) => [
+    `recall:${record.id}`, recallPaper(record, record.recallReceipt.day),
+  ]);
   const calls = run.phoneLog.filter((call) => call?.kind === 'incoming').map((call) => [
     `call:${call.incomingKey}`,
     {
@@ -275,7 +278,7 @@ function filedSupportingPapers(query) {
       fields: [['内线', call.number], ['接听', DAYS[call.day]?.title ?? '已登记'], ['通话内容', call.lines.join(' ')]],
     },
   ]);
-  return [...visits, ...calls].filter(([, doc]) =>
+  return [...visits, ...recalls, ...calls].filter(([, doc]) =>
     !term || [doc.title, ...doc.fields.flat(), doc.note].some((text) => text?.toLowerCase().includes(term)));
 }
 
@@ -329,7 +332,19 @@ function arrivalApproach(state) {
   return { npc: visitorAt(state), sampleFilename: item ? `${sampleAppearance(item.sample).stem}.webp` : null };
 }
 
-function visitDocument(visit) {
+function recallPaper(record, day) {
+  return {
+    type: 'archive', kind: 'recall', title: `收货方回执 · ${record.batch}`,
+    fields: [['批次', record.batch], ['原出货回执', `${DAYS[record.day]?.title ?? ''}开单`],
+      ['回签日', DAYS[day]?.title ?? '已登记'], ['处置', '暂停入库，召回已确认']],
+  };
+}
+
+function visitDocument(visit, state = run) {
+  if (visit?.kind === 'recall') {
+    const record = state.records.find(({ id }) => id === visit.caseId);
+    return record ? recallPaper(record, state.day) : null;
+  }
   return visit && EVIDENCE[visit.key];
 }
 
@@ -353,11 +368,12 @@ function setScene() {
   const inspection = approaching ? {} : interaction.inspection;
   const packed = item?.sample.kind === 'yellow' && !inspection.unpacked;
   const side = inspection.back && !packed ? '-back' : '';
-  const delivered = visitDocument(visit);
+  const delivered = visitDocument(visit, sceneRun);
   const documents = item?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
   scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit),
-    documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: visit ? '回访留底' : doc.fields[0]?.[1] ?? item.batch })),
+    documents: documents.map((doc) => ({ type: doc.type, title: doc.title,
+      batch: visit?.kind === 'recall' ? `${doc.fields[0][1]} · ${doc.fields[1][1]}` : visit ? '回访留底' : doc.fields[0]?.[1] ?? item.batch })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
     keepVisitor: arrival?.keepVisitor ?? false, approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined) });
@@ -369,7 +385,8 @@ function render(resumeScroll) {
   else delete root.dataset.arrivalStage;
   const incomingCall = incomingAtWindow();
   showRinging(incomingCall);
-  const waitMessage = arrival?.stage === 'approach' ? '窗口递件…' : arrival ? '等下一位…' : '';
+  const waitMessage = arrival?.stage === 'approach' ? '窗口递件…'
+    : arrival?.action?.type === 'receive-recall' ? '等收货方回执…' : arrival ? '等下一位…' : '';
   if (arrivalStatus.textContent !== waitMessage) arrivalStatus.textContent = waitMessage;
   status.innerHTML = run ? `<span>${getDay(run).title}</span><span>第 ${run.day + 1} 天 / 5</span>` : '<span>质检员的一天</span>';
   wallShift.innerHTML = run ? view.wallShift(run) : '';
@@ -384,7 +401,7 @@ function render(resumeScroll) {
   const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
   const previewVisit = preview ? activeVisit(preview) : null;
   const previewItem = preview && !previewVisit ? getCase(preview) : null;
-  const delivered = visitDocument(visit ?? previewVisit);
+  const delivered = visit ? visitDocument(visit) : visitDocument(previewVisit, preview);
   desktop.innerHTML = delivered ? view.visitSlip(delivered) : item ? view.desk(run, item, step, {
     ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(item),
   }) : previewItem ? view.desk(preview, previewItem, null, { ...freshInteraction(), stampBlocked: true }) : '';
@@ -542,7 +559,7 @@ function persistRun() {
   } : undefined;
   saved = {
     ...run,
-    ...(arrival ? { arrivalAction: arrival.type } : {}),
+    ...(arrival ? { arrivalAction: arrival.action } : {}),
     ...(run.phase === 'handoff' && correctionDraft ? { correctionDraft } : {}),
     inspectionProgress: captureInspectionProgress(getCase(run), interaction, workspace),
   };
@@ -633,7 +650,7 @@ function enter(restore) {
     pauseBeforeArrival(arrivalAction, next, true, true);
     return;
   }
-  if (correctionDraft) {
+  if (correctionDraft && !activeVisit()) {
     panel = 'archive';
     focusArchiveRow(correctionDraft.id);
     modalOpener = { act: correctionDraft.fromBoard ? 'handoff' : 'archive' };
@@ -682,9 +699,16 @@ function focusNextWindowAction() {
   });
 }
 
-function windowAdvance(type) {
-  if (!run || (type !== 'next' && type !== 'ack-visit')) return null;
-  const next = dispatch(run, { type });
+function windowAction(value) {
+  if (value === 'next' || value === 'ack-visit') return { type: value };
+  if (value?.type === 'receive-recall' && Number.isInteger(value.id)) return { type: value.type, id: value.id };
+  return null;
+}
+
+function windowAdvance(value) {
+  const action = windowAction(value);
+  if (!run || !action) return null;
+  const next = dispatch(run, action);
   return next !== run ? next : null;
 }
 
@@ -692,32 +716,42 @@ function needsArrival(next) {
   return next && (next.phase === 'case' || activeVisit(next));
 }
 
-function finishWindowAdvance(type, restoreFocus) {
-  const visit = type === 'ack-visit' ? activeVisit() : null;
-  if (!update({ type }, false)) return;
+function finishWindowAdvance(value, restoreFocus) {
+  const action = windowAction(value);
+  const visit = action?.type === 'ack-visit' ? activeVisit() : null;
+  if (!action || !update(action, false)) return;
   if (visit) {
     interaction.archiveFocus = visit.key;
     interaction.archiveQuery = '';
     interaction.archiveEditing = false;
-    toast('留底已收入交接簿');
+    if (visit.kind === 'recall') {
+      const confirmed = run.records.find(({ id }) => id === visit.caseId)?.status === 'recalled';
+      panel = 'handoff';
+      modalOpener = { act: 'handoff' };
+      if (!confirmed) toast('这份回执需要再核对');
+    } else toast('留底已收入交接簿');
   }
   render();
+  if (visit?.kind === 'recall') {
+    focusControl(modalLayer, { act: 'archive-receipt', i: String(visit.caseId) })?.scrollIntoView({ block: 'nearest' });
+    return;
+  }
   if (restoreFocus) focusNextWindowAction();
 }
 
-function pauseBeforeArrival(type, next, restoreFocus, resumed = false) {
+function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
   modalOpener = null;
   const npc = visitorAt(next);
   arrival = {
-    type, next, stage: 'waiting', keepVisitor: !resumed && npc !== null && npc === visitorAt(run),
+    action, next, stage: 'waiting', keepVisitor: !resumed && npc !== null && npc === visitorAt(run),
     approach: arrivalApproach(next),
   };
-  const duration = type === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
+  const duration = action === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
   arrivalTimer = setTimeout(() => {
     arrival.stage = 'approach';
     arrivalTimer = setTimeout(() => {
       cancelArrivalPause();
-      finishWindowAdvance(type, restoreFocus);
+      finishWindowAdvance(action, restoreFocus);
     }, ARRIVAL_APPROACH_MS);
     playSound('slide');
     render();
@@ -1090,15 +1124,18 @@ root.addEventListener('click', (event) => {
     case 'start-day': playSound('shutter'); update({ type: 'start-day' }); break;
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
     case 'next':
-    case 'event-next': {
-      const type = act === 'next' ? 'next' : 'ack-visit';
-      const next = !arrival && windowAdvance(type);
+    case 'event-next':
+    case 'receive-recall': {
+      const action = act === 'receive-recall' ? { type: act, id: index } : act === 'next' ? 'next' : 'ack-visit';
+      const next = !arrival && windowAdvance(action);
       if (!next) break;
+      captureCorrectionScroll();
       panel = null;
-      if (type === 'ack-visit') playSound('paper');
+      archiveReturn = null;
+      if (act !== 'next') playSound('paper');
       else if (needsArrival(next) || !getIncomingCall(next)) playSound('bell');
-      if (needsArrival(next)) pauseBeforeArrival(type, next, event.detail === 0);
-      else finishWindowAdvance(type, event.detail === 0);
+      if (needsArrival(next)) pauseBeforeArrival(action, next, event.detail === 0);
+      else finishWindowAdvance(action, event.detail === 0);
       break;
     }
     case 'doc': case 'reference-doc': if (run) chooseDoc(index, target); break;
@@ -1201,7 +1238,8 @@ root.addEventListener('click', (event) => {
         render();
         modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, 0);
         playSound('stamp');
-        toast('更正已留底');
+        const status = run.records.find(({ id }) => id === row.id)?.status;
+        if (status !== 'recallPending') toast('更正已留底');
       }
       break;
     }

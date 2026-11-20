@@ -6,6 +6,12 @@ function act(state, type, details) {
   return dispatch(state, { type, ...details });
 }
 
+function takeRecallReceipt(state, id) {
+  const delivered = act(state, 'receive-recall', { id });
+  assert.equal(delivered.event?.caseId, id);
+  return act(delivered, 'ack-visit');
+}
+
 function untilHandoff(seed, { decisions = {}, inspect = (state) => state, initialState = createRun(seed) } = {}) {
   let state = initialState;
   while (state.phase !== 'handoff') {
@@ -185,10 +191,14 @@ test('trace needs both archived records, the lab visit and submission at handoff
   assert.equal(getEnding(state).id, 'trace');
   const findings = [{ key: 'trace:source', source: 'R-071 实验室原件', text: '样品来源 · 试样 S-019' }];
   const corrected = act(state, 'recheck', { id: 7, value: 'review', findings });
+  assert.match(getEnding(corrected).traceDisposition, /等待收货方确认/);
   const tracedCorrection = getEnding(act(corrected, 'finish'));
   assert.equal(tracedCorrection.id, 'trace');
   assert.equal(tracedCorrection.traceReceipt.status, 'recalled');
   assert.deepEqual(tracedCorrection.traceReceipt.amendments.at(-1).findings, findings);
+  const confirmedTrace = getEnding(act(takeRecallReceipt(corrected, 7), 'finish'));
+  assert.deepEqual(confirmedTrace.traceReceipt.recallReceipt, { day: 4, amendmentIndex: 0 });
+  assert.deepEqual(confirmedTrace.confirmedRecalls, []);
   state = act(state, 'finish');
   assert.equal(state.phase, 'ending');
   assert.equal(state.records.find(({ id }) => id === 7).status, 'recalled');
@@ -302,15 +312,95 @@ test('a corrected decision removes the released batch from the handoff delay', (
   assert.deepEqual(getEnding(act(state, 'finish')).delayed, { count: 1, batches: ['G-202'] });
 });
 
+test('an unconfirmed recall leaves bad freight unresolved and reports sound freight separately', () => {
+  const week = untilHandoff(21, { decisions: { 4: 'pass' } });
+  const requested = act(act(week, 'recheck', { id: 4, value: 'review' }), 'recheck', { id: 1, value: 'fail' });
+  const ending = getEnding(act(requested, 'finish'));
+  assert.equal(ending.id, 'issue');
+  assert.deepEqual(ending.issues.map(({ id }) => id), [4]);
+  assert.deepEqual(ending.pendingRecalls.map(({ id }) => id), [1, 4]);
+  assert.deepEqual(ending.confirmedRecalls, []);
+  assert.deepEqual(ending.delayedReceipts, []);
+  assert.match(ending.detail, /G-204 · 召回待确认/);
+  assert.equal(act(requested, 'receive-recall', { id: 15 }), requested);
+  assert.equal(act(requested, 'ack-visit'), requested);
+
+  const atWindow = act(requested, 'receive-recall', { id: 4 });
+  assert.equal(atWindow.event.key, 'recall:4');
+  assert.equal(atWindow.event.kind, 'recall');
+  assert.match(atWindow.event.line, /G-204/);
+  assert.equal(atWindow.records, requested.records);
+  assert.equal(act(atWindow, 'receive-recall', { id: 1 }), atWindow);
+  assert.equal(act(atWindow, 'finish'), atWindow);
+  const received = act(JSON.parse(JSON.stringify(atWindow)), 'ack-visit');
+  assert.deepEqual(received.flags, requested.flags);
+  assert.deepEqual(received.events, []);
+  assert.equal(act(received, 'ack-visit'), received);
+  const closed = getEnding(act(received, 'finish'));
+  assert.equal(closed.id, 'routine');
+  assert.deepEqual(closed.pendingRecalls.map(({ id }) => id), [1]);
+  assert.deepEqual(closed.confirmedRecalls.map(({ id, recallReceipt }) => [id, recallReceipt]),
+    [[4, { day: 4, amendmentIndex: 0 }]]);
+  assert.equal(closed.confirmedRecalls[0].amendments[0].status, 'recallPending');
+  assert.equal(received.records.find(({ id }) => id === 15).status, 'returned');
+});
+
+test('canceling an offsite recall keeps shipping history and invalidates the previous pickup', () => {
+  const week = untilHandoff(21, { decisions: { 4: 'pass' } });
+  const requested = act(week, 'recheck', { id: 4, value: 'review' });
+  const waiting = act(requested, 'receive-recall', { id: 4 });
+  const canceled = act(waiting, 'recheck', { id: 4, value: 'pass' });
+  assert.equal(canceled.records.find(({ id }) => id === 4).status, 'shipped');
+  assert.deepEqual(getEnding(canceled).pendingRecalls, []);
+  assert.deepEqual(getEnding(canceled).issues.map(({ id }) => id), [4]);
+
+  const reopened = act(canceled, 'recheck', { id: 4, value: 'fail' });
+  const stale = act(reopened, 'ack-visit');
+  const row = stale.records.find(({ id }) => id === 4);
+  assert.equal(stale.event, null);
+  assert.equal(row.status, 'recallPending');
+  assert.equal(row.recallReceipt, undefined);
+  const taken = takeRecallReceipt(stale, 4);
+  assert.deepEqual(taken.records.find(({ id }) => id === 4).recallReceipt, { day: 4, amendmentIndex: 2 });
+});
+
+test('accepting a signed supplement supersedes an outstanding request on its historical lot', () => {
+  const week = untilHandoff(21, { decisions: { 5: 'pass', 9: 'review' } });
+  const requested = act(week, 'recheck', { id: 5, value: 'review' });
+  const waiting = act(requested, 'receive-recall', { id: 5 });
+  const accepted = act(waiting, 'recheck', { id: 9, value: 'pass' });
+  const historical = archive(accepted, 'G-205').find(({ id }) => id === 5);
+  assert.equal(historical.latestReceipt.status, 'shipped');
+  assert.deepEqual(getEnding(accepted).pendingRecalls, []);
+  const taken = act(accepted, 'ack-visit');
+  assert.equal(taken.event, null);
+  assert.equal(taken.records.find(({ id }) => id === 5).recallReceipt, undefined);
+  assert.equal(act(taken, 'receive-recall', { id: 5 }), taken);
+  assert.equal(getEnding(act(taken, 'finish')).id, 'routine');
+});
+
+test('old recalled shipments stay confirmed without a newly invented confirmation receipt', () => {
+  const week = untilHandoff(21, { decisions: { 4: 'pass' } });
+  const legacy = JSON.parse(JSON.stringify(act(week, 'recheck', { id: 4, value: 'review' })));
+  const record = legacy.records.find(({ id }) => id === 4);
+  record.status = 'recalled';
+  record.amendments[0].status = 'recalled';
+  assert.equal(act(legacy, 'receive-recall', { id: 4 }), legacy);
+  const ending = getEnding(act(legacy, 'finish'));
+  assert.equal(ending.id, 'routine');
+  assert.deepEqual(ending.pendingRecalls, []);
+  assert.deepEqual(ending.confirmedRecalls, []);
+});
+
 test('each Friday amendment preserves its own findings alongside the original and legacy entries', () => {
   let firstCase = act(createRun(21), 'start-day');
   for (const { key } of TUTORIAL.slice(0, -1)) firstCase = act(firstCase, 'tutorial', { key });
   const firstFindings = [{ key: 'doc:0:0', source: '外箱标签', text: '批号 · G-201' }];
   const initialState = act(firstCase, 'stamp', { value: 'pass', findings: firstFindings, note: '初查已签发' });
   const week = untilHandoff(21, { initialState });
-  const legacy = act(week, 'recheck', { id: 1, value: 'review', findings: [{ key: '', text: '忽略空键' }] });
+  const legacy = takeRecallReceipt(act(week, 'recheck', { id: 1, value: 'review', findings: [{ key: '', text: '忽略空键' }] }), 1);
   assert.deepEqual(legacy.records[0].amendments, [
-    { from: 'pass', to: 'review', status: 'recalled', previousStatus: 'shipped', day: 4 },
+    { from: 'pass', to: 'review', status: 'recallPending', previousStatus: 'shipped', day: 4 },
   ]);
 
   const firstAmendment = [{ key: ' doc:1:1 ', source: ' 检验报告 ', text: ' 报告编号 · R-061 ' }];
@@ -341,7 +431,7 @@ test('each Friday amendment preserves its own findings alongside the original an
 
 test('recalling an accepted supplement reports the current receipt until the lot is released again', () => {
   const week = untilHandoff(21);
-  const recalled = act(week, 'recheck', { id: 9, value: 'review' });
+  const recalled = takeRecallReceipt(act(week, 'recheck', { id: 9, value: 'review' }), 9);
   const finished = act(recalled, 'finish');
   const ending = getEnding(finished);
   const active = finished.records.find(({ id }) => id === 9);
@@ -359,8 +449,9 @@ test('recalling an accepted supplement reports the current receipt until the lot
 
 test('a second non-pass amendment keeps an accepted supplement in recall with a Friday history', () => {
   const week = untilHandoff(21, { decisions: { 20: 'review' } });
-  const recalled = act(week, 'recheck', { id: 9, value: 'review' });
-  const revised = act(JSON.parse(JSON.stringify(recalled)), 'recheck', { id: 9, value: 'fail' });
+  const requested = act(week, 'recheck', { id: 9, value: 'review' });
+  const amended = act(JSON.parse(JSON.stringify(requested)), 'recheck', { id: 9, value: 'fail' });
+  const revised = takeRecallReceipt(amended, 9);
   const original = archive(revised, 'G-205').find(({ id }) => id === 5);
   const supplement = original.latestReceipt;
   assert.equal(original.record.status, 'held');
@@ -368,9 +459,10 @@ test('a second non-pass amendment keeps an accepted supplement in recall with a 
   assert.equal(supplement.day, 2);
   assert.equal(supplement.decision, 'fail');
   assert.equal(supplement.status, 'recalled');
+  assert.deepEqual(supplement.recallReceipt, { day: 4, amendmentIndex: 0 });
   assert.deepEqual(supplement.amendments, [
-    { from: 'pass', to: 'review', previousStatus: 'shipped', status: 'recalled', day: 4 },
-    { from: 'review', to: 'fail', previousStatus: 'recalled', status: 'recalled', day: 4 },
+    { from: 'pass', to: 'review', previousStatus: 'shipped', status: 'recallPending', day: 4 },
+    { from: 'review', to: 'fail', previousStatus: 'recallPending', status: 'recallPending', day: 4 },
   ]);
   assert.deepEqual(getEnding(act(revised, 'finish')).delayedReceipts, [supplement, revised.records.at(-1)]);
 
@@ -390,6 +482,7 @@ test('newly signed proof clears a premature release, while G-204 is tracked sepa
   assert.equal(getEnding(state).id, 'issue');
   assert.deepEqual(getEnding(state).issues.map(({ id }) => id), [4]);
   state = act(state, 'recheck', { id: 4, value: 'review' });
+  state = takeRecallReceipt(state, 4);
   const revised = state.records.find(({ id }) => id === 4);
   assert.equal(revised.original, 'pass');
   assert.equal(revised.status, 'recalled');
@@ -443,7 +536,7 @@ test('a first acceptance at handoff keeps the offsite lot shipped, and a later r
   assert.deepEqual(original.latestReceipt.amendments.at(-1).findings, findings);
   assert.deepEqual(getEnding(accepted).issues, []);
 
-  const recalled = act(accepted, 'recheck', { id: 9, value: 'review' });
+  const recalled = takeRecallReceipt(act(accepted, 'recheck', { id: 9, value: 'review' }), 9);
   const requeued = act(JSON.parse(JSON.stringify(recalled)), 'recheck', { id: 9, value: 'pass' });
   assert.equal(archive(requeued, 'G-205').find(({ id }) => id === 5).latestReceipt.status, 'shipping');
   assert.equal(restoreRun(requeued), requeued);
@@ -487,7 +580,7 @@ test('an accepted same-lot receipt owns the disposition and preserves the first 
   assert.equal(original.latestReceipt.status, 'shipped');
   assert.equal(act(state, 'recheck', { id: 5, value: 'review' }), state);
 
-  state = act(state, 'recheck', { id: 9, value: 'review' });
+  state = takeRecallReceipt(act(state, 'recheck', { id: 9, value: 'review' }), 9);
   const restored = JSON.parse(JSON.stringify(state));
   const historical = archive(restored, 'G-205').find(({ id }) => id === 5);
   assert.deepEqual(historical.record, original.record);
@@ -502,7 +595,7 @@ test('a follow-up that was never accepted leaves a prematurely shipped lot actio
   state = { ...state, records: state.records.map((record) => record.id === 5 ? { ...record, verifiedBy: 9 } : record) };
   assert.equal(archive(state, 'G-205').find(({ id }) => id === 5).latestReceipt, null);
   assert.deepEqual(getEnding(state).issues.map(({ id }) => id), [5]);
-  const corrected = act(state, 'recheck', { id: 5, value: 'review' });
+  const corrected = takeRecallReceipt(act(state, 'recheck', { id: 5, value: 'review' }), 5);
   assert.equal(corrected.records.find(({ id }) => id === 5).status, 'recalled');
   assert.equal(getEnding(act(corrected, 'finish')).id, 'routine');
 });
@@ -512,7 +605,7 @@ test('a new sample from the factory remainder cannot replace the receipt for shi
   state = { ...state, records: state.records.map((record) => record.id === 4 ? { ...record, verifiedBy: 15 } : record) };
   assert.equal(archive(state, 'G-204').find(({ id }) => id === 4).latestReceipt, null);
   assert.deepEqual(getEnding(state).issues.map(({ id }) => id), [4]);
-  const corrected = act(state, 'recheck', { id: 4, value: 'review' });
+  const corrected = takeRecallReceipt(act(state, 'recheck', { id: 4, value: 'review' }), 4);
   assert.equal(corrected.records.find(({ id }) => id === 4).status, 'recalled');
   assert.equal(corrected.records.find(({ id }) => id === 15).status, 'returned');
 });

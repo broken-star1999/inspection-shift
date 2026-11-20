@@ -220,7 +220,9 @@ function queueVisit(state, key) {
 function acknowledgeVisit(state) {
   const [visit, ...events] = activeVisits(state);
   if (!visit) return state;
-  const accepted = setFlags({ ...state, event: events[0] ?? null, events }, { [`${visit.key}Document`]: true });
+  const afterVisit = { ...state, event: events[0] ?? null, events };
+  if (visit.kind === 'recall') return acknowledgeRecall(afterVisit, visit);
+  const accepted = setFlags(afterVisit, { [`${visit.key}Document`]: true });
   return !events.length && accepted.phase === 'case' ? startCase(accepted, accepted.index) : accepted;
 }
 
@@ -269,9 +271,13 @@ function confirmFollowup(records, record) {
   return previous ? updateRecord(records, previous.id, { verifiedBy: record.id }) : records;
 }
 
+function isOffsite(status) {
+  return status === 'shipped' || status === 'recallPending';
+}
+
 function disposition(records, item, decision) {
   if (decision !== 'pass') return decision === 'fail' ? 'returned' : 'held';
-  if (item.answer === 'pass' && !hasAcceptedProof(item) && previousSameLot(records, item)?.status === 'shipped') {
+  if (item.answer === 'pass' && !hasAcceptedProof(item) && isOffsite(previousSameLot(records, item)?.status)) {
     return 'shipped';
   }
   return 'shipping';
@@ -304,12 +310,18 @@ function stamp(state, action) {
   return { ...state, phase: 'receipt', records: confirmFollowup([...state.records, record], record) };
 }
 
+function amendedDisposition(records, record, decision) {
+  if (decision !== 'pass' && record.status === 'shipped') return 'recallPending';
+  if (record.status === 'recallPending') return decision === 'pass' ? 'shipped' : 'recallPending';
+  if (decision !== 'pass' && record.status === 'recalled') return 'recalled';
+  return disposition(records, record, decision);
+}
+
 function recheck(state, action) {
   if (!DECISIONS.includes(action.value)) return state;
   const record = getRecord(state, Number(action.id));
   if (!record || action.value === record.decision || findVerifiedReceipt(state.records, record)) return state;
-  const requiresRecall = record.status === 'shipped' || record.status === 'recalled';
-  const status = requiresRecall && action.value !== 'pass' ? 'recalled' : disposition(state.records, record, action.value);
+  const status = amendedDisposition(state.records, record, action.value);
   const findings = normalizeFindings(action.findings);
   const amendment = {
     from: record.decision, to: action.value, status, previousStatus: record.status, day: state.day,
@@ -322,6 +334,41 @@ function recheck(state, action) {
     amendments: [...record.amendments, amendment],
   };
   return { ...state, records: confirmFollowup(updateRecord(state.records, record.id, revised), revised) };
+}
+
+function pendingRecall(state, id) {
+  const record = state.phase === 'handoff' ? getRecord(state, Number(id)) : null;
+  return record?.status === 'recallPending' && !findVerifiedReceipt(state.records, record) ? record : null;
+}
+
+function recallRequestIndex(record) {
+  for (let index = record.amendments.length - 1; index >= 0; index--) {
+    const { previousStatus, status } = record.amendments[index];
+    if (previousStatus === 'shipped' && status === 'recallPending') return index;
+  }
+  return -1;
+}
+
+function receiveRecall(state, action) {
+  if (activeVisits(state).length) return state;
+  const record = pendingRecall(state, action.id);
+  if (!record) return state;
+  const amendmentIndex = recallRequestIndex(record);
+  if (amendmentIndex < 0) return state;
+  const visit = {
+    kind: 'recall', key: `recall:${record.id}`, caseId: record.id, amendmentIndex,
+    npc: 'luo', title: '收货方回执', line: `收货那边回单了。${record.batch} 的签收联在这儿，你对一下批号。`,
+  };
+  return { ...state, event: visit, events: [visit] };
+}
+
+function acknowledgeRecall(state, visit) {
+  const record = pendingRecall(state, visit.caseId);
+  if (!record || visit.key !== `recall:${record.id}`) return state;
+  const amendmentIndex = recallRequestIndex(record);
+  if (amendmentIndex < 0 || amendmentIndex !== visit.amendmentIndex) return state;
+  const recallReceipt = { day: state.day, amendmentIndex };
+  return { ...state, records: updateRecord(state.records, record.id, { status: 'recalled', recallReceipt }) };
 }
 
 function isIncomingKey(key) {
@@ -461,7 +508,7 @@ function finish(state) {
   const record = getRecord(state, 7);
   let records = ship(state.records);
   if (state.flags.traceAttached && record) {
-    const status = record.status === 'shipped' || record.status === 'recalled' ? 'recalled' : 'held';
+    const status = isOffsite(record.status) || record.status === 'recalled' ? 'recalled' : 'held';
     records = updateRecord(records, 7, { status, traceDisposition: status });
   }
   return { ...state, phase: 'ending', records, event: null, events: [], incomingCalls: [], ringbackArmed: false };
@@ -499,6 +546,8 @@ export function dispatch(state, action) {
       return explore(state, action.key);
     case 'recheck':
       return state.phase === 'handoff' ? recheck(state, action) : state;
+    case 'receive-recall':
+      return receiveRecall(state, action);
     case 'attach':
       return state.phase === 'handoff' ? attach(state, action) : state;
     case 'finish':
@@ -510,29 +559,41 @@ export function dispatch(state, action) {
 
 export function getEnding(state) {
   const issues = [];
+  const pendingRecalls = [];
+  const confirmedRecalls = [];
   const traceReceipt = state.flags.traceAttached ? getRecord(state, 7) ?? null : null;
-  const recall = traceReceipt?.status === 'shipped' || traceReceipt?.status === 'recalled';
-  const traceDisposition = !state.flags.traceAttached ? '' : recall ? 'G-241 已确认召回，安排抽检。' : 'G-241 已封存，安排补检。';
+  const traceDisposition = {
+    shipped: 'G-241 仍在收货方，召回待确认。',
+    recallPending: 'G-241 已发出召回请求，等待收货方确认。',
+    recalled: 'G-241 已确认召回，安排抽检。',
+  };
   const counts = { pass: 0, fail: 0, review: 0 };
   const delayedByBatch = new Map();
   for (const receipt of state.records) {
     const { id, batch, decision, answer, status } = receipt;
     counts[decision] += 1;
     const latestReceipt = findVerifiedReceipt(state.records, receipt);
-    if (decision === 'pass' && answer !== 'pass' && !latestReceipt) issues.push(receipt);
+    if (latestReceipt) continue;
+    if ((decision === 'pass' || status === 'recallPending') && answer !== 'pass') issues.push(receipt);
+    if (status === 'recallPending') pendingRecalls.push(receipt);
+    if (status === 'recalled' && receipt.recallReceipt && id !== traceReceipt?.id) confirmedRecalls.push(receipt);
     const stillWithheld = status === 'held' || status === 'returned' || status === 'recalled';
     const justifiedTraceHold = id === traceReceipt?.id;
-    if (answer === 'pass' && stillWithheld && !latestReceipt && !justifiedTraceHold) delayedByBatch.set(batch, receipt);
+    if (answer === 'pass' && stillWithheld && !justifiedTraceHold) delayedByBatch.set(batch, receipt);
   }
   const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
   const delayedReceipts = [...delayedByBatch.values()];
-  const shared = { issues, traceReceipt, traceDisposition, counts, delayed, delayedReceipts };
+  const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已封存，安排补检。');
+  const shared = { issues, pendingRecalls, confirmedRecalls, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
   if (issues.length) {
-    const detail = issues.map(({ batch, reason, answer }) => `${batch} · ${answer === 'review' ? '暂缓入库' : '收货方复核'} · ${reason}`).join('\n');
+    const detail = issues.map(({ batch, reason, answer, status }) => {
+      const action = status === 'recallPending' ? '召回待确认' : answer === 'review' ? '暂缓入库' : '收货方复核';
+      return `${batch} · ${action} · ${reason}`;
+    }).join('\n');
     return { id: 'issue', ...HANDOFF.escaped, detail, ...shared };
   }
   if (state.flags.traceAttached) {
-    return { id: 'trace', ...HANDOFF.investigation, detail: traceDisposition, ...shared };
+    return { id: 'trace', ...HANDOFF.investigation, detail: traceDetail, ...shared };
   }
   return { id: 'routine', ...HANDOFF.normal, detail: '本周来件已经核对。留在黄线内的待审查批次由下一班接手。', ...shared };
 }

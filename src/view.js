@@ -4,7 +4,7 @@ import { sampleAppearance, sampleObservation } from './samples.js';
 
 export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
 export const labels = { pass: '通过', fail: '不通过', review: '要求审查' };
-export const statuses = { shipping: '排车', shipped: '已出库', returned: '退回', held: '隔离待查', recalled: '召回确认' };
+export const statuses = { shipping: '排车', shipped: '已出库', returned: '退回', held: '隔离待查', recallPending: '待召回回执', recalled: '召回确认' };
 const types = { label: '标签', report: '检验', order: '送检', archive: '留底' };
 const glyphs = { pass: '✓', fail: '×', review: '…' };
 
@@ -101,8 +101,9 @@ function paperCard(doc, index, tutorial, offset, lifted, disabled = false) {
 }
 
 export function visitSlip(doc) {
+  const label = doc.kind === 'recall' ? '收下回执' : '收下留底';
   return `<section class="paper-work visit-work"><div class="papers"><button type="button" class="paper-card paper-archive visit-slip" data-act="event-next" data-fixture="doc0" aria-label="收下${esc(doc.title)}">
-    <small>回访留底</small><h3>收下留底</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
+    <small>${doc.kind === 'recall' ? '收货方回签' : '回访留底'}</small><h3>${label}</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
 }
 
 function stampButtons(instructed, disabled = false, action = 'stamp', currentVerdict = null) {
@@ -169,12 +170,25 @@ function endingReceipt(record, detail) {
   </button>`;
 }
 
+function endingRecallGroup(records, kind, title, detail) {
+  if (!records.length) return '';
+  return `<section class="ending-recall ending-recall-${kind}"><h3>${title}</h3><ul class="ending-receipts">
+    ${records.map((record) => `<li>${endingReceipt(record, detail)}</li>`).join('')}</ul></section>`;
+}
+
 function endingView(ending, reviewingHistory) {
-  const { delayed, delayedReceipts, traceReceipt, traceDisposition } = ending;
+  const { delayedReceipts = [], traceReceipt, traceDisposition, pendingRecalls = [], confirmedRecalls = [] } = ending;
+  const pendingText = '已申请召回 · 尚未回签';
+  const pendingIds = new Set(pendingRecalls.map(({ id }) => id));
+  const inIssueOrTrace = new Set([...ending.issues.map(({ id }) => id), traceReceipt?.id]);
+  const pending = pendingRecalls.filter(({ id }) => !inIssueOrTrace.has(id));
+  const confirmed = confirmedRecalls.filter(({ id }) => !inIssueOrTrace.has(id) && !pendingIds.has(id));
+  const shown = new Set([...inIssueOrTrace, ...pendingIds, ...confirmedRecalls.map(({ id }) => id)]);
+  const delayed = delayedReceipts.filter(({ id }) => !shown.has(id));
   let note = esc(ending.detail);
   if (ending.issues.length) {
     note = `<ul class="ending-receipts">${ending.issues.map((record) => {
-      const disposition = record.answer === 'review' ? '暂缓入库' : '收货方复核';
+      const disposition = pendingIds.has(record.id) ? pendingText : record.answer === 'review' ? '暂缓入库' : '收货方复核';
       return `<li>${endingReceipt(record, `${disposition} · ${record.reason}`)}</li>`;
     }).join('')}</ul>`;
   }
@@ -184,8 +198,10 @@ function endingView(ending, reviewingHistory) {
     <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · ${reviewingHistory ? '历史交班存根 <span class="ending-history-label">只读</span>' : '交班存根'}</div><h2>${esc(ending.title)}</h2></header>
     <div class="ending-body"><p>${esc(ending.line)}</p><div class="ending-note">${note}</div>
       ${ending.id === 'issue' && trace ? `<div class="ending-note">${trace}</div>` : ''}
-      ${delayed.count ? `<details class="ending-delay"><summary><b>仍未放行</b> ${delayed.count} 批来件已符合放行要求</summary>
-        <ul class="ending-receipts">${delayedReceipts.map((record) => `<li>${endingReceipt(record, statuses[record.status])}</li>`).join('')}</ul></details>` : ''}
+      ${endingRecallGroup(pending, 'pending', '待召回回执', pendingText)}
+      ${endingRecallGroup(confirmed, 'confirmed', '召回确认', '已收下收货方回执')}
+      ${delayed.length ? `<details class="ending-delay"><summary><b>仍未放行</b> ${delayed.length} 批来件已符合放行要求</summary>
+        <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, statuses[record.status])}</li>`).join('')}</ul></details>` : ''}
       <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
     </div>
     <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(reviewingHistory ? '返回首页' : '返回窗口', 'home')}${reviewingHistory ? '' : button('再接一周', 'new', 'primary')}</footer>
@@ -362,6 +378,15 @@ function amendmentFindings(entry) {
   return `<div class="amendment-findings"><b>更正依据</b>${content}</div>`;
 }
 
+function recallConfirmation(receipt, index) {
+  if (receipt?.amendmentIndex !== index) return '';
+  return `<div class="recall-confirmation"><b>收货方回签</b><small>${esc(DAYS[receipt.day]?.title)}</small><span>已确认召回</span></div>`;
+}
+
+function receiveRecallAction(record, className) {
+  return button('取收货方回执', 'receive-recall', `secondary ${className}`, `data-i="${esc(record.id)}" aria-label="取 ${esc(record.batch)} ${esc(DAYS[record.day]?.title)} 收货方回执"`);
+}
+
 function archivedReceipt(record, latestReceipt) {
   if (!record) return '';
   const changed = record.amendments?.length > 0;
@@ -371,8 +396,8 @@ function archivedReceipt(record, latestReceipt) {
       <span class="receipt-result">${esc(labels[record.decision])}</span></div>
     ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true, changed ? '原开单依据' : '开单依据')}
     ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(statuses[latestReceipt.status])}</strong>。</p>` : ''}
-    ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}更正</b>
-      <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(statuses[entry.previousStatus] ?? '待登记')} → ${esc(statuses[entry.status] ?? '待登记')}</small>${amendmentFindings(entry)}</li>`).join('')}</ol>` : ''}</article>`;
+    ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry, index) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}更正</b>
+      <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(statuses[entry.previousStatus] ?? '待登记')} → ${esc(statuses[entry.status] ?? '待登记')}</small>${amendmentFindings(entry)}${recallConfirmation(record.recallReceipt, index)}</li>`).join('')}</ol>` : ''}</article>`;
 }
 
 export function receipt(record) {
@@ -381,6 +406,7 @@ export function receipt(record) {
     shipped: '这批货已经出库，补签回执归入原批留底。',
     returned: '这批退回，重新送检时另查。',
     held: '这批留在黄线内，等补材料或复检。',
+    recallPending: '已发出召回申请，等收货方回签。',
     recalled: '已确认召回，下一班按留底复检。',
   }[record.status];
   return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
@@ -424,6 +450,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
       canComparePrevious && button('放到桌上对照', 'previous-compare', 'secondary', `data-i="${row.id}"`),
       previousReceipt && button(previousReceipt.sameLot ? '查看前次回执' : '查看前次同号回执', 'archive-followup', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`),
       latestReceipt && button('查看后续回执', 'archive-followup', 'secondary', `data-i="${latestReceipt.id}"`),
+      canAmend && row.record.status === 'recallPending' && receiveRecallAction(row.record, 'archive-recall-action'),
       canAmend && button(editing ? '取消更正' : '更正开单', 'edit-record'),
     ].filter(Boolean).join('');
     details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
@@ -455,12 +482,13 @@ export function phone(number, call, pinned, numberGuide, phoneBack, current, { r
 }
 
 export function handoffPanel(run, evidence, records = []) {
-  const dispositions = { shipping: '排车待发', held: '黄线隔离', returned: '退回', recalled: '召回确认', shipped: '已出库' };
+  const dispositions = { recallPending: statuses.recallPending, shipping: '排车待发', held: '黄线隔离', returned: '退回', recalled: '召回确认', shipped: '已出库' };
   const groups = Object.entries(dispositions).map(([status, title]) => {
     const group = records.filter((record) => record.status === status);
     if (!group.length) return '';
+    const pending = status === 'recallPending';
     return `<section class="handoff-group" data-disposition="${status}"><h3>${title}<small>${group.length} 批</small></h3><ul class="handoff-slips">
-      ${group.map(({ id, batch, day }) => `<li><button type="button" class="handoff-slip" data-act="archive-receipt" data-i="${esc(id)}"><b>${esc(batch)}</b><small>${esc(DAYS[day]?.title)}</small></button></li>`).join('')}</ul></section>`;
+      ${group.map((record) => `<li${pending ? ' class="handoff-recall-chip"' : ''}><button type="button" class="handoff-slip" data-act="archive-receipt" data-i="${esc(record.id)}"><b>${esc(record.batch)}</b><small>${esc(DAYS[record.day]?.title)}</small></button>${pending ? receiveRecallAction(record, 'handoff-recall-action') : ''}</li>`).join('')}</ul></section>`;
   }).join('');
   const attachments = ['trace', 'night'].map((key) => run.flags[`${key}Document`] ? `<div class="handoff-evidence">${sheet(evidence[key])}${button(run.flags[`${key}Attached`] ? '已夹入 · 取回' : '夹入交接板', 'attach', run.flags[`${key}Attached`] ? 'primary' : 'secondary', `data-key="${key}"`)}</div>` : '').join('');
   return dialog('周五交接', `<div class="handoff-paper"><p>点批号核对原单，需要改章时另开更正联。</p>
