@@ -183,18 +183,19 @@ export function sample(item, inspection, tutorial) {
     ${spec.reading ? button(measured ? '取出量规' : '放进量规', 'sample-measure') : ''}${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div>`, 'sample-surface', '放下检样');
 }
 
-function receiptFacts(record, archived = false) {
-  return `<dl class="receipt-facts"><div><dt>${archived ? '现去向' : '去向'}</dt><dd>${esc(statuses[record.status] ?? '待登记')}</dd></div>
-    ${record.note || archived ? `<div><dt>开单依据</dt><dd>${esc(record.note || '未另记')}</dd></div>` : ''}</dl>`;
+function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false) {
+  return `<dl class="receipt-facts"><div><dt>${destinationLabel}</dt><dd>${esc(statuses[record.status] ?? '待登记')}</dd></div>
+    ${record.note || showEmptyNote ? `<div><dt>开单依据</dt><dd>${esc(record.note || '未另记')}</dd></div>` : ''}</dl>`;
 }
 
-function archivedReceipt(record) {
+function archivedReceipt(record, latestReceipt) {
   if (!record) return '';
   const changed = record.amendments?.length > 0;
   return `<article class="archive-receipt receipt-${record.decision}" aria-label="出票留底">
     <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
       <span class="receipt-result">${esc(labels[record.decision])}</span></div>
-    ${receiptFacts(record, true)}
+    ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true)}
+    ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestReceipt.day]?.title ?? '')}复核后，现去向为<strong>${esc(statuses[latestReceipt.status])}</strong>。</p>` : ''}
     ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}更正</b>
       <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(statuses[entry.previousStatus] ?? '待登记')} → ${esc(statuses[entry.status] ?? '待登记')}</small></li>`).join('')}</ol>` : ''}</article>`;
 }
@@ -208,12 +209,22 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   const visit = visits.find(([key]) => key === focus)?.[1];
   const visitIndex = visits.length ? `<h3 class="archive-group-title">回访留底</h3>${visits.map(([key, doc]) =>
     `<button class="record-button archive-visit-row" data-act="archive-evidence" data-key="${esc(key)}"${active(key === focus)}><b>${esc(doc.title)}</b></button>`).join('')}` : '';
-  const records = rows.slice().reverse().map(({ id, batch, title, record }) => `<button class="record-button" data-act="archive-focus" data-i="${id}"${active(id === focus)}><b>${esc(batch)}</b><span>${esc(title)}</span><small>${record ? statuses[record.status] : '本班来件'}</small></button>`).join('');
+  const records = rows.slice().reverse().map(({ id, batch, title, record, latestReceipt }) => {
+    const status = latestReceipt ? '前次回执' : record ? statuses[record.status] : '本班来件';
+    return `<button class="record-button" data-act="archive-focus" data-i="${id}"${active(id === focus)}><b>${esc(batch)}</b><span>${esc(title)}</span><small>${esc(status)}</small></button>`;
+  }).join('');
   const index = `${visitIndex}${visits.length && rows.length ? '<h3 class="archive-group-title">批次单据</h3>' : ''}${records}`;
   let details = '<p class="archive-empty">选一张留底，可以翻看原来的单据。</p>';
   if (visit) details = sheet(visit);
-  if (row) details = `${archivedReceipt(row.record)}<div class="doc-grid">${row.documents.map((doc) => sheet(doc)).join('')}</div><div class="modal-actions">${button(selected.includes(row.id) ? '从电话旁拿回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
-    ${handoff && row.record ? button(editing ? '取消更正' : '更正开单', 'edit-record') : ''}</div>${editing && row.record ? `<div class="stamp-buttons">${stampButtons(false, false, 'recheck')}</div>` : ''}`;
+  if (row) {
+    const { latestReceipt } = row;
+    const canAmend = handoff && row.record && !latestReceipt;
+    details = `<div class="modal-actions archive-actions">${button(selected.includes(row.id) ? '已放到电话旁 · 取回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
+      ${latestReceipt ? button('查看后续回执', 'archive-followup', 'secondary', `data-i="${latestReceipt.id}"`) : ''}
+      ${canAmend ? button(editing ? '取消更正' : '更正开单', 'edit-record') : ''}</div>
+      ${editing && canAmend ? `<div class="stamp-buttons archive-correction">${stampButtons(false, false, 'recheck')}</div>` : ''}
+      ${archivedReceipt(row.record, latestReceipt)}<div class="doc-grid">${row.documents.map((doc) => sheet(doc)).join('')}</div>`;
+  }
   return deskSurface('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
     <div class="drawer-list" aria-label="留档单据">${index || '<p>没有找到匹配的单据。</p>'}</div></div>
     <div class="archive-detail">${details}</div></div>`, 'archive-surface', '合上簿子', query);

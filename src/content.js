@@ -185,7 +185,7 @@ export const DAYS = [
         line: '昨天没送下来的那份。耳罩还在装货台，你对一下。',
         answer: 'pass', reason: '本批已签发报告齐全，检样合格', response: '行，这回我把回单和报告钉在一起。',
         documents: [label('G-205', [], '防噪耳罩'), report('G-205', 'R-065', [...earmuffReport, ['签发时间', '周三 08:06']], '耳罩检验报告'), order('G-205', earmuffChecks)], sample: earmuff,
-        followUp: { caseId: 5, lines: { pass: '车那边还收着回单。昨天缺的报告刚领到，你帮我核一下。', fail: '二零五从退件区搬回来了。实验室报告也拿到了。', review: '昨天没送下来的那份。耳罩还在装货台，你对一下。' } },
+        followUp: { caseId: 5, sameLot: true, lines: { pass: '车那边还收着回单。昨天缺的报告刚领到，你帮我核一下。', fail: '二零五从退件区搬回来了。实验室报告也拿到了。', review: '昨天没送下来的那份。耳罩还在装货台，你对一下。' } },
       },
       {
         id: 10, batch: 'G-248', npc: 'zhou', title: '等着上车的二四八',
@@ -222,7 +222,7 @@ export const DAYS = [
         line: '这次是原件。我自己顺着出货栏对了一遍。',
         answer: 'pass', reason: '原件显示 G-111 更为 G-211', response: '昨天说是我夹错的。也有可能吧，我今天先把单收好。',
         documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签原件', [['原箱批号', 'G-111'], ['现箱批号', 'G-211'], ['签发人', '库管二班'], ['签发时间', '周四 07:48'], seal])], sample: glove,
-        followUp: { caseId: 11, lines: { pass: '我重对过出货栏，这是原件，你再把它夹在昨天那一联旁边。', fail: '不是返工出来的。昨晚重新找了原签，这回我带在最上面。', review: '这次是原件。我自己顺着出货栏对了一遍。' } },
+        followUp: { caseId: 11, sameLot: true, lines: { pass: '我重对过出货栏，这是原件，你再把它夹在昨天那一联旁边。', fail: '不是返工出来的。昨晚重新找了原签，这回我带在最上面。', review: '这次是原件。我自己顺着出货栏对了一遍。' } },
         nightResponse: '孙姐跟我说了。我把两份都留下，下次就能看出是谁先收的。',
       },
       {
@@ -230,7 +230,7 @@ export const DAYS = [
         line: '二四八，这回结果签了。实验室把那张作废随货联也夹来了。',
         answer: 'pass', reason: 'R-084 补齐了本批耐冲击结果', response: '总算出了。你把旧联留着，我喊下一位进来。',
         documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-084', shieldReport, '本批复检报告'), archive('作废随货联', [['批号', 'G-248'], ['原报告编号', 'R-071'], ['状态', '已撤回'], ['复检通知', '改用 R-084']], '原随货联仅留档。')], sample: shield,
-        followUp: { caseId: 10, lines: { pass: '二四八的留样和补检回执。上一车那批也记在这张新报告上。', fail: '返送的二四八在这儿。这次实验室把结果签完了。', review: '黄线里面那箱二四八，这回结果签了。实验室把作废联也夹来了。' } },
+        followUp: { caseId: 10, sameLot: true, lines: { pass: '二四八的留样和补检回执。上一车那批也记在这张新报告上。', fail: '返送的二四八在这儿。这次实验室把结果签完了。', review: '黄线里面那箱二四八，这回结果签了。实验室把作废联也夹来了。' } },
       },
       {
         id: 15, batch: 'G-204', npc: 'xu', title: '修好的镜片',
@@ -238,7 +238,7 @@ export const DAYS = [
         answer: 'fail', reason: '扣件插片折断', response: '镜片做完了，扣还是老的。回去按整件修。',
         documents: [label('G-204'), report('G-204', 'R-085', [['返工项目', '换镜片'], ['镜片复测', '符合'], seal], '返工复检联'), order('G-204')],
         sample: { kind: 'broken', appearance: 'classic', front: '新镜片透亮。正面盖住了扣件插片。', back: '扣件内侧少一截插片，压到底也会弹开。' },
-        followUp: { caseId: 4, lines: { pass: '这趟是厂里留下的几箱，先装车的你翻周一那张回单。这副换了镜片。' } },
+        followUp: { caseId: 4, sameLot: false, lines: { pass: '这趟是厂里留下的几箱，先装车的你翻周一那张回单。这副换了镜片。' } },
       },
       {
         id: 16, batch: 'G-216', npc: 'luo', title: '泛黄的纸袋',

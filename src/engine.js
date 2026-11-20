@@ -114,7 +114,9 @@ export function archive(state, query = '') {
   const key = String(query).toLowerCase().trim();
   return state.seen.map((id) => {
     const item = getVariant(state, CASE_BY_ID.get(id));
-    return { ...item, record: getRecord(state, id) ?? null };
+    const record = getRecord(state, id) ?? null;
+    const latestReceipt = record ? findVerifiedReceipt(state.records, record) : null;
+    return { ...item, record, latestReceipt };
   }).filter((item) => {
     if (!key) return true;
     const fields = item.documents.flatMap(({ title, fields, note }) => [title, fields.flat().join(' '), note]);
@@ -188,10 +190,26 @@ function updateRecord(records, id, changes) {
   return records.map((record) => record.id === id ? { ...record, ...changes } : record);
 }
 
+function sameLotFollowup(previous, next) {
+  const followUp = next && CASE_BY_ID.get(next.id)?.followUp;
+  return followUp?.sameLot === true && followUp.caseId === previous?.id && previous?.batch === next.batch;
+}
+
+function findVerifiedReceipt(records, previous) {
+  if (!previous.verifiedBy) return null;
+  const next = records.find(({ id }) => id === previous.verifiedBy);
+  if (!sameLotFollowup(previous, next) || next.answer !== 'pass') return null;
+  // A later recall changes where the lot is, while the accepted test evidence is still on file.
+  const accepted = next.decision === 'pass' || next.original === 'pass' || next.amendments?.some(({ to }) => to === 'pass');
+  return accepted ? next : null;
+}
+
 function confirmFollowup(records, record) {
-  const previous = CASE_BY_ID.get(record.id)?.followUp?.caseId;
-  if (!previous || record.decision !== 'pass' || record.answer !== 'pass') return records;
-  return updateRecord(records, previous, { verifiedBy: record.id });
+  if (record.decision !== 'pass' || record.answer !== 'pass') return records;
+  const previousId = CASE_BY_ID.get(record.id)?.followUp?.caseId;
+  const previous = records.find(({ id }) => id === previousId);
+  if (!sameLotFollowup(previous, record)) return records;
+  return updateRecord(records, previous.id, { verifiedBy: record.id });
 }
 
 function disposition(decision) {
@@ -226,7 +244,7 @@ function stamp(state, action) {
 function recheck(state, action) {
   if (!DECISIONS.includes(action.value)) return state;
   const record = getRecord(state, Number(action.id));
-  if (!record || action.value === record.decision) return state;
+  if (!record || action.value === record.decision || findVerifiedReceipt(state.records, record)) return state;
   const status = record.status === 'shipped' && action.value !== 'pass' ? 'recalled' : disposition(action.value);
   const { decision: previous, status: priorStatus } = record;
   const revised = {
@@ -374,17 +392,20 @@ export function dispatch(state, action) {
 }
 
 export function getEnding(state) {
-  const issues = state.records.filter(({ decision, answer, verifiedBy }) => decision === 'pass' && answer !== 'pass' && !verifiedBy);
+  const issues = [];
   const record = getRecord(state, 7);
   const recall = record?.status === 'shipped' || record?.status === 'recalled';
   const traceDisposition = !state.flags.traceAttached ? '' : recall ? 'G-241 已确认召回，安排抽检。' : 'G-241 已封存，安排补检。';
   const counts = { pass: 0, fail: 0, review: 0 };
   const delayedBatches = new Set();
-  for (const { id, batch, decision, answer, status, verifiedBy } of state.records) {
+  for (const receipt of state.records) {
+    const { id, batch, decision, answer, status } = receipt;
     counts[decision] += 1;
+    const latestReceipt = findVerifiedReceipt(state.records, receipt);
+    if (decision === 'pass' && answer !== 'pass' && !latestReceipt) issues.push(receipt);
     const stillWithheld = status === 'held' || status === 'returned';
     const justifiedTraceHold = id === record?.id && state.flags.traceAttached;
-    if (answer === 'pass' && stillWithheld && !verifiedBy && !justifiedTraceHold) delayedBatches.add(batch);
+    if (answer === 'pass' && stillWithheld && !latestReceipt && !justifiedTraceHold) delayedBatches.add(batch);
   }
   const delayed = { count: delayedBatches.size, batches: [...delayedBatches].slice(0, 3) };
   const shared = { issues, traceDisposition, counts, delayed };

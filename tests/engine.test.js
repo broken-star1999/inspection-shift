@@ -208,6 +208,45 @@ test('newly signed proof clears a premature release, while G-204 is tracked sepa
   assert.equal(getEnding(act(state, 'finish')).id, 'routine');
 });
 
+test('an accepted same-lot receipt owns the disposition and preserves the first receipt', () => {
+  let state = untilHandoff(21, { decisions: { 5: 'pass' } });
+  const original = archive(state, 'G-205').find(({ id }) => id === 5);
+  assert.equal(original.record.original, 'pass');
+  assert.equal(original.record.status, 'shipped');
+  assert.equal(original.latestReceipt.id, 9);
+  assert.equal(original.latestReceipt.status, 'shipped');
+  assert.equal(act(state, 'recheck', { id: 5, value: 'review' }), state);
+
+  state = act(state, 'recheck', { id: 9, value: 'review' });
+  const restored = JSON.parse(JSON.stringify(state));
+  const historical = archive(restored, 'G-205').find(({ id }) => id === 5);
+  assert.deepEqual(historical.record, original.record);
+  assert.equal(historical.latestReceipt.status, 'recalled');
+  assert.equal(historical.latestReceipt.decision, 'review');
+  assert.deepEqual(historical.latestReceipt.amendments.map(({ from, to }) => [from, to]), [['pass', 'review']]);
+  assert.equal(getEnding(act(restored, 'finish')).id, 'routine');
+});
+
+test('a follow-up that was never accepted leaves a prematurely shipped lot actionable', () => {
+  let state = untilHandoff(21, { decisions: { 5: 'pass', 9: 'review' } });
+  state = { ...state, records: state.records.map((record) => record.id === 5 ? { ...record, verifiedBy: 9 } : record) };
+  assert.equal(archive(state, 'G-205').find(({ id }) => id === 5).latestReceipt, null);
+  assert.deepEqual(getEnding(state).issues.map(({ id }) => id), [5]);
+  const corrected = act(state, 'recheck', { id: 5, value: 'review' });
+  assert.equal(corrected.records.find(({ id }) => id === 5).status, 'recalled');
+  assert.equal(getEnding(act(corrected, 'finish')).id, 'routine');
+});
+
+test('a new sample from the factory remainder cannot replace the receipt for shipped G-204', () => {
+  let state = untilHandoff(21, { decisions: { 4: 'pass' } });
+  state = { ...state, records: state.records.map((record) => record.id === 4 ? { ...record, verifiedBy: 15 } : record) };
+  assert.equal(archive(state, 'G-204').find(({ id }) => id === 4).latestReceipt, null);
+  assert.deepEqual(getEnding(state).issues.map(({ id }) => id), [4]);
+  const corrected = act(state, 'recheck', { id: 4, value: 'review' });
+  assert.equal(corrected.records.find(({ id }) => id === 4).status, 'recalled');
+  assert.equal(corrected.records.find(({ id }) => id === 15).status, 'returned');
+});
+
 test('night receipt and self-call stay independent of the three endings', () => {
   let state = untilHandoff(6, { inspect: (state, item) => {
     if (item.id === 11) return act(state, 'dial', { number: '107', caseIds: [11] });

@@ -3,6 +3,7 @@ import { EASTER_EGGS } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
+import { freshInteraction, captureInspectionProgress, restoreInspectionProgress } from './inspection-progress.js';
 import * as view from './view.js';
 import './style.css';
 import './booth.css';
@@ -44,12 +45,6 @@ let drag;
 let suppressPaperClick = false;
 let modalOpener = null;
 let interaction = freshInteraction();
-
-function freshInteraction() {
-  return { note: '', positions: {}, doc: 0, compare: null, signed: false, orderSeen: false,
-    inspection: { back: false, film: false, clasp: false, tug: false, measured: false, unpacked: false },
-    archiveFocus: null, archiveQuery: '', archiveEditing: false, pinned: [], phoneNumber: '', egg: null };
-}
 
 root.innerHTML = view.shell();
 const status = root.querySelector('#top-status');
@@ -217,6 +212,7 @@ function setScene() {
 }
 
 function render() {
+  persistRun();
   root.dataset.phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
   const waitMessage = arrivalTimer ? '等下一位…' : '';
   if (arrivalStatus.textContent !== waitMessage) arrivalStatus.textContent = waitMessage;
@@ -295,13 +291,18 @@ function toast(message) {
   toastTimer = setTimeout(() => { toastBox.textContent = ''; }, 2350);
 }
 
+function persistRun() {
+  if (!run) return;
+  saved = { ...run, inspectionProgress: captureInspectionProgress(getCase(run), interaction) };
+  writeStorage(SAVE_KEY, saved);
+}
+
 function update(action, redraw = true) {
   if (!run) return false;
   const before = run;
   run = dispatch(run, action);
   if (run !== before) {
-    saved = run;
-    writeStorage(SAVE_KEY, saved);
+    if (getCase(before)?.id !== getCase(run)?.id) interaction = freshInteraction(interaction);
     if (run.phase === 'ending') {
       const id = getEnding(run).id;
       if (!endings.includes(id)) endings = [...endings, id];
@@ -320,11 +321,16 @@ function openPanel(name, opener) {
 
 function enter(restore) {
   cancelArrivalPause();
-  run = restore && saved ? saved : createRun();
-  saved = run;
-  writeStorage(SAVE_KEY, saved);
+  if (restore && saved) {
+    const { inspectionProgress, ...savedRun } = saved;
+    run = savedRun;
+    interaction = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen);
+  } else {
+    run = createRun();
+    interaction = freshInteraction();
+  }
   panel = null;
-  interaction = freshInteraction();
+  modalOpener = null;
   playSound('shutter');
   render();
 }
@@ -454,6 +460,12 @@ function dial() {
   if (run.phase === 'handoff' && activeVisit()) toast('有人到窗口递留底');
 }
 
+function setPhoneNumber(value) {
+  interaction.phoneNumber = value;
+  persistRun();
+  renderModal();
+}
+
 function openArchive(opener) {
   interaction.archiveFocus ??= archive(run).at(-1)?.id ?? null;
   interaction.archiveEditing = false;
@@ -485,8 +497,6 @@ root.addEventListener('click', (event) => {
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
     case 'next': {
       if (arrivalTimer || !update({ type: 'next' }, false)) break;
-      const { pinned, phoneNumber } = interaction;
-      interaction = { ...freshInteraction(), pinned, phoneNumber };
       panel = null;
       if (run.phase === 'case' || activeVisit()) pauseBeforeArrival(event.detail === 0);
       else {
@@ -518,11 +528,16 @@ root.addEventListener('click', (event) => {
     case 'sample': playSound('slide'); openPanel('sample', target); break;
     case 'stamp': stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
-    case 'archive-focus': case 'archive-evidence':
-      interaction.archiveFocus = act === 'archive-focus' ? index : key;
+    case 'archive-focus': case 'archive-followup': case 'archive-evidence':
+      interaction.archiveFocus = act === 'archive-evidence' ? key : index;
+      if (act === 'archive-followup' && !archive(run, interaction.archiveQuery).some((row) => row.id === index)) {
+        interaction.archiveQuery = '';
+      }
       interaction.archiveEditing = false;
       playSound('paper');
       render();
+      if (act === 'archive-followup') modalLayer.querySelector('.drawer-list [aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
+      modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, 0);
       break;
     case 'archive-pin': {
       const pinned = interaction.pinned;
@@ -543,9 +558,12 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'phone': playSound('click'); openPanel('phone', target); break;
-    case 'phone-digit': if (interaction.phoneNumber.length < 5) interaction.phoneNumber += key; playSound('click'); renderModal(); break;
-    case 'phone-clear': interaction.phoneNumber = interaction.phoneNumber.slice(0, -1); renderModal(); break;
-    case 'phone-select': interaction.phoneNumber = key; renderModal(); break;
+    case 'phone-digit':
+      if (interaction.phoneNumber.length < 5) setPhoneNumber(interaction.phoneNumber + key);
+      playSound('click');
+      break;
+    case 'phone-clear': setPhoneNumber(interaction.phoneNumber.slice(0, -1)); break;
+    case 'phone-select': setPhoneNumber(key); break;
     case 'phone-back': update({ type: 'explore', key: 'phone-back' }); break;
     case 'dial': dial(); break;
     case 'egg': update({ type: 'explore', key }, false); interaction.egg = key; playSound('paper'); openPanel('egg', target); break;
@@ -600,8 +618,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && panel) { event.preventDefault(); closePanel(); }
   if (!run || event.target instanceof HTMLInputElement || event.ctrlKey || event.metaKey || event.altKey) return;
   if (panel === 'phone' && /^\d$/.test(event.key) && interaction.phoneNumber.length < 5) {
-    interaction.phoneNumber += event.key;
-    renderModal();
+    setPhoneNumber(interaction.phoneNumber + event.key);
   } else if (['1', '2', '3'].includes(event.key)) stamp(['pass', 'fail', 'review'][Number(event.key) - 1]);
 });
 
@@ -635,6 +652,7 @@ function endDrag(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
   if (drag.moved) {
     drag.paper.classList.remove('moving');
+    persistRun();
     suppressPaperClick = true;
     setTimeout(() => { suppressPaperClick = false; }, 0);
   }
