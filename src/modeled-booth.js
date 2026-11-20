@@ -10,6 +10,7 @@ const shutterTravelMs = 420;
 const catTravelMs = 900;
 const cargoTravelMs = 740;
 const slipDisplayMs = 620;
+const evidencePassingMs = 590;
 const cargoStart = { x: -1.05, z: -.04, angle: -.115 };
 const cargoDestinations = {
   ready: cargoStart,
@@ -19,7 +20,7 @@ const cargoDestinations = {
 };
 const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'review', supplementHeld: 'review', review: 'review' };
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null };
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, presentedEvidence: null };
 const paperStyles = {
   label: { width: 1.04, depth: .78, bright: '#ead2a0', shade: '#c4a875', edge: '#a67b52', turn: -.081 },
   report: { width: 1.22, depth: .97, bright: '#f2e4bb', shade: '#d4c4a0', edge: '#6e7955', turn: .048 },
@@ -504,6 +505,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let cargo = null;
   let cargoMotionAt = -Infinity;
   let slipMotionAt = -Infinity;
+  let evidenceKey = null;
+  let evidenceMotionAt = -Infinity;
   let pressed = null;
   let pressedAt = -Infinity;
   let poseX = 0;
@@ -591,6 +594,12 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
   const papers = new THREE.Group();
   scene.add(papers);
+  const evidenceSlip = new THREE.Mesh(new THREE.PlaneGeometry(.72, .53), new THREE.MeshBasicMaterial({
+    map: makeTexture({ type: 'archive', title: '查验依据' }, paperStyles.archive, ownerDocument),
+    toneMapped: false,
+  }));
+  evidenceSlip.visible = false;
+  scene.add(evidenceSlip);
   const sample = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({
@@ -686,6 +695,12 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const arriving = frame.phase === 'arriving';
     const working = arriving || frame.phase === 'case' || frame.phase === 'receipt' || frame.visit;
     const now = view.performance.now();
+    const evidence = frame.phase === 'case' && !frame.visit ? frame.presentedEvidence : null;
+    const nextEvidenceKey = evidence ? JSON.stringify([evidence.caseId, evidence.key, evidence.source, evidence.text]) : null;
+    if (nextEvidenceKey !== evidenceKey) {
+      evidenceKey = nextEvidenceKey;
+      evidenceMotionAt = evidence ? now : -Infinity;
+    }
     const nextCargo = frame.cargo ?? (waiting ? cargo : null);
     if (nextCargo?.id !== cargo?.id || nextCargo?.route !== cargo?.route) {
       cargo = nextCargo;
@@ -814,6 +829,20 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     return elapsed < slipDisplayMs;
   }
 
+  function placeEvidenceSlip(now) {
+    const elapsed = now - evidenceMotionAt;
+    evidenceSlip.visible = evidenceKey !== null && elapsed < evidencePassingMs;
+    if (!evidenceSlip.visible) return false;
+    const resting = reduced.matches;
+    const forward = resting ? 1 : 1 - (1 - THREE.MathUtils.clamp(elapsed / 370, 0, 1)) ** 2;
+    const lift = THREE.MathUtils.smoothstep(forward, .68, 1);
+    const taken = resting ? 0 : THREE.MathUtils.smoothstep(elapsed, 445, evidencePassingMs);
+    evidenceSlip.position.set(THREE.MathUtils.lerp(-.44, .24, forward),
+      BOOTH_METRICS.deskTop + .065 + .3 * lift, THREE.MathUtils.lerp(1.37, -1.34, forward) - .55 * taken);
+    evidenceSlip.rotation.set(-Math.PI / 2 + .22 * lift, 0, -.11 * (1 - forward));
+    return true;
+  }
+
   function refreshLayout() {
     if (!onLayout || !width || !height) return;
     const controls = {};
@@ -907,6 +936,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
     const cargoMoving = placeCargo(now);
     const slipVisible = placeOutgoingSlip(now);
+    const evidenceVisible = placeEvidenceSlip(now);
     const deskMoving = placeDesk(now);
     const catMoving = placeCat(now);
     if (reduced.matches) shutterFrom = shutterTarget;
@@ -928,7 +958,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       ready = true;
       onReady?.();
     }
-    if (shutterMoving || catMoving || deskMoving || cargoMoving || slipVisible || (portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
+    if (shutterMoving || catMoving || deskMoving || cargoMoving || slipVisible || evidenceVisible || (portrait.visible && progress < 1) ||
+        (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 
   function captureDeskProjection() {

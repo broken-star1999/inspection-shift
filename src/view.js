@@ -112,10 +112,12 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous) {
   const day = DAYS[run.day];
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
   const record = run.phase === 'receipt' ? run.records.at(-1) : null;
-  const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? item?.line ?? day.intro;
+  const reply = run.phase === 'case' && !sceneEvent ? item?.pressureReply : null;
+  const exchange = pressure && !sceneEvent && !record;
+  const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? reply ?? item?.line ?? day.intro;
   const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
-  return `<div class="speech${cls('dispatch-event', sceneEvent)}"${sceneEvent?.kind ? ` data-visit-kind="${esc(sceneEvent.kind)}"` : ''} aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
-      <p>${esc(line)}</p>${pressure && !sceneEvent && !record ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
+  return `<div class="speech${cls('dispatch-event', sceneEvent)}${cls('pressure-exchange', exchange)}"${sceneEvent?.kind ? ` data-visit-kind="${esc(sceneEvent.kind)}"` : ''} aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
+      <p${reply ? ' class="pressure-reply"' : ''}>${esc(line)}</p>${exchange && !reply ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
       ${earlier}</div>
     ${tutorial && !sceneEvent ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>` : ''}`;
 }
@@ -180,9 +182,11 @@ export function desk(run, item, tutorial, interaction) {
   const issued = run.phase === 'receipt';
   const target = tutorial?.key === 'signature' && !interaction.signed ? 'report' : tutorial?.target;
   const findings = readFindings(interaction);
+  const showTo = item.pressure ? CHARACTERS[item.npc]?.name : null;
+  const shown = item.shownFinding;
   const benchDraft = run.phase === 'case' && !stampBlocked && findings.length ? `<aside class="bench-draft" data-fixture="findings">
     ${button(`查验依据 ${findings.length}`, 'bench-findings', 'bench-draft-toggle', `aria-expanded="${Boolean(benchFindingsOpen)}" aria-controls="bench-findings"`)}
-    <div class="bench-draft-body" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, 'remove-finding') : ''}</div>
+    <div class="bench-draft-body${cls('bench-facing-visitor', showTo)}" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, 'remove-finding', { showTo, shown }) : ''}</div>
   </aside>` : '';
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, target, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
@@ -346,9 +350,21 @@ function clipboardBack(caseId) {
     ${clipboardFlip(true)}</article></div>`;
 }
 
-function findingLines(findings, removeAction = '') {
-  return `<ul class="finding-lines">${findings.map(({ key, source, text }) => `<li><div class="finding-description">${source ? `<small class="finding-source">${esc(source)}</small>` : ''}<span>${esc(text)}</span></div>
-    ${removeAction ? button('取回', removeAction, 'finding-remove', `data-key="${esc(key)}" aria-label="取回依据 ${esc(text)}"`) : ''}</li>`).join('')}</ul>`;
+function sameFinding(finding, shown) {
+  return shown?.key === finding.key && shown.text === finding.text && shown.source === finding.source;
+}
+
+function findingLines(findings, removeAction = '', { showTo, shown } = {}) {
+  return `<ul class="finding-lines">${findings.map((finding) => {
+    const { key, source, text } = finding;
+    const wasShown = sameFinding(finding, shown);
+    const marker = !showTo && wasShown ? '<small class="finding-shown">开单前已出示</small>' : '';
+    const remove = removeAction ? button('取回', removeAction, 'finding-remove', `data-key="${esc(key)}" aria-label="取回依据 ${esc(text)}"`) : '';
+    const show = showTo ? button(wasShown ? '已出示' : '递给他看', 'show-finding', 'finding-show',
+      `data-key="${esc(key)}"${active(wasShown)} aria-label="${wasShown ? '已递给' : '递给'}${esc(showTo)}看 ${esc(source || text)}"`) : '';
+    return `<li><div class="finding-description">${source ? `<small class="finding-source">${esc(source)}</small>` : ''}<span>${esc(text)}</span>${marker}</div>
+      ${show ? `<div class="finding-actions">${show}${remove}</div>` : remove}</li>`;
+  }).join('')}</ul>`;
 }
 
 function findingsDraft(findings, showFindings) {
@@ -506,8 +522,11 @@ export function sample(item, inspection, tutorial, progress) {
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {
   const findings = readFindings(record);
+  const shown = record.shownFinding;
+  const separate = shown && !findings.some((finding) => sameFinding(finding, shown));
   return `<dl class="receipt-facts"><div><dt>${destinationLabel}</dt><dd>${esc(dispositionLabel(record))}</dd></div>
-    ${findings.length || showEmptyNote ? `<div class="receipt-findings"><dt>${basisLabel}</dt><dd>${findings.length ? findingLines(findings) : '未另记'}</dd></div>` : ''}</dl>`;
+    ${findings.length || showEmptyNote ? `<div class="receipt-findings"><dt>${basisLabel}</dt><dd>${findings.length ? findingLines(findings, '', { shown }) : '未另记'}</dd></div>` : ''}
+    ${separate ? `<div class="receipt-findings"><dt>开单前出示</dt><dd>${findingLines([shown])}</dd></div>` : ''}</dl>`;
 }
 
 function amendmentFindings(entry) {

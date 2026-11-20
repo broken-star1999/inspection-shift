@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PHONE } from '../src/content.js';
+import { PHONE, PRESSURE } from '../src/content.js';
+import { intakeComparison, projectComparison } from '../src/document-comparison.js';
 import { archive, archivedReportSources, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
@@ -298,6 +299,82 @@ test('Friday waits for earlier visitors and resumes existing saves that already 
   const legacyHandoff = untilHandoff(21, { initialState: legacy });
   assert.equal(getShipmentAcceptance(legacyHandoff), null);
   assert.equal(legacyHandoff.records.length, 20);
+});
+
+test('a finding shown during pressure survives reload and records independently from the stamp', () => {
+  let checked = false;
+  untilHandoff(0, { inspect: (state, item) => {
+    if (item.id !== 5) return state;
+    const finding = intakeComparison(item, 1).finding;
+    const expected = { ...finding, caseId: item.id };
+    const payload = { ...finding, text: ` ${finding.text} `, caseId: 10 };
+    const shown = act(state, 'show-finding', { finding: payload });
+    assert.deepEqual(shown.shownFinding, expected);
+    assert.equal(shown.records, state.records);
+    assert.equal(shown.flags, state.flags);
+    assert.equal(shown.pending, state.pending);
+    payload.text = '更改原输入';
+    assert.deepEqual(shown.shownFinding, expected);
+    const restored = JSON.parse(JSON.stringify(shown));
+    assert.deepEqual(getCase(restored).shownFinding, expected);
+    assert.equal(getCase(restored).pressureReply, PRESSURE[0].shown.intake);
+    assert.equal(act(restored, 'show-finding', { finding }), restored);
+    assert.equal(act(restored, 'show-finding', { finding: { key: finding.key, text: ' ' } }), restored);
+
+    const other = { key: 'doc:1:0', source: '送检联', text: '批号 · G-205' };
+    for (const value of ['pass', 'fail', 'review']) {
+      const details = { value, findings: [other] };
+      const stamped = act(restored, 'stamp', details);
+      const control = act(state, 'stamp', details);
+      const { shownFinding, ...record } = stamped.records.at(-1);
+      assert.deepEqual(shownFinding, expected);
+      assert.deepEqual(record, control.records.at(-1));
+      assert.equal(receiptFeedback(stamped), receiptFeedback(control));
+      assert.equal(act(stamped, 'show-finding', { finding: other }), stamped);
+      const next = act(stamped, 'next');
+      assert.equal(next.shownFinding, null);
+      assert.equal(getCase(next).shownFinding, null);
+      assert.deepEqual(archive(next).find(({ id }) => id === 5).record.shownFinding, expected);
+    }
+    checked = true;
+    return state;
+  } });
+  assert.equal(checked, true);
+});
+
+test('pressure replies follow the latest evidence and cannot be triggered before a visitor arrives', () => {
+  const sample = { key: 'sample:正面', source: '防护面屏 · 正面', text: '视野内没有划伤。' };
+  const ordinary = act(createRun(0), 'start-day');
+  const { shownFinding: _initialFinding, ...legacy } = ordinary;
+  assert.equal(getCase(legacy).shownFinding, null);
+  assert.equal(getCase(legacy).pressureReply, null);
+  assert.equal(act(legacy, 'show-finding', { finding: sample }), legacy);
+
+  let checked = false;
+  untilHandoff(0, { inspect: (state, item) => {
+    if (item.id !== 10) return state;
+    const project = projectComparison(item, 2, 1).finding;
+    let shown = act(state, 'show-finding', { finding: project });
+    assert.equal(getCase(shown).pressureReply, PRESSURE[1].shown.projects);
+    shown = act(shown, 'show-finding', { finding: sample });
+    assert.equal(getCase(shown).pressureReply, PRESSURE[1].shown.sample);
+    const paper = { key: 'doc:2:1', source: '送检联', text: '必查项目 · 外观、耐冲击' };
+    shown = act(shown, 'show-finding', { finding: paper });
+    assert.equal(getCase(shown).pressureReply, PRESSURE[1].shown.paper);
+    assert.deepEqual(getCase(shown).shownFinding, { ...paper, caseId: item.id });
+    const another = act(shown, 'show-finding', { finding: { ...paper, text: '修订后的条目' } });
+    assert.equal(another.shownFinding.text, '修订后的条目');
+    assert.equal(shown.shownFinding.text, paper.text);
+    checked = true;
+    return state;
+  } });
+  assert.equal(checked, true);
+
+  const beforeAcceptance = act(receiptAt(18, 'fail', { seed: 1 }), 'next');
+  assert.equal(getCase(beforeAcceptance).id, 20);
+  assert.equal(getCase(beforeAcceptance).pressure, 'warning');
+  assert.equal(beforeAcceptance.event.kind, 'acceptance');
+  assert.equal(act(beforeAcceptance, 'show-finding', { finding: sample }), beforeAcceptance);
 });
 
 test('same seed remains playable after JSON restore and contains one of each pressure event', () => {

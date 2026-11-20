@@ -52,6 +52,7 @@ export function createRun(seed) {
     phoneLog: [],
     incomingCalls: [],
     ringbackArmed: false,
+    shownFinding: null,
     event: null,
     events: [],
     flags: {
@@ -147,14 +148,22 @@ function getDialogue(state, item) {
   return line;
 }
 
+function pressureFindingKind(key) {
+  const comparison = /^compare:\d+:(intake|projects):/.exec(key)?.[1];
+  return comparison ?? (key.startsWith('sample:') ? 'sample' : 'paper');
+}
+
 export function getCase(state) {
   if (!['case', 'receipt'].includes(state.phase)) return null;
   const base = getDay(state)?.cases[state.index];
   if (!base) return null;
   const item = getVariant(state, base);
   const pressure = item.id === state.flags.offerCase ? 'favor' : item.id === state.flags.warningCase ? 'warning' : null;
-  const pressureLine = pressure ? PRESSURE[pressure === 'favor' ? 0 : 1].line : null;
-  return { ...item, line: getDialogue(state, item), pressure, pressureLine };
+  const script = pressure ? PRESSURE[pressure === 'favor' ? 0 : 1] : null;
+  const saved = state.shownFinding;
+  const shownFinding = script && saved?.caseId === item.id && typeof saved.key === 'string' && typeof saved.text === 'string' ? saved : null;
+  const pressureReply = shownFinding ? script.shown?.[pressureFindingKind(shownFinding.key)] ?? null : null;
+  return { ...item, line: getDialogue(state, item), pressure, pressureLine: script?.line ?? null, shownFinding, pressureReply };
 }
 
 export function getPreviousReceipt(state, item = getCase(state)) {
@@ -396,6 +405,16 @@ export function receiptFeedback(state) {
   return [line, umbrella, CASE_BY_ID.get(record.id)?.receiptAside].filter(Boolean).join(' ');
 }
 
+function showFinding(state, value) {
+  const item = getCase(state);
+  if (!item?.pressure) return state;
+  const [finding] = normalizeFindings([value]);
+  if (!finding) return state;
+  const previous = item.shownFinding;
+  if (previous?.key === finding.key && previous.source === finding.source && previous.text === finding.text) return state;
+  return { ...state, shownFinding: { ...finding, caseId: item.id } };
+}
+
 function stamp(state, action) {
   const item = getCase(state);
   const { value } = action;
@@ -414,6 +433,7 @@ function stamp(state, action) {
     reason: item.reason,
     note: String(action.note ?? action.reason ?? '').trim().slice(0, 100) || (value === 'review' ? '请核对送检材料' : ''),
     ...(findings.length ? { findings } : {}),
+    ...(item.shownFinding ? { shownFinding: { ...item.shownFinding } } : {}),
     ...(isOffsite(previous?.status) ? { priorShipmentId: previous.id } : {}),
     status: disposition(state.records, item, value),
     amendments: [],
@@ -638,7 +658,7 @@ function attach(state, action) {
 }
 
 function nextCase(state) {
-  const next = deliverVisits(state);
+  const next = deliverVisits(state.shownFinding ? { ...state, shownFinding: null } : state);
   if (state.index + 1 < getDay(state).cases.length) return startCase(next, state.index + 1);
   if (state.day === DAYS.length - 1) return { ...next, phase: 'handoff' };
   const summary = { ...next, phase: 'summary', records: ship(next.records) };
@@ -669,6 +689,8 @@ export function dispatch(state, action) {
     }
     case 'stamp':
       return state.phase === 'case' && !waitingForVisit ? stamp(state, action) : state;
+    case 'show-finding':
+      return state.phase === 'case' && !waitingForVisit ? showFinding(state, action.finding) : state;
     case 'next':
       return state.phase === 'receipt' && !waitingForVisit ? nextCase(state) : state;
     case 'advance-day':

@@ -1099,6 +1099,7 @@
 .finding-description { display: flex; flex-wrap: wrap; align-items: baseline; gap: .05rem .5rem; min-inline-size: 0; }
 .finding-description > span { min-inline-size: 0; overflow-wrap: anywhere; }
 .finding-source { color: #6b5235; font-size: .78em; font-weight: 750; }
+.finding-shown { color: #735638; font-size: .75em; font-weight: 780; }
 .receipt-findings .finding-lines > li + li { border-block-start: 1px solid #a78a604d; padding-block-start: .18rem; }
 
 .booth-layout #desk:has(.bench-draft) { --bench-draft-height: clamp(1.69rem, 5.4cqh, 2.12rem); }
@@ -1183,6 +1184,49 @@
 
 .bench-draft-body .finding-lines { gap: .16rem; }
 .bench-draft-body .finding-remove { min-block-size: 1.75rem; }
+.bench-facing-visitor { inline-size: clamp(13rem, 42cqw, 24rem); }
+.bench-facing-visitor .finding-description { grid-column: 1 / -1; }
+.bench-facing-visitor .finding-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: .32rem;
+}
+.bench-facing-visitor .finding-actions :is(.finding-show, .finding-remove) { min-block-size: 2.75rem; }
+.bench-facing-visitor .finding-show {
+  padding-inline: .5rem;
+  border-color: #92754f;
+  background: #d8bc85;
+  color: #46331e;
+  font: 760 .77rem / 1.2 var(--mono);
+  text-shadow: none;
+}
+.bench-facing-visitor .finding-show:is(:hover, :focus-visible) { background: #ecd6a2; }
+.bench-facing-visitor .finding-show[aria-pressed='true'] { background: #bfa36d; }
+
+.evidence-transfer {
+  position: absolute;
+  inset: auto auto 6% 36%;
+  z-index: 2;
+  inline-size: clamp(2.4rem, 8cqw, 4.5rem);
+  block-size: clamp(.65rem, 2.7cqh, 1.22rem);
+  rotate: -7deg;
+  opacity: 0;
+  pointer-events: none;
+  border: 1px solid #8d7352;
+  background: repeating-linear-gradient(#eee0b9 0 3px, #c6ad7b 3px 4px);
+  box-shadow: 2px 3px #151a12ab;
+}
+#game:not([data-phase='case']) .evidence-transfer { display: none; }
+
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  #game[data-modeled='true'][data-phase='case'] .booth-layout .speech.pressure-exchange {
+    inset-block: max(-3rem, calc(.25rem - var(--fixture-y, 0px))) auto;
+    inline-size: min(76cqw, 20rem);
+    max-block-size: none;
+  }
+}
 
 .archive-receipt {
   margin-block-end: .64rem;

@@ -132,8 +132,24 @@ export const TUTORIAL = [
 export const FILM_TUTORIAL = '掀开这角再看白痕。';
 
 export const PRESSURE = [
-  { slots: [5, 16], line: '这车要是赶得上，周五收尾我帮你找人顶。' },
-  { slots: [10, 20], line: '你要压这批也行。主任问起来，我就把这张带你名字的单给他看。' },
+  {
+    slots: [5, 16], line: '这车赶得上，周五我找人替你。',
+    shown: {
+      intake: '箱签和送检联我点过了。那份报告我去催。',
+      projects: '两张我都看了。写了哪些项目，你照纸上记。',
+      sample: '我看过你记的检样了。车那边我去说。',
+      paper: '那一栏我看见了。你开单，我拿过去。',
+    },
+  },
+  {
+    slots: [10, 20], line: '压这批也行。主任问起来，我就递你签的单。',
+    shown: {
+      intake: '这几张我看过了。实收照你点的留底。',
+      projects: '送检联和报告我都看了。照纸上记，你继续开单。',
+      sample: '检样这一条我看到了。你按手里的记录开单。',
+      paper: '那一栏我看到了。把它留在记录里，你开单吧。',
+    },
+  },
 ];
 
 export const PHONE = {

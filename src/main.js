@@ -98,6 +98,7 @@ let handoffDocument = null;
 let phoneReturn = null;
 let ringing = null;
 let issuedReceiptId = null;
+let presentedEvidence = null;
 let interaction = freshInteraction();
 
 root.innerHTML = view.shell();
@@ -466,6 +467,7 @@ function setScene() {
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
     keepVisitor: arrival?.keepVisitor ?? false, approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
+    presentedEvidence: phase === 'case' && item?.shownFinding === presentedEvidence ? presentedEvidence : null,
     ...shipment });
 }
 
@@ -774,6 +776,7 @@ function enter(restore) {
   cancelClosingShot();
   reviewingHistory = false;
   issuedReceiptId = null;
+  presentedEvidence = null;
   let workspace;
   let arrivalAction;
   let savedCorrection;
@@ -827,6 +830,9 @@ function enter(restore) {
   if (resumeSound) playSound(resumeSound);
   else if (run.phase !== 'summary') playSound(run.phase === 'ending' ? 'paper' : 'shutter');
   render(workspace?.scrollTop);
+  if (restore && interaction.benchFindingsOpen) {
+    desktop.querySelector('.finding-show[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 }
 
 function reviewCompletedShift(id) {
@@ -1044,6 +1050,34 @@ function toggleFinding(finding) {
   const selected = interaction.findings.some(({ key }) => key === finding.key);
   updateFindings(selected ? interaction.findings.filter(({ key }) => key !== finding.key) : [...interaction.findings, finding]);
   return !selected;
+}
+
+function presentFinding(key) {
+  if (panel || !interaction.benchFindingsOpen || !windowCase()?.pressure) return;
+  const finding = interaction.findings.find((entry) => entry.key === key);
+  if (!finding) return;
+  const scroll = desktop.querySelector('.bench-draft-body')?.scrollTop ?? 0;
+  if (!update({ type: 'show-finding', finding }, false)) return;
+  presentedEvidence = run.shownFinding;
+  playSound('slide');
+  render();
+  desktop.querySelector('.bench-draft-body')?.scrollTo(0, scroll);
+  focusControl(desktop, { act: 'show-finding', key });
+  if (root.dataset.modeled !== 'true' && !reducedMotion.matches) {
+    const room = roomHost.parentElement;
+    room.querySelector('.evidence-transfer')?.remove();
+    const slip = document.createElement('span');
+    slip.className = 'evidence-transfer';
+    slip.setAttribute('aria-hidden', 'true');
+    room.append(slip);
+    const motion = slip.animate?.([
+      { translate: '.8rem .95rem', opacity: .4 },
+      { translate: '0 0', opacity: 1, offset: .62 },
+      { translate: '0 -.25rem', opacity: 0 },
+    ], { duration: 510, easing: 'ease-out' });
+    if (motion) motion.onfinish = () => slip.remove();
+    else slip.remove();
+  }
 }
 
 function checkBasis(index, field) {
@@ -1561,6 +1595,7 @@ root.addEventListener('click', (event) => {
       render();
       focusControl(desktop, { act: 'bench-findings' });
       break;
+    case 'show-finding': presentFinding(key); break;
     case 'remove-finding': {
       if (run?.phase !== 'case') break;
       const inBenchDraft = Boolean(target.closest('.bench-draft'));
