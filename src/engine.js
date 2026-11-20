@@ -162,7 +162,7 @@ export function getPreviousReceipt(state, item = getCase(state)) {
 }
 
 export function archive(state, query = '') {
-  const key = String(query).toLowerCase().trim();
+  const key = String(query).toLowerCase().trim().replace(/^r(\d{3})$/, 'r-$1');
   const waitingForArrival = state.phase === 'case' && activeVisits(state).length
     ? getDay(state)?.cases[state.index]?.id : null;
   return state.seen.map((id) => {
@@ -175,6 +175,18 @@ export function archive(state, query = '') {
     if (!key) return true;
     const fields = item.documents.flatMap(({ title, fields, note }) => [title, fields.flat().join(' '), note]);
     return [item.batch, item.title, ...fields].some((text) => text && String(text).toLowerCase().includes(key));
+  });
+}
+
+export function archivedReportSources(state, query) {
+  const suffix = /^(?:r-?)?(\d{3})$/i.exec(String(query ?? '').trim())?.[1];
+  if (!state || !suffix) return [];
+  const reportNumber = `R-${suffix}`;
+  return archive(state).flatMap(({ id, batch, documents }) => {
+    const day = DAYS.findIndex(({ cases }) => cases.some((item) => item.id === id));
+    return documents.flatMap((document, index) => document.fields.some(([label, value]) =>
+      (label === '报告编号' || label === '原报告编号') && value === reportNumber)
+      ? [{ id, batch, day, document, index, number: reportNumber }] : []);
   });
 }
 

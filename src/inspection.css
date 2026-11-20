@@ -414,6 +414,101 @@
 }
 .archive-surface .archive-visit-row { grid-template-columns: minmax(0, 1fr); }
 .archive-surface .archive-actions { margin-block: 0 .46rem; }
+.fields dd.report-number-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .2rem .5rem;
+}
+.sheet .report-number-value .report-lookup {
+  flex: 0 0 auto;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  padding: .2rem .43rem;
+  border-color: #91724f;
+  background: #e4cda1;
+  color: #513a26;
+  font: 770 .78rem / 1.2 var(--mono);
+  text-shadow: none;
+  white-space: nowrap;
+}
+.sheet .report-number-value .report-lookup:is(:hover, :focus-visible) { background: #f6e0b7; }
+.archive-surface .report-index-suggestion {
+  justify-content: flex-start;
+  min-block-size: 2.75rem;
+  margin-block: 0 .38rem;
+  padding: .29rem .52rem;
+  border-color: #bc986c;
+  background: #695442;
+  color: #fff0ca;
+  white-space: nowrap;
+}
+.archive-surface .report-index-suggestion:is(:hover, :focus-visible) { background: #826346; }
+.archive-surface.report-index-surface { inline-size: min(74cqw, 56rem); }
+.report-index-surface .desk-surface-bar { gap: .3rem; }
+.report-index-surface .desk-surface-bar h2 { white-space: nowrap; }
+.report-index-surface .desk-surface-tools { gap: .25rem; }
+.report-index-surface .desk-surface-tools :is(.button, .surface-close) {
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  padding: .22rem .52rem;
+  font: 760 .78rem / 1.22 var(--mono);
+  white-space: nowrap;
+}
+.report-index-surface .desk-surface-tools .button {
+  border-color: #af9471;
+  background: #46382d;
+  color: #f4dfb5;
+}
+.report-index-surface .desk-surface-tools .button:is(:hover, :focus-visible) { background: #66513b; }
+.report-index-papers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(13rem, calc(50% - .45rem))), 1fr));
+  gap: .64rem;
+}
+.report-index-paper {
+  min-inline-size: 0;
+  padding: .38rem;
+  border: 1px solid #ba976d70;
+  border-radius: 3px 3px 2px 2px;
+  background: #463226;
+}
+.report-index-source {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: .3rem;
+  padding: .04rem .24rem .24rem;
+  color: #f6dfad;
+  font: 800 .95rem / 1.15 var(--mono);
+  white-space: nowrap;
+}
+.report-index-source small { color: #ddc49e; font: 700 .73rem / 1.2 var(--mono); }
+.report-index-surface .report-index-paper .report-index-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: .31rem;
+  margin-block: 0 .32rem;
+}
+.report-index-surface .report-index-paper .report-index-actions .button {
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  padding: .2rem .48rem;
+  border-color: #aa8864;
+  background: #513d31;
+  color: #f4dfb6;
+  font: 760 .78rem / 1.17 var(--mono);
+  white-space: nowrap;
+}
+.report-index-surface .report-index-paper .report-index-actions .button:is(:hover, :focus-visible) { background: #715539; }
+.report-index-surface .report-index-paper .report-index-actions .report-index-pin[aria-pressed='true'] {
+  border-color: #dfbd82;
+  background: #d5af72;
+  color: #412b1a;
+  text-shadow: none;
+}
+.report-index-surface .report-index-paper .sheet { min-inline-size: 0; border-radius: 2px 3px 2px 2px; }
+.report-index-paper .fields > div { grid-template-columns: minmax(5rem, .65fr) minmax(0, 1fr); }
 .archive-surface .desk-surface-footer:has(.archive-correction) {
   flex: 0 0 auto;
   display: flex;
@@ -1160,6 +1255,12 @@
   .handoff-detail-scroll .sheet > h3 { margin: .12em 0 .28em; }
   .handoff-detail-scroll .fields > div { gap: .32rem; padding-block: .2rem; }
   .handoff-modal:has(.handoff-workspace) > .handoff-actions { padding: .18rem .43rem; }
+  .archive-surface.report-index-surface { inset-inline-start: .66rem; inline-size: min(calc(100cqw - 1.32rem), 56rem); }
+  .report-index-papers { gap: .42rem; }
+  .report-index-paper { padding: .29rem; }
+  .report-index-surface .report-index-paper .sheet { padding: .34rem .51rem .43rem; }
+  .report-index-paper .sheet > h3 { margin-block: .1em .26em; }
+  .report-index-paper .fields > div { gap: .36rem; padding-block: .18rem; }
 }
 
 @container workstation (max-width: 720px) {
@@ -1176,6 +1277,7 @@
   .documents-surface:has(.tutorial-guide) .doc-grid.pair .sheet > small { display: none; }
   .documents-surface:has(.tutorial-guide) .doc-grid.pair .fields > div { padding-block: .11rem; }
   .handoff-sheet > .handoff-instruction { display: none; }
+  .report-index-paper .sheet > small { display: none; }
 }
 
 @container workstation (max-width: 900px) and (max-height: 460px) {

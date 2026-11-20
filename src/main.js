@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, TUTORIAL, EVIDENCE } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, TUTORIAL, EVIDENCE } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
@@ -89,6 +89,7 @@ let stampTouch = null;
 let suppressPaperClick = false;
 let modalOpener = null;
 let archiveReturn = null;
+let reportIndex = null;
 let correctionDraft = null;
 let handoffFocus = null;
 let handoffDocument = null;
@@ -491,9 +492,15 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'docs' && item) markup = view.documents(item, viewedDocument(), compare, step, work, previousInspection(item));
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, work);
   if (panel === 'archive' && run) {
-    markup = view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
-      archiveQuery, Boolean(correction), run.phase === 'handoff', run.phase === 'ending', {
-        returnTo: archiveReturn?.panel,
+    const sources = archivedReportSources(run, reportIndex ?? archiveQuery);
+    const returnTo = archiveReturn?.panel;
+    const finished = run.phase === 'ending';
+    markup = reportIndex && sources.length
+      ? view.archiveReportPanel(reportIndex, sources, pinned, { returnTo, finished })
+      : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
+        archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
+        returnTo,
+        reportSuggestion: !correction && sources.length > 1 ? sources[0].number : null,
         canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
         correctionFindings: correctionFindings ?? [],
         batchPapers,
@@ -616,7 +623,7 @@ function workspaceBody() {
   if (panel === 'sample') return modalLayer.querySelector('.sample-surface .desk-surface-content');
   if (panel === 'phone') return modalLayer.querySelector('.phone-modal .modal-body');
   if (panel === 'handoff') return modalLayer.querySelector('.handoff-detail-scroll');
-  if (panel === 'archive' && activeCorrection()) return modalLayer.querySelector('.archive-surface .desk-surface-content');
+  if (panel === 'archive' && (reportIndex || activeCorrection())) return modalLayer.querySelector('.archive-surface .desk-surface-content');
   return null;
 }
 
@@ -624,11 +631,11 @@ function persistRun() {
   if (!run || reviewingHistory) return;
   captureCorrectionScroll();
   const body = workspaceBody();
-  const archivedPhone = panel === 'archive' && archiveReturn?.panel === 'phone';
-  const context = body || archivedPhone ? workspaceContext() : undefined;
-  const workspacePanel = archivedPhone ? 'phone' : panel;
+  const archivedPanel = panel === 'archive' && ['phone', 'docs', 'sample'].includes(archiveReturn?.panel) ? archiveReturn.panel : null;
+  const context = body || archivedPanel ? workspaceContext() : undefined;
+  const workspacePanel = archivedPanel ?? panel;
   const workspace = context ? {
-    ...context, panel: workspacePanel, scrollTop: body?.scrollTop ?? archiveReturn?.scrollTop ?? 0,
+    ...context, panel: workspacePanel, scrollTop: archivedPanel ? archiveReturn.scrollTop : body?.scrollTop ?? 0,
     returnTo: workspacePanel === 'phone' ? phoneReturn : undefined,
   } : undefined;
   saved = {
@@ -678,16 +685,19 @@ function update(action, redraw = true) {
 
 function openPanel(name, opener) {
   if (!panel && opener instanceof HTMLElement) modalOpener = { ...opener.dataset };
-  if (name === 'phone' && (panel === 'docs' || panel === 'sample')) {
+  if (name === 'phone' && (panel === 'docs' || panel === 'sample' || (panel === 'archive' && reportIndex))) {
     const body = workspaceBody();
-    phoneReturn = { panel, opener: { ...opener.dataset }, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0 };
+    phoneReturn = { panel, opener: { ...opener.dataset }, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0,
+      ...(panel === 'archive' ? { reportIndex, archiveReturn } : {}) };
   } else if (panel === 'phone' && name !== 'archive' && name !== 'phone') {
     update({ type: 'hang-up' }, false);
     phoneReturn = null;
   }
-  if (name === 'archive' && (panel === 'phone' || panel === 'handoff')) {
-    const index = panel === 'handoff' ? modalLayer.querySelector('.handoff-board') : workspaceBody();
-    archiveReturn = { panel, opener: { ...opener.dataset }, scrollTop: index?.scrollTop ?? 0, detailScroll: workspaceBody()?.scrollTop ?? 0 };
+  if (name === 'archive' && ['phone', 'handoff', 'docs', 'sample'].includes(panel)) {
+    const body = workspaceBody();
+    const index = panel === 'handoff' ? modalLayer.querySelector('.handoff-board') : body;
+    archiveReturn = { panel, opener: { ...opener.dataset }, scrollTop: index?.scrollTop ?? 0, detailScroll: body?.scrollTop ?? 0,
+      scrollLeft: body?.scrollLeft ?? 0 };
   } else if (name !== 'archive' || panel !== 'archive') {
     archiveReturn = null;
   }
@@ -726,6 +736,7 @@ function enter(restore) {
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
   archiveReturn = null;
+  reportIndex = null;
   handoffFocus = null;
   handoffDocument = null;
   correctionDraft = restoreCorrectionDraft(savedCorrection);
@@ -764,6 +775,7 @@ function reviewCompletedShift(id) {
   panel = null;
   modalOpener = null;
   archiveReturn = null;
+  reportIndex = null;
   correctionDraft = null;
   phoneReturn = null;
   playSound('paper');
@@ -1034,6 +1046,7 @@ function captureCorrectionScroll() {
 
 function focusArchiveRow(id) {
   captureCorrectionScroll();
+  reportIndex = null;
   interaction.archiveFocus = id;
 }
 
@@ -1227,6 +1240,10 @@ function openPhone(opener) {
   if (!run || reviewingHistory) return;
   if (incomingAtWindow()) update({ type: 'answer-call' }, false);
   playSound('click');
+  if (panel === 'archive' && archiveReturn?.panel === 'phone') {
+    closePanel();
+    return;
+  }
   openPanel('phone', opener);
 }
 
@@ -1237,9 +1254,23 @@ function setPhoneNumber(value) {
 }
 
 function openArchive(opener) {
+  reportIndex = null;
   interaction.archiveFocus ??= archive(run).at(-1)?.id ?? null;
   playSound('paper');
   openPanel('archive', opener);
+}
+
+function openReportIndex(number, opener) {
+  const sources = archivedReportSources(run, number);
+  if (!sources.length) return;
+  const current = panel === 'docs' || panel === 'sample' ? windowCase()?.id : interaction.archiveFocus;
+  const target = sources.find(({ id }) => id === current) ?? sources.at(-1);
+  focusArchiveRow(target.id);
+  reportIndex = target.number;
+  interaction.archiveQuery = reportIndex;
+  playSound('paper');
+  openPanel('archive', opener);
+  modalLayer.querySelector('.report-index-surface .desk-surface-content')?.scrollTo(0, 0);
 }
 
 function openHandoff(opener) {
@@ -1294,7 +1325,8 @@ function closePanel() {
     phoneReturn = null;
   }
   panel = previousPanel?.panel ?? null;
-  archiveReturn = null;
+  archiveReturn = previousPanel?.archiveReturn ?? null;
+  reportIndex = previousPanel?.reportIndex ?? null;
   const toBoard = previousPanel?.panel === 'handoff';
   render(toBoard ? previousPanel.detailScroll : previousPanel?.scrollTop);
   if (previousPanel) {
@@ -1407,6 +1439,15 @@ root.addEventListener('click', (event) => {
       break;
     case 'stamp': stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
+    case 'report-search': openReportIndex(key, target); break;
+    case 'report-index-back':
+      if (panel === 'archive' && reportIndex) {
+        reportIndex = null;
+        playSound('paper');
+        render();
+        revealArchiveReceipt(true);
+      }
+      break;
     case 'archive-receipt':
       if (!run?.seen.includes(index)) break;
       focusArchiveRow(index);

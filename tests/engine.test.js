@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
+import { archive, archivedReportSources, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -455,6 +455,59 @@ test('a v1 save with previously granted evidence can still acknowledge the liste
   assert.equal(state.flags.nightDocument, true);
   assert.equal(state.event, null);
   assert.deepEqual(state.events, []);
+});
+
+test('report lookup returns only the exact old slips that have reached the window', () => {
+  const inspected = [];
+  untilHandoff(21, { inspect: (state, item) => {
+    const sources = archivedReportSources(state, '071');
+    if (item.id === 5) assert.deepEqual(sources, []);
+    if (item.id === 7) {
+      assert.deepEqual(sources, [{ id: 7, batch: 'G-241', day: 1, document: item.documents[1], index: 1, number: 'R-071' }]);
+      assert.equal(state.records.some(({ id }) => id === 7), false);
+      inspected.push(item.id);
+    }
+    if (item.id === 10) assert.deepEqual(sources.map(({ id }) => id), [7]);
+    if (item.id === 14) {
+      assert.deepEqual(sources, archivedReportSources(state, ' r-071 '));
+      assert.deepEqual(sources, archivedReportSources(state, 'R071'));
+      assert.deepEqual(archive(state, 'R071'), archive(state, 'R-071'));
+      assert.deepEqual(sources.map(({ id, day, index, document }) => [id, day, index, document.title]), [
+        [7, 1, 1, '随货核验联'], [14, 3, 2, '作废随货联'],
+      ]);
+      assert.equal(sources[1].document, item.documents[2]);
+      assert.deepEqual(archivedReportSources(state, '084'), [
+        { id: 14, batch: 'G-248', day: 3, document: item.documents[1], index: 1, number: 'R-084' },
+      ]);
+      for (const invalid of ['07', '0710', 'R-071 R-084', '', undefined]) {
+        assert.deepEqual(archivedReportSources(state, invalid), []);
+      }
+      inspected.push(item.id);
+    }
+    return state;
+  } });
+  assert.deepEqual(inspected, [7, 14]);
+});
+
+test('report lookup waits for an earlier arrival and works with a legacy saved archive', () => {
+  const initialState = createRun(21);
+  delete initialState.schedule;
+  let checked = false;
+  untilHandoff(21, { initialState, inspect: (state, item) => {
+    if (item.id === 13) return act(state, 'dial', { number: '107', caseIds: [11] });
+    if (item.id !== 14) return state;
+    assert.equal(state.event?.key, 'night');
+    assert.deepEqual(archivedReportSources(state, '071').map(({ id }) => id), [7]);
+
+    const legacy = JSON.parse(JSON.stringify({ ...state, seen: [...state.seen, 14] }));
+    delete legacy.events;
+    assert.deepEqual(archivedReportSources(legacy, '071').map(({ id }) => id), [7]);
+    const arrived = act(legacy, 'ack-visit');
+    assert.deepEqual(archivedReportSources(arrived, '071').map(({ id }) => id), [7, 14]);
+    checked = true;
+    return state;
+  } });
+  assert.equal(checked, true);
 });
 
 test('the next arrival enters the archive after both visitors hand over their papers', () => {
