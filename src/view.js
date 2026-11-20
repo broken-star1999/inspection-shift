@@ -2,7 +2,7 @@ import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE } from './content.j
 import { intakeComparison, projectComparison } from './document-comparison.js';
 import { receiptDisposition, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
-import { sampleAppearance, sampleObservation } from './samples.js';
+import { CUFF_SPLIT_PATCHES, cuffSplitVisible, sampleAppearance, sampleObservation } from './samples.js';
 
 export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
 export const labels = { pass: '通过', fail: '不通过', review: '要求审查' };
@@ -154,8 +154,11 @@ function sampleArt(spec, appearance, { back = false, unpacked = false, control =
   const lensFilm = !back && (spec.kind === 'film' || spec.kind === 'crack');
   const wrapped = spec.kind === 'yellow' && !unpacked;
   const alt = wrapped ? '' : `${appearance.name}${back ? '背面' : appearance.front ?? '正面'}`;
+  const cuff = cuffSplitVisible(spec, { back, unpacked }) ? `<span class="sample-cuff-split" aria-hidden="true">${CUFF_SPLIT_PATCHES.map(({ color, points }) =>
+    `<span style="--split-ink:${color};--split-patch:polygon(${points.map(([x, y]) => `${x}% ${y}%`).join(',')})"></span>`).join('')}</span>` : '';
   return `<span class="sample-object" style="--sample-ratio:${ratio}">
     <img src="${asset(`${appearance.stem}${back ? '-back' : ''}.webp`)}" alt="${esc(alt)}" draggable="false">
+    ${cuff}
     ${lensFilm ? `<span class="sample-film-sheet" aria-hidden="true">${spec.kind === 'film' ? '<span class="sample-film-trace"></span>' : ''}</span>` : ''}
     ${!back && spec.kind === 'crack' ? '<span class="sample-lens-crack" aria-hidden="true"></span>' : ''}
     ${back && spec.model ? `<span class="model-mark" aria-hidden="true">${esc(spec.model)}</span>` : ''}

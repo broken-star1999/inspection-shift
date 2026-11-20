@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CUFF_SPLIT_PATCHES } from './samples.js';
 import { BOOTH_METRICS, createWorkbenchModels } from './workbench-models.js';
 
 const pixelsPerUnit = 86;
@@ -133,6 +134,21 @@ function makeGloveSleeve(ownerDocument) {
   cover.position.z = .009;
   cover.visible = false;
   return cover;
+}
+
+function makeCuffSplit() {
+  const split = new THREE.Group();
+  CUFF_SPLIT_PATCHES.forEach(({ color, points }, index) => {
+    const shape = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(x / 100 - .5, .5 - y / 100)));
+    const patch = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({
+      color, transparent: true, depthWrite: false, toneMapped: false,
+    }));
+    patch.renderOrder = index + 1;
+    split.add(patch);
+  });
+  split.position.z = .013;
+  split.visible = false;
+  return split;
 }
 
 function createContactTexture() {
@@ -609,7 +625,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   sample.visible = false;
   sample.rotation.x = -Math.PI / 2;
   const gloveSleeve = makeGloveSleeve(ownerDocument);
-  sample.add(gloveSleeve);
+  const cuffSplit = makeCuffSplit();
+  sample.add(gloveSleeve, cuffSplit);
   scene.add(sample);
 
   scene.updateMatrixWorld(true);
@@ -694,6 +711,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const waiting = frame.phase === 'waiting';
     const arriving = frame.phase === 'arriving';
     const working = arriving || frame.phase === 'case' || frame.phase === 'receipt' || frame.visit;
+    cuffSplit.visible = (frame.phase === 'case' || frame.phase === 'receipt') &&
+      !frame.visit && !frame.sampleHeld && frame.sample?.cuffSplit === true;
     const now = view.performance.now();
     const evidence = frame.phase === 'case' && !frame.visit ? frame.presentedEvidence : null;
     const nextEvidenceKey = evidence ? JSON.stringify([evidence.caseId, evidence.key, evidence.source, evidence.text]) : null;

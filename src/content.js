@@ -388,6 +388,13 @@ export const DAYS = [
         answer: 'pass', reason: '泛黄在外包，实物正常',
         documents: [label('G-216', [], '作业防护手套'), report('G-112', 'R-086', gloveReport), archive('本箱换签登记', [['原箱批号', 'G-112'], ['现箱批号', 'G-216'], seal], '背面夹着一张作废单，像是顺手写的借伞条。')],
         sample: { kind: 'yellow', appearance: 'glove', front: '外层包装袋泛黄，开口能看到手套的织布腕口。', unwrapped: '取出后，手套织物与掌面覆层的颜色均匀，泛黄留在包装袋上。', back: '翻过手套，背面的缝线连续，织布腕口没有松脱。' },
+        variants: [
+          {},
+          {
+            answer: 'fail', reason: '腕口背侧接缝脱线开口',
+            sample: { cuffSplit: true, back: '翻过手套，腕口背侧有几针脱线，织布边缘张开了一小段。' },
+          },
+        ],
       },
     ],
   },

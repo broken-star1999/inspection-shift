@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { DAYS } from '../src/content.js';
-import { sampleAppearance, sampleObservation } from '../src/samples.js';
+import { cuffSplitVisible, sampleAppearance, sampleObservation } from '../src/samples.js';
 
 const items = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
 
@@ -78,6 +78,21 @@ test('G-216 only reveals each side of the glove after the bag is opened', () => 
   assert.equal(sampleObservation(sample, oldInspection), sample.front);
   assert.equal(sampleObservation(sample, { unpacked: true }), sample.unwrapped);
   assert.equal(sampleObservation(sample, { back: true, unpacked: true }), sample.back);
+});
+
+test('G-216 conceals a split cuff until the glove is unpacked and turned over', () => {
+  const { sample, variants } = items.get(16);
+  const split = { ...sample, ...variants[1].sample };
+  assert.deepEqual(sampleAppearance(split), sampleAppearance(sample));
+  for (const inspection of [{}, { back: true }, { unpacked: true }]) {
+    assert.equal(cuffSplitVisible(split, inspection), false);
+    assert.equal(sampleObservation(split, inspection), sampleObservation(sample, inspection));
+  }
+  const inspection = { unpacked: true, back: true };
+  assert.equal(cuffSplitVisible(sample, inspection), false);
+  assert.equal(cuffSplitVisible(split, inspection), true);
+  assert.match(sampleObservation(sample, inspection), /缝线连续/);
+  assert.match(sampleObservation(split, inspection), /脱线.*张开/);
 });
 
 test('peeling film and pulling a rear clasp report only their respective observations', () => {

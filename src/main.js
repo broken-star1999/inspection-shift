@@ -1,6 +1,6 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, receiptDisposition, TUTORIAL, EVIDENCE } from './engine.js';
 import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE } from './content.js';
-import { sampleAppearance, sampleObservation } from './samples.js';
+import { cuffSplitVisible, sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
@@ -466,7 +466,7 @@ function setScene() {
   view.setRoomCargo(cargoHost, shipment.cargo);
   scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit), shutterClosed, catPassing,
     documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
-    sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
+    sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind, cuffSplit: cuffSplitVisible(item.sample, inspection) } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
     keepVisitor: arrival?.keepVisitor ?? false, approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
     presentedEvidence: phase === 'case' && item?.shownFinding === presentedEvidence ? presentedEvidence : null,

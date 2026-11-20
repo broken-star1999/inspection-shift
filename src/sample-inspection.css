@@ -15,6 +15,11 @@
 }
 
 .sample-stage[data-appearance='clip'] { --sample-image-width: 60%; }
+.sample-stage[data-kind='yellow'] { --sample-image-height: clamp(7rem, 30cqh, 14rem); }
+
+.sample-work-main:has(.sample-stage[data-kind='yellow']) > .modal-actions .button {
+  min-block-size: 2.75rem;
+}
 
 .sample-stage .sample-object {
   inline-size: min(var(--sample-image-width), calc(var(--sample-image-height) * var(--sample-ratio, 1.8848)));
@@ -37,6 +42,19 @@
   max-inline-size: none;
   max-block-size: none;
   object-fit: fill;
+}
+
+.sample-object > .sample-cuff-split,
+.sample-cuff-split > span {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sample-object > .sample-cuff-split { z-index: 1; }
+.sample-cuff-split > span {
+  background: var(--split-ink);
+  clip-path: var(--split-patch);
 }
 
 .sample-visual .sample-object > .model-mark {
