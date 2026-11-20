@@ -1,3 +1,5 @@
+import { normalizeFindings } from './inspection-findings.js';
+
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 function carryProgress(carry, seen = null) {
@@ -21,6 +23,7 @@ function caseProgress(item, progress) {
   const inspection = progress?.inspection;
   return {
     note: typeof progress?.note === 'string' ? progress.note.slice(0, 100) : '',
+    findings: normalizeFindings(progress?.findings),
     positions,
     inspection: {
       back: inspection?.back === true,
@@ -43,6 +46,7 @@ export function freshInteraction(carry = {}) {
     archiveFocus: null,
     archiveQuery: '',
     archiveEditing: false,
+    showFindings: false,
     ...carryProgress(carry),
     egg: null,
   };

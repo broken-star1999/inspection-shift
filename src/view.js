@@ -1,4 +1,5 @@
 import { CHARACTERS, DAYS, EASTER_EGGS } from './content.js';
+import { readFindings } from './inspection-findings.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 
 export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
@@ -137,10 +138,11 @@ export function dialog(title, body, type = '') {
   return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close" data-act="close" aria-label="关闭面板">×</button></header><div class="modal-body">${body}</div></section></div>`;
 }
 
-function deskSurface(title, body, type, closeText, page) {
+function deskSurface(title, body, type, closeText, page, { headerActions = '', footer = '' } = {}) {
+  const close = closeText ? `<button class="modal-close surface-close" data-act="close" aria-label="关闭面板">${closeText}</button>` : '';
   return `<section class="desk-surface ${type}" data-desk-surface="${type}"${page === undefined ? '' : ` data-surface-page="${esc(page)}"`} role="region" aria-labelledby="panel-title">
-    ${closeText ? `<header class="desk-surface-bar"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close surface-close" data-act="close" aria-label="关闭面板">${closeText}</button></header>` : `<h2 class="visually-hidden" id="panel-title">${esc(title)}</h2>`}
-    <div class="desk-surface-content">${body}</div></section>`;
+    ${closeText ? `<header class="desk-surface-bar"><h2 id="panel-title">${esc(title)}</h2>${headerActions ? `<div class="desk-surface-tools">${headerActions}${close}</div>` : close}</header>` : `<h2 class="visually-hidden" id="panel-title">${esc(title)}</h2>`}
+    <div class="desk-surface-content">${body}</div>${footer ? `<div class="desk-surface-footer">${footer}</div>` : ''}</section>`;
 }
 
 export function instructions(how) {
@@ -154,12 +156,25 @@ function sheet(doc, index, inspection) {
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
     const highlight = inspection?.signature && key.includes('签发');
-    const chosen = inspection?.note === `${key} · ${value}`;
+    const chosen = inspection?.selected.has(`doc:${index}:${field}`);
     const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="basis" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
     return `<div><dt>${esc(key)}</dt><dd>${fieldValue}</dd></div>`;
   }).join('');
   return `<article class="sheet sheet-${doc.type}"><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small><h3>${esc(doc.title)}</h3><dl class="fields">
     ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
+}
+
+function findingLines(findings, editable = false) {
+  return `<ul class="finding-lines">${findings.map(({ key, source, text }) => `<li><div class="finding-description">${source ? `<small class="finding-source">${esc(source)}</small>` : ''}<span>${esc(text)}</span></div>
+    ${editable ? button('取回', 'remove-finding', 'finding-remove', `data-key="${esc(key)}" aria-label="取回依据 ${esc(text)}"`) : ''}</li>`).join('')}</ul>`;
+}
+
+function findingsDraft(findings, showFindings) {
+  if (!findings.length) return { header: '', list: '' };
+  return {
+    header: button(`查验依据 ${findings.length}`, 'toggle-findings', 'findings-toggle', `aria-expanded="${Boolean(showFindings)}" aria-controls="working-findings"`),
+    list: `<div class="working-findings" id="working-findings" role="region" aria-label="已经记录的查验依据"${showFindings ? '' : ' hidden'}>${showFindings ? findingLines(findings, true) : ''}</div>`,
+  };
 }
 
 export function documents(item, index, compare, tutorial, progress) {
@@ -168,40 +183,44 @@ export function documents(item, index, compare, tutorial, progress) {
   const extras = [3, 15].includes(item.id) ? button('翻工艺夹板背面', 'egg', 'secondary', 'data-key="cat"') : item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
   const other = item.documents[compare];
   const signature = tutorial?.key === 'signature';
-  const inspection = { signature, note: progress.note };
+  const findings = readFindings(progress);
+  const inspection = { signature, selected: new Set(findings.map(({ key }) => key)) };
+  const draft = findingsDraft(findings, progress.showFindings);
   const guide = signature ? `${progress.signed ? '签发已核对。' : '点报告上的「已签发」。'}${progress.orderSeen ? '送检联已核对。' : '再并排翻看送检联的检验项目。'}` : tutorial?.line;
   const tabs = item.documents.map(({ title, type }, position) => {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
     return `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
   }).join('');
-  return deskSurface('桌面单据', `${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
+  return deskSurface('桌面单据', `${draft.list}${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
     <div class="doc-grid${cls('pair', other)}">${sheet(doc, index, inspection)}${other ? sheet(other, compare, inspection) : ''}</div>
-    <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`);
+    <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions: draft.header });
 }
 
-export function sample(item, inspection, tutorial) {
+export function sample(item, inspection, tutorial, progress) {
   const { back, film, clasp, tug, measured, unpacked } = inspection;
   const spec = item.sample;
   const kind = spec.kind;
   const appearance = sampleAppearance(spec);
   const packaged = kind === 'yellow' && !unpacked;
   const visual = sampleObservation(spec, inspection);
+  const draft = findingsDraft(readFindings(progress), progress?.showFindings);
   let control = '';
   if (packaged) control = sampleHotspot('unpack', 'pack-handle', '拆袋', '拆开包装');
   if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜', film ? '放回保护膜' : '揭开膜角', film);
   if (appearance.clasp && back && !tug) control = clasp
     ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查')
     : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件');
-  return deskSurface(`${item.batch} · ${appearance.name}`, `${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-inspector"><div class="sample-visual sample-stage${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
+  return deskSurface(`${item.batch} · ${appearance.name}`, `${draft.list}${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-inspector"><div class="sample-visual sample-stage${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
     ${sampleArt(spec, appearance, back, measured && spec.reading, control)}${spec.reading ? sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '量规', measured ? '取出量规' : '放进量规', measured) : ''}</div><div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
     ${measured && spec.reading ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
     <div class="modal-actions">${packaged ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
-    ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div>`, 'sample-surface', '放下检样');
+    ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: draft.header });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false) {
+  const findings = readFindings(record);
   return `<dl class="receipt-facts"><div><dt>${destinationLabel}</dt><dd>${esc(statuses[record.status] ?? '待登记')}</dd></div>
-    ${record.note || showEmptyNote ? `<div><dt>开单依据</dt><dd>${esc(record.note || '未另记')}</dd></div>` : ''}</dl>`;
+    ${findings.length || showEmptyNote ? `<div class="receipt-findings"><dt>开单依据</dt><dd>${findings.length ? findingLines(findings) : '未另记'}</dd></div>` : ''}</dl>`;
 }
 
 function archivedReceipt(record, latestReceipt) {
@@ -217,7 +236,7 @@ function archivedReceipt(record, latestReceipt) {
 }
 
 export function receipt(record) {
-  return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${receiptFacts(record)}</div><div class="modal-actions">${button('接着值班', 'next', 'primary')}</div>`, 'receipt-surface');
+  return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
 }
 
 export function archivePanel(rows, visits, focus, selected, query, editing, handoff) {

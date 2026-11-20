@@ -241,7 +241,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   let markup = '';
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
   if (panel === 'docs' && item) markup = view.documents(item, doc, compare, step, interaction);
-  if (panel === 'sample' && item) markup = view.sample(item, inspection, step);
+  if (panel === 'sample' && item) markup = view.sample(item, inspection, step, interaction);
   if (panel === 'archive' && run) markup = view.archivePanel(archive(run, archiveQuery), filedVisitPapers(archiveQuery), archiveFocus, pinned, archiveQuery, archiveEditing, run.phase === 'handoff');
   if (panel === 'phone' && run) markup = view.phone(phoneNumber, run.phone, archive(run).filter(({ id }) => pinned.includes(id)), run.day >= 1, run.flags.phoneBack);
   if (panel === 'handoff' && run?.phase === 'handoff') markup = view.handoffPanel(run, EVIDENCE);
@@ -272,7 +272,9 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
-  (restored || focusables.find((element) => element instanceof HTMLButtonElement && element.dataset.act && element.dataset.act !== 'close') || focusables[0])?.focus({ preventScroll: true });
+  const firstAction = focusables.find((element) => element instanceof HTMLButtonElement &&
+    element.dataset.act && !['close', 'toggle-findings', 'remove-finding'].includes(element.dataset.act));
+  (restored || firstAction || focusables[0])?.focus({ preventScroll: true });
   if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
     const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
     animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
@@ -388,17 +390,28 @@ function chooseDoc(index, opener) {
   openPanel('docs', opener);
 }
 
+function updateFindings(findings) {
+  interaction.findings = findings;
+  interaction.note = findings.at(-1)?.text ?? '';
+  if (!findings.length) interaction.showFindings = false;
+}
+
 function checkBasis(index, field) {
-  const datum = getCase(run)?.documents[index]?.fields[field];
+  const doc = getCase(run)?.documents[index];
+  const datum = doc?.fields[field];
   if (!datum) return;
-  const [key, value] = datum;
-  interaction.note = `${key} · ${value}`;
-  if (key.includes('签发') && tutorialStep()?.key === 'signature') {
+  const [label, value] = datum;
+  const key = `doc:${index}:${field}`;
+  const selected = interaction.findings.some((finding) => finding.key === key);
+  updateFindings(selected
+    ? interaction.findings.filter((finding) => finding.key !== key)
+    : [...interaction.findings, { key, source: doc.title, text: `${label} · ${value}` }]);
+  if (label.includes('签发') && tutorialStep()?.key === 'signature') {
     interaction.signed = true;
     advanceSignature();
   }
   playSound('click');
-  toast(`已记下 · ${key}`);
+  toast(`${selected ? '已移除' : '已记下'} · ${label}`);
   render();
 }
 
@@ -415,6 +428,19 @@ function compareDocs() {
   render();
 }
 
+function sampleFinding(spec, inspection) {
+  if (inspection.measured && spec.reading) {
+    return { key: 'sample:measure', source: '量规实测', text: spec.reading };
+  }
+  const { back, tug, film, unpacked } = inspection;
+  const operation = back ? (tug ? '轻拉检查' : '背面') : film ? '揭膜后' : unpacked ? '拆袋后' : '正面';
+  return {
+    key: `sample:${operation}`,
+    source: `${sampleAppearance(spec).name} · ${operation}`,
+    text: sampleObservation(spec, inspection),
+  };
+}
+
 function checkSample(act) {
   const sample = interaction.inspection;
   const spec = getCase(run)?.sample;
@@ -429,7 +455,8 @@ function checkSample(act) {
     case 'sample-measure': sample.measured = !sample.measured; break;
     case 'sample-unpack': sample.unpacked = true; break;
     case 'sample-basis': {
-      interaction.note = sample.measured ? `量规读数 · ${spec.reading}` : `检样 · ${sampleObservation(spec, sample)}`;
+      const finding = sampleFinding(spec, sample);
+      updateFindings([...interaction.findings.filter(({ key }) => key !== finding.key), finding]);
       panel = null;
       toast('已记下检样结果');
       break;
@@ -450,8 +477,10 @@ function checkSample(act) {
 
 function stamp(value) {
   if (arrivalTimer || (panel && !['docs', 'sample', 'archive'].includes(panel)) || activeVisit() || run?.phase !== 'case') return;
-  if (update({ type: 'stamp', value, note: interaction.note }, false)) {
+  if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
     panel = null;
+    clearTimeout(toastTimer);
+    toastBox.textContent = '';
     playSound('stamp');
     render();
     scenery?.setPressed?.(value);
@@ -530,6 +559,16 @@ root.addEventListener('click', (event) => {
     }
     case 'doc': if (run) chooseDoc(index, target); break;
     case 'basis': checkBasis(index, Number(target.dataset.field)); break;
+    case 'toggle-findings':
+      interaction.showFindings = !interaction.showFindings;
+      render();
+      if (interaction.showFindings) modalLayer.querySelector('#working-findings')?.scrollIntoView({ block: 'nearest' });
+      break;
+    case 'remove-finding':
+      updateFindings(interaction.findings.filter((finding) => finding.key !== key));
+      playSound('paper');
+      render();
+      break;
     case 'compare': compareDocs(); break;
     case 'sample': playSound('slide'); openPanel('sample', target); break;
     case 'stamp': stamp(key); break;

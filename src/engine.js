@@ -1,4 +1,5 @@
 import { DAYS, HANDOFF, PHONE, PRESSURE, TUTORIAL as tutorialContent } from './content.js';
+import { normalizeFindings } from './inspection-findings.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
 const CASES = DAYS.flatMap((day) => day.cases);
@@ -223,6 +224,7 @@ function stamp(state, action) {
   let response = value === item.answer ? item.response : STANDARD_RESPONSE[value];
   if (item.pressure === 'warning' && value === 'review') response = '行，我先让他们挪进黄线里。';
   if (item.id === 17 && state.flags.umbrella) response += ' 你也看见了？老周这两天看见我就催我晾伞。';
+  const findings = normalizeFindings(action.findings);
   const record = {
     id: item.id,
     batch: item.batch,
@@ -234,6 +236,7 @@ function stamp(state, action) {
     answer: item.answer,
     reason: item.reason,
     note: String(action.note ?? action.reason ?? '').trim().slice(0, 100) || (value === 'review' ? '请核对送检材料' : ''),
+    ...(findings.length ? { findings } : {}),
     response,
     status: disposition(value),
     amendments: [],

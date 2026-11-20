@@ -36,8 +36,28 @@ test('first stamp stays at the desk until all four guided checks are done', () =
   state = act(state, 'stamp', { value: 'pass' });
   assert.equal(state.phase, 'receipt');
   assert.equal(state.records[0].decision, 'pass');
+  assert.equal(Object.hasOwn(state.records[0], 'findings'), false);
   assert.equal(act(state, 'stamp', { value: 'pass' }), state);
   assert.equal(getCase(act(state, 'next')).id, 2);
+});
+
+test('a receipt preserves selected findings alongside the legacy note after reload', () => {
+  let state = act(createRun(4), 'start-day');
+  for (const { key } of TUTORIAL.slice(0, -1)) state = act(state, 'tutorial', { key });
+  const findings = [
+    { key: 'doc:0:0', source: '外箱标签', text: '批号 · G-201' },
+    { key: 'doc:1:0', source: '检验报告', text: '批号 · G-201' },
+  ];
+  state = act(state, 'stamp', { value: 'pass', note: '初查材料齐全', findings });
+  const receipt = state.records[0];
+  findings[0].text = '替换原内容';
+  assert.equal(receipt.findings[0].text, '批号 · G-201');
+  state = act(JSON.parse(JSON.stringify(state)), 'next');
+  assert.deepEqual(archive(state).find(({ id }) => id === 1).record, receipt);
+  assert.equal(receipt.note, '初查材料齐全');
+  state = act(state, 'stamp', { value: 'review', findings: [] });
+  assert.equal(Object.hasOwn(state.records[1], 'findings'), false);
+  assert.equal(state.records[1].note, '请核对送检材料');
 });
 
 test('same seed remains playable after JSON restore and contains one of each pressure event', () => {

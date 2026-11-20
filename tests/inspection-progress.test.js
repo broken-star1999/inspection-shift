@@ -8,6 +8,10 @@ test('restores current inspection work after a JSON round trip', () => {
   const pinned = [5, 7];
   const work = Object.assign(freshInteraction({ pinned, phoneNumber: '0204' }), {
     note: '检样 · 白痕随薄膜掀起。下方的镜片平整。',
+    findings: [
+      { key: 'doc:0:0', source: '外箱标签', text: '批号 · G-241' },
+      { key: 'doc:1:1', source: '随货核验联', text: '报告编号 · R-071' },
+    ],
     positions: { 1: { x: 16.71, y: -8 } },
     inspection: { back: true, film: true, clasp: true, tug: true, measured: true, unpacked: true },
     signed: true,
@@ -25,6 +29,7 @@ test('restores current inspection work after a JSON round trip', () => {
   assert.deepEqual(restored, {
     ...freshInteraction({ pinned, phoneNumber: '0204' }),
     note: work.note,
+    findings: work.findings,
     positions: work.positions,
     inspection: work.inspection,
     signed: true,
@@ -33,14 +38,18 @@ test('restores current inspection work after a JSON round trip', () => {
   saved.pinned.push(9);
   saved.positions[1].x = 0;
   saved.inspection.film = false;
+  saved.findings[0].text = '另一个批号';
   assert.deepEqual(work.pinned, pinned);
   assert.equal(work.positions[1].x, 16.71);
   assert.equal(work.inspection.film, true);
+  assert.equal(work.findings[0].text, '批号 · G-241');
+  assert.equal(restored.findings[0].text, '批号 · G-241');
 });
 
 test('retains phone and valid pinned records when changing batches or ending a shift', () => {
   const work = Object.assign(freshInteraction({ pinned: [5, 7], phoneNumber: '107' }), {
     note: '检样 · 卡扣插片读数偏低。',
+    findings: [{ key: 'sample:gauge', source: '量规', text: '1.80 mm' }],
     positions: { 0: { x: 22, y: -11 } },
     signed: true,
     orderSeen: true,
@@ -58,6 +67,9 @@ test('retains phone and valid pinned records when changing batches or ending a s
 
 test('loads legacy saves and accepts only usable values from a stored inspection', () => {
   assert.deepEqual(restoreInspectionProgress(undefined, item, [7]), freshInteraction());
+  const legacy = restoreInspectionProgress({ caseId: 7, note: '批号 · G-241' }, item, [7]);
+  assert.equal(legacy.note, '批号 · G-241');
+  assert.deepEqual(legacy.findings, []);
   assert.deepEqual(restoreInspectionProgress({
     caseId: 7,
     note: 145,
