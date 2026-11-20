@@ -404,22 +404,23 @@ export function dispatch(state, action) {
 
 export function getEnding(state) {
   const issues = [];
-  const record = getRecord(state, 7);
-  const recall = record?.status === 'shipped' || record?.status === 'recalled';
+  const traceReceipt = state.flags.traceAttached ? getRecord(state, 7) ?? null : null;
+  const recall = traceReceipt?.status === 'shipped' || traceReceipt?.status === 'recalled';
   const traceDisposition = !state.flags.traceAttached ? '' : recall ? 'G-241 已确认召回，安排抽检。' : 'G-241 已封存，安排补检。';
   const counts = { pass: 0, fail: 0, review: 0 };
-  const delayedBatches = new Set();
+  const delayedByBatch = new Map();
   for (const receipt of state.records) {
     const { id, batch, decision, answer, status } = receipt;
     counts[decision] += 1;
     const latestReceipt = findVerifiedReceipt(state.records, receipt);
     if (decision === 'pass' && answer !== 'pass' && !latestReceipt) issues.push(receipt);
-    const stillWithheld = status === 'held' || status === 'returned';
-    const justifiedTraceHold = id === record?.id && state.flags.traceAttached;
-    if (answer === 'pass' && stillWithheld && !latestReceipt && !justifiedTraceHold) delayedBatches.add(batch);
+    const stillWithheld = status === 'held' || status === 'returned' || status === 'recalled';
+    const justifiedTraceHold = id === traceReceipt?.id;
+    if (answer === 'pass' && stillWithheld && !latestReceipt && !justifiedTraceHold) delayedByBatch.set(batch, receipt);
   }
-  const delayed = { count: delayedBatches.size, batches: [...delayedBatches].slice(0, 3) };
-  const shared = { issues, traceDisposition, counts, delayed };
+  const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
+  const delayedReceipts = [...delayedByBatch.values()];
+  const shared = { issues, traceReceipt, traceDisposition, counts, delayed, delayedReceipts };
   if (issues.length) {
     const detail = issues.map(({ batch, reason, answer }) => `${batch} · ${answer === 'review' ? '暂缓入库' : '收货方复核'} · ${reason}`).join('\n');
     return { id: 'issue', ...HANDOFF.escaped, detail, ...shared };

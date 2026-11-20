@@ -230,11 +230,14 @@ function render() {
   desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item), ...heldObjects() }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   if (root.dataset.modeled === 'true') placeFixtures();
-  const summaryScroll = screenLayer.querySelector('.summary-body')?.scrollTop;
+  const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
+  const delayOpen = screenLayer.querySelector('details.ending-delay')?.open;
   screenLayer.innerHTML = run
     ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null))
-    : view.home(saved?.phase === 'ending' ? null : saved, endings);
-  if (summaryScroll !== undefined) screenLayer.querySelector('.summary-body')?.scrollTo(0, summaryScroll);
+    : view.home(saved, endings);
+  const delayDetails = screenLayer.querySelector('details.ending-delay');
+  if (delayDetails && delayOpen) delayDetails.open = true;
+  if (recapScroll !== undefined) screenLayer.querySelector('.summary-body, .ending-body')?.scrollTo(0, recapScroll);
   setScene();
   renderModal(item, step);
 }
@@ -245,7 +248,10 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
   if (panel === 'docs' && item) markup = view.documents(item, doc, compare, step, interaction);
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, interaction);
-  if (panel === 'archive' && run) markup = view.archivePanel(archive(run, archiveQuery), filedVisitPapers(archiveQuery), archiveFocus, pinned, archiveQuery, archiveEditing, run.phase === 'handoff');
+  if (panel === 'archive' && run) markup = view.archivePanel(
+    archive(run, archiveQuery), filedVisitPapers(archiveQuery), archiveFocus, pinned,
+    archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending',
+  );
   if (panel === 'phone' && run) markup = view.phone(phoneNumber, run.phone, archive(run).filter(({ id }) => pinned.includes(id)), run.day >= 1, run.flags.phoneBack);
   if (panel === 'handoff' && run?.phase === 'handoff') markup = view.handoffPanel(run, EVIDENCE);
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
@@ -337,7 +343,7 @@ function enter(restore) {
   }
   panel = null;
   modalOpener = null;
-  playSound('shutter');
+  playSound(run.phase === 'ending' ? 'paper' : 'shutter');
   render();
 }
 
@@ -601,6 +607,7 @@ root.addEventListener('click', (event) => {
       revealArchiveReceipt(act === 'archive-followup');
       break;
     case 'archive-pin': {
+      if (run?.phase === 'ending') break;
       const pinned = interaction.pinned;
       interaction.pinned = pinned.includes(index) ? pinned.filter((id) => id !== index) : [...pinned.slice(-1), index];
       toast(interaction.pinned.includes(index) ? '单据已放到电话旁' : '单据已收回交接簿');

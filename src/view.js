@@ -49,10 +49,13 @@ export function shell() {
 }
 
 export function home(save, endings) {
+  let actions = button('接班', 'start', 'primary');
+  if (save?.phase === 'ending') actions = button('查看上周交班', 'resume', 'primary') + button('接新一周', 'start');
+  else if (save) actions = button(`继续值班 <small>${DAYS[save.day].title}</small>`, 'resume', 'primary') + button('重新接班', 'new');
   return `<section class="home-screen"><div class="home-art" aria-hidden="true"></div><div class="home-body">
     <div class="title-paper"><div class="eyebrow">南渡防护用品厂 · 代班通知</div><h1>质检员<br><em>的一天</em></h1>
       <p class="title-description">在出货窗口替五天班。<br>看样，对单，然后签你的名字。</p>
-      <div class="home-actions">${save ? button(`继续值班 <small>${DAYS[save.day].title}</small>`, 'resume', 'primary') + button('重新接班', 'new') : button('接班', 'start', 'primary')}</div>
+      <div class="home-actions">${actions}</div>
     </div><div class="home-sign" aria-hidden="true"><i></i><span>发货抽检窗口</span><b>01</b></div></div>
     <footer class="home-footer"><span>出货交接室</span>${endings.length ? `<span>交班记录 ${endings.length}／3</span>` : '<span>五个工作日</span>'}</footer></section>`;
 }
@@ -122,6 +125,38 @@ export function desk(run, item, tutorial, interaction) {
       <p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上选一项作为依据'}</p></aside>`;
 }
 
+function endingReceipt(record, detail) {
+  const day = DAYS[record.day]?.title;
+  const lot = record.batch === 'G-204' ? (record.id === 4 ? '原批' : '留厂件') : '';
+  const label = [day, lot].filter(Boolean).join(' · ');
+  return `<button type="button" class="summary-record ending-receipt" data-act="archive-receipt" data-i="${esc(record.id)}">
+    <span class="ending-receipt-batch"><b>${esc(record.batch)}</b><small>${esc(label)}</small></span><span class="ending-receipt-detail">${esc(detail)}</span><span class="ending-receipt-arrow" aria-hidden="true">›</span>
+  </button>`;
+}
+
+function endingView(ending) {
+  const { delayed, delayedReceipts, traceReceipt, traceDisposition } = ending;
+  let note = esc(ending.detail);
+  if (ending.issues.length) {
+    note = `<ul class="ending-receipts">${ending.issues.map((record) => {
+      const disposition = record.answer === 'review' ? '暂缓入库' : '收货方复核';
+      return `<li>${endingReceipt(record, `${disposition} · ${record.reason}`)}</li>`;
+    }).join('')}</ul>`;
+  }
+  const trace = traceReceipt ? endingReceipt(traceReceipt, traceDisposition.replace(`${traceReceipt.batch} `, '')) : esc(traceDisposition);
+  if (ending.id === 'trace' && trace) note = trace;
+  return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}">
+    <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · 交班存根</div><h2>${esc(ending.title)}</h2></header>
+    <div class="ending-body"><p>${esc(ending.line)}</p><div class="ending-note">${note}</div>
+      ${ending.id === 'issue' && trace ? `<div class="ending-note">${trace}</div>` : ''}
+      ${delayed.count ? `<details class="ending-delay"><summary><b>仍未放行</b> ${delayed.count} 批来件已符合放行要求</summary>
+        <ul class="ending-receipts">${delayedReceipts.map((record) => `<li>${endingReceipt(record, statuses[record.status])}</li>`).join('')}</ul></details>` : ''}
+      <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
+    </div>
+    <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button('返回窗口', 'home')}${button('再接一周', 'new', 'primary')}</footer>
+  </section></div>`;
+}
+
 export function overlay(run, ending) {
   const day = DAYS[run.day];
   if (run.phase === 'brief') return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(day.subtitle)}</h3><p>${esc(day.intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
@@ -139,16 +174,7 @@ export function overlay(run, ending) {
     </section></div>`;
   }
   if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button('打电话', 'phone')}${button('交接', 'handoff', 'primary')}</div></section></div>`;
-  if (run.phase === 'ending') {
-    const { count, batches } = ending.delayed;
-    const delayed = count ? `${batches.join('、')}${count > batches.length ? ' 等 ' : '，共 '}${count} 批经核对可以放行的货，还在待审区或退件区。` : '';
-    return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}"><div class="eyebrow">南渡防护用品厂 · 交班存根</div>
-      <h2>${esc(ending.title)}</h2><p>${esc(ending.line)}</p><div class="ending-note">${esc(ending.detail).replace(/\n/g, '<br>')}</div>
-      ${ending.id === 'issue' && ending.traceDisposition ? `<p>${esc(ending.traceDisposition)}</p>` : ''}
-      ${delayed ? `<p class="ending-delay"><b>未放行</b> ${esc(delayed)}</p>` : ''}
-      <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
-      <div class="brief-actions">${button('返回窗口', 'home')}${button('再接一周', 'new', 'primary')}</div></section></div>`;
-  }
+  if (run.phase === 'ending') return endingView(ending);
   return '';
 }
 
@@ -257,7 +283,7 @@ export function receipt(record) {
   return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
 }
 
-export function archivePanel(rows, visits, focus, selected, query, editing, handoff) {
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const visitIndex = visits.length ? `<h3 class="archive-group-title">回访留底</h3>${visits.map(([key, doc]) =>
@@ -271,11 +297,14 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   if (visit) details = sheet(visit);
   if (row) {
     const { latestReceipt, previousReceipt } = row;
-    const canAmend = handoff && row.record && !latestReceipt;
-    details = `<div class="modal-actions archive-actions">${button(selected.includes(row.id) ? '已放到电话旁 · 取回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
-      ${previousReceipt ? button(previousReceipt.sameLot ? '查看前次回执' : '查看前次同号回执', 'archive-followup', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`) : ''}
-      ${latestReceipt ? button('查看后续回执', 'archive-followup', 'secondary', `data-i="${latestReceipt.id}"`) : ''}
-      ${canAmend ? button(editing ? '取消更正' : '更正开单', 'edit-record') : ''}</div>
+    const canAmend = !finished && handoff && row.record && !latestReceipt;
+    const actions = [
+      !finished && button(selected.includes(row.id) ? '已放到电话旁 · 取回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`),
+      previousReceipt && button(previousReceipt.sameLot ? '查看前次回执' : '查看前次同号回执', 'archive-followup', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`),
+      latestReceipt && button('查看后续回执', 'archive-followup', 'secondary', `data-i="${latestReceipt.id}"`),
+      canAmend && button(editing ? '取消更正' : '更正开单', 'edit-record'),
+    ].filter(Boolean).join('');
+    details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
       ${editing && canAmend ? `<div class="stamp-buttons archive-correction">${stampButtons(false, false, 'recheck')}</div>` : ''}
       ${archivedReceipt(row.record, latestReceipt)}<div class="doc-grid">${row.documents.map((doc) => sheet(doc)).join('')}</div>`;
   }

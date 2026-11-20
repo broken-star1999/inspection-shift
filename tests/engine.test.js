@@ -142,7 +142,10 @@ test('trace needs both archived records, the lab visit and submission at handoff
   state = act(state, 'finish');
   assert.equal(state.phase, 'ending');
   assert.equal(state.records.find(({ id }) => id === 7).status, 'recalled');
-  assert.match(getEnding(state).traceDisposition, /确认召回/);
+  const ending = getEnding(state);
+  assert.match(ending.traceDisposition, /确认召回/);
+  assert.equal(ending.traceReceipt, state.records.find(({ id }) => id === 7));
+  assert.deepEqual(ending.delayedReceipts, []);
 });
 
 test('report filed during handoff can still lead to an on-site hold', () => {
@@ -204,6 +207,8 @@ test('sending every batch to review reports the release-ready batches that remai
   const ending = getEnding(act(untilHandoff(21, { decisions }), 'finish'));
   assert.equal(ending.id, 'routine');
   assert.deepEqual(ending.delayed, { count: 12, batches: ['G-201', 'G-202', 'G-203'] });
+  assert.equal(ending.delayedReceipts.length, 12);
+  assert.deepEqual(ending.delayedReceipts.slice(0, 3).map(({ id }) => id), [1, 2, 3]);
 });
 
 test('a corrected decision removes the released batch from the handoff delay', () => {
@@ -211,6 +216,24 @@ test('a corrected decision removes the released batch from the handoff delay', (
   assert.deepEqual(getEnding(state).delayed, { count: 2, batches: ['G-201', 'G-202'] });
   state = act(state, 'recheck', { id: 1, value: 'pass' });
   assert.deepEqual(getEnding(act(state, 'finish')).delayed, { count: 1, batches: ['G-202'] });
+});
+
+test('recalling an accepted supplement reports the current receipt until the lot is released again', () => {
+  const week = untilHandoff(21);
+  const recalled = act(week, 'recheck', { id: 9, value: 'review' });
+  const finished = act(recalled, 'finish');
+  const ending = getEnding(finished);
+  const active = finished.records.find(({ id }) => id === 9);
+  assert.equal(active.status, 'recalled');
+  assert.equal(ending.id, 'routine');
+  assert.deepEqual(ending.delayed, { count: 1, batches: ['G-205'] });
+  assert.deepEqual(ending.delayedReceipts, [active]);
+  assert.equal(ending.traceReceipt, null);
+
+  const released = act(recalled, 'recheck', { id: 9, value: 'pass' });
+  const releasedEnding = getEnding(act(released, 'finish'));
+  assert.deepEqual(releasedEnding.delayed, { count: 0, batches: [] });
+  assert.deepEqual(releasedEnding.delayedReceipts, []);
 });
 
 test('newly signed proof clears a premature release, while G-204 is tracked separately', () => {
@@ -225,7 +248,9 @@ test('newly signed proof clears a premature release, while G-204 is tracked sepa
   assert.equal(revised.original, 'pass');
   assert.equal(revised.status, 'recalled');
   assert.equal(revised.amendments[0].previousStatus, 'shipped');
-  assert.equal(getEnding(act(state, 'finish')).id, 'routine');
+  const corrected = getEnding(act(state, 'finish'));
+  assert.equal(corrected.id, 'routine');
+  assert.deepEqual(corrected.delayedReceipts, []);
 });
 
 test('an accepted same-lot receipt owns the disposition and preserves the first receipt', () => {
