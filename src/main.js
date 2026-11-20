@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, archive, TUTORIAL, EVIDENCE } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, archive, TUTORIAL, EVIDENCE } from './engine.js';
 import { DAYS, EASTER_EGGS } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
@@ -266,9 +266,16 @@ function windowCase() {
   return run && !arrivalTimer && !activeVisit() ? getCase(run) : null;
 }
 
+function filedRework() {
+  const followup = run && getReworkFollowup(run);
+  return followup && run.flags[`${followup.key}Document`] ? followup : null;
+}
+
 function filedSupportingPapers(query) {
   const term = query.trim().toLowerCase();
   const visits = Object.entries(EVIDENCE).filter(([key]) => run.flags[`${key}Document`]);
+  const rework = filedRework();
+  if (rework) visits.push([rework.key, rework.document]);
   const recalls = run.records.filter((record) => record.recallReceipt).map((record) => [
     `recall:${record.id}`, recallPaper(record, record.recallReceipt.day),
   ]);
@@ -347,7 +354,14 @@ function visitDocument(visit, state = run) {
     const record = state.records.find(({ id }) => id === visit.caseId);
     return record ? recallPaper(record, state.day) : null;
   }
+  if (visit?.kind === 'rework') return getReworkFollowup(state)?.document;
   return visit && EVIDENCE[visit.key];
+}
+
+function scenePaperBatch(doc, item, visit) {
+  if (visit?.kind === 'recall') return `${doc.fields[0][1]} · ${doc.fields[1][1]}`;
+  if (visit?.kind === 'rework') return `${doc.fields[0][1]} · 周二复核`;
+  return visit ? '回访留底' : doc.fields[0]?.[1] ?? item.batch;
 }
 
 function setScene() {
@@ -374,8 +388,7 @@ function setScene() {
   const documents = item?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
   scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit),
-    documents: documents.map((doc) => ({ type: doc.type, title: doc.title,
-      batch: visit?.kind === 'recall' ? `${doc.fields[0][1]} · ${doc.fields[1][1]}` : visit ? '回访留底' : doc.fields[0]?.[1] ?? item.batch })),
+    documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
     keepVisitor: arrival?.keepVisitor ?? false, approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined) });
@@ -428,6 +441,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const { compare, inspection, archiveFocus, archiveQuery, pinned, phoneNumber, egg } = interaction;
   const correction = activeCorrection();
   const correctionFindings = correction ? selectedCorrectionFindings(correction, correctionDraft.keys) : null;
+  const rework = panel === 'archive' || panel === 'handoff' ? filedRework() : null;
+  const reworkBasis = correction && reworkFinding(correction, rework);
   const incomingCall = incomingAtWindow();
   const work = { ...interaction, incomingCall };
   let markup = '';
@@ -440,6 +455,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
         returnTo: archiveReturn?.panel,
         canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
         correctionFindings: correctionFindings ?? [],
+        rework,
+        reworkBasis,
       });
   }
   if (panel === 'phone' && run) {
@@ -452,7 +469,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   if (panel === 'handoff' && run?.phase === 'handoff') {
     const rows = archive(run).filter(({ record }) => record);
-    markup = view.handoffPanel(run, EVIDENCE, rows, { focus: handoffFocus, documentIndex: handoffDocument, correctionFindings });
+    markup = view.handoffPanel(run, EVIDENCE, rows, { focus: handoffFocus, documentIndex: handoffDocument, correctionFindings, rework, reworkBasis });
   }
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
@@ -716,7 +733,7 @@ function focusNextWindowAction() {
 }
 
 function windowAction(value) {
-  if (value === 'next' || value === 'ack-visit') return { type: value };
+  if (value === 'start-day' || value === 'next' || value === 'ack-visit') return { type: value };
   if (value?.type === 'receive-recall' && Number.isInteger(value.id)) return { type: value.type, id: value.id };
   return null;
 }
@@ -746,7 +763,7 @@ function finishWindowAdvance(value, restoreFocus) {
       handoffFocus = visit.caseId;
       handoffDocument = null;
       if (!confirmed) toast('这份回执需要再核对');
-    } else toast('留底已收入交接簿');
+    } else toast(visit.kind === 'rework' ? '复核联已收入交接簿' : '留底已收入交接簿');
   }
   render();
   if (visit?.kind === 'recall') {
@@ -863,14 +880,28 @@ function activeCorrection() {
   return correctableRow(correctionDraft.id);
 }
 
+function reworkFinding(row, rework = filedRework()) {
+  if (!rework || row.id !== rework.caseId) return null;
+  const facts = rework.document.fields.filter(([label]) => label === '检查记录' || label === '复核结论');
+  return { key: rework.key, source: rework.document.title, text: facts.map(([, value]) => value).join('。') };
+}
+
 function selectedCorrectionFindings(row, keys = []) {
   if (!row) return [];
   const available = [
     ...row.documents.flatMap((doc, index) => doc.fields.map((_, field) => paperFieldFinding(doc, index, field))),
     ...readFindings(row.record).filter(({ key }) => key.startsWith('sample:')),
   ];
+  const rework = reworkFinding(row);
+  if (rework) available.push(rework);
   const byKey = new Map(available.map((finding) => [finding.key, finding]));
   return [...new Set(keys)].flatMap((key) => byKey.has(key) ? [byKey.get(key)] : []);
+}
+
+function hasHandoffDocument(row, documentIndex) {
+  if (!row) return false;
+  if (documentIndex === 'rework') return filedRework()?.caseId === row.id;
+  return Number.isInteger(documentIndex) && Boolean(row.documents[documentIndex]);
 }
 
 function restoreCorrectionDraft(draft) {
@@ -885,7 +916,7 @@ function restoreCorrectionDraft(draft) {
     id: row.id,
     keys,
     fromBoard,
-    documentIndex: fromBoard && Number.isInteger(documentIndex) && row.documents[documentIndex] ? documentIndex : null,
+    documentIndex: fromBoard && hasHandoffDocument(row, documentIndex) ? documentIndex : null,
     scrollTop: !legacyBoardDraft && Number.isFinite(draft.scrollTop) ? Math.max(0, draft.scrollTop) : 0,
   };
 }
@@ -1192,7 +1223,14 @@ root.addEventListener('click', (event) => {
       if (fromHistory) focusControl(screenLayer, { act: 'completed-shifts' });
       break;
     }
-    case 'start-day': playSound('shutter'); update({ type: 'start-day' }); break;
+    case 'start-day': {
+      const next = !arrival && windowAdvance(act);
+      if (!next) break;
+      playSound('shutter');
+      if (activeVisit(next)?.kind === 'rework') pauseBeforeArrival(act, next, event.detail === 0);
+      else finishWindowAdvance(act, event.detail === 0);
+      break;
+    }
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
     case 'next':
     case 'event-next':
@@ -1342,8 +1380,8 @@ root.addEventListener('click', (event) => {
     case 'handoff-doc': {
       if (panel !== 'handoff') break;
       const row = archive(run).find((entry) => entry.id === handoffFocus && entry.record);
-      const documentIndex = key === 'receipt' ? null : index;
-      if (!row || (documentIndex !== null && !row.documents[documentIndex]) || handoffDocument === documentIndex) break;
+      const documentIndex = key === 'receipt' ? null : key === 'rework' ? key : index;
+      if (!row || (documentIndex !== null && !hasHandoffDocument(row, documentIndex)) || handoffDocument === documentIndex) break;
       handoffDocument = documentIndex;
       playSound('paper');
       render(0);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
+import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -140,6 +140,72 @@ test('receipt feedback follows handling rather than revealing whether the stamp 
   assert.match(receiptFeedback(last), /交班时把板给我/);
   const umbrella = receiptAt(17, 'review', { inspect: (state, item) => item.id === 16 ? act(state, 'explore', { key: 'umbrella' }) : state });
   assert.match(receiptFeedback(umbrella), /晾伞/);
+});
+
+test('the next day brings a single G-202 rework or hold record without changing the original receipt', () => {
+  for (const [decision, status] of [['fail', 'returned'], ['review', 'held']]) {
+    const monday = act(receiptAt(4, 'fail', { decisions: { 2: decision } }), 'next');
+    const close = JSON.parse(JSON.stringify(monday));
+    delete close.events;
+    assert.equal(close.event, null);
+    assert.deepEqual(close.pending, []);
+
+    const tuesday = JSON.parse(JSON.stringify(act(close, 'advance-day')));
+    const followup = getReworkFollowup(tuesday);
+    assert.equal(followup.key, 'rework:2');
+    assert.equal(followup.document.kind, 'rework');
+    assert.match(followup.document.fields.flat().join(' '), /揭膜检查.*实物无需返修/);
+    const waiting = act(tuesday, 'start-day');
+    assert.equal(waiting.event.key, followup.key);
+    assert.equal(waiting.event.kind, 'rework');
+    assert.equal(waiting.event.caseId, 2);
+    assert.equal(waiting.event.line, followup.line);
+    assert.equal(waiting.events.length, 1);
+    assert.equal(waiting.flags['rework:2Document'], undefined);
+    assert.equal(archive(waiting).some(({ id }) => id === 5), false);
+    assert.equal(act(waiting, 'stamp', { value: 'review' }), waiting);
+
+    const restored = JSON.parse(JSON.stringify(waiting));
+    const filed = act(restored, 'ack-visit');
+    assert.equal(filed.records, restored.records);
+    assert.equal(filed.records.find(({ id }) => id === 2).status, status);
+    assert.equal(filed.records.length, 4);
+    assert.equal(filed.flags['rework:2Document'], true);
+    assert.deepEqual(filed.flags, { ...tuesday.flags, 'rework:2Document': true });
+    assert.deepEqual(filed.phoneLog, tuesday.phoneLog);
+    assert.equal(filed.event, null);
+    assert.equal(getCase(filed).id, 5);
+    assert.equal(filed.seen.filter((id) => id === 5).length, 1);
+    assert.equal(act(filed, 'ack-visit'), filed);
+    assert.equal(act(filed, 'start-day'), filed);
+    const handoff = untilHandoff(21, { initialState: JSON.parse(JSON.stringify(filed)) });
+    assert.equal(handoff.records.length, 20);
+    assert.equal(getEnding(handoff).delayedReceipts.some(({ id }) => id === 2), true);
+    const revised = act(handoff, 'recheck', { id: 2, value: 'pass' });
+    assert.deepEqual(getReworkFollowup(revised), followup);
+  }
+});
+
+test('G-202 opens normally when passed, and an already open legacy Tuesday does not get a late visit', () => {
+  const monday = act(receiptAt(4, 'fail'), 'next');
+  const tuesday = act(monday, 'advance-day');
+  const opened = act(tuesday, 'start-day');
+  assert.equal(opened.event, null);
+  assert.equal(getReworkFollowup(opened), null);
+  assert.equal(getCase(opened).id, 5);
+
+  const legacy = JSON.parse(JSON.stringify(opened));
+  const g202 = legacy.records.find(({ id }) => id === 2);
+  Object.assign(g202, { original: 'fail', decision: 'fail', status: 'returned' });
+  assert.equal(act(legacy, 'start-day'), legacy);
+  const handoff = untilHandoff(21, { initialState: legacy });
+  assert.equal(handoff.flags['rework:2Document'], undefined);
+  assert.equal(handoff.event, null);
+  assert.deepEqual(handoff.pending, []);
+  assert.equal(handoff.records.length, 20);
+
+  const lateRecheck = act(untilHandoff(21), 'recheck', { id: 2, value: 'fail' });
+  assert.equal(getReworkFollowup(lateRecheck), null);
 });
 
 test('same seed remains playable after JSON restore and contains one of each pressure event', () => {

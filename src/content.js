@@ -68,6 +68,39 @@ function archive(title, fields, note) {
   return { type: 'archive', title, fields, note };
 }
 
+function g202RecheckDocument(title, stamp, location, department) {
+  return {
+    ...archive(title, [
+      ['批号', 'G-202'],
+      ['原报告编号', 'R-062'],
+      ['原单日期', '周一'],
+      ['原单印章', stamp],
+      ['检查记录', '揭膜检查，视窗无损'],
+      ['复核结论', '实物无需返修'],
+      ['货物仍在', location],
+      ['出单部门', department],
+      ['复核日期', '周二'],
+      ['复核签名', '许师傅'],
+    ], '周一原单随本联留存。需要改变货物去向时，由原出票人另开更正联。'),
+    kind: 'rework',
+  };
+}
+
+export const G202_RECHECK = {
+  fail: {
+    npc: 'xu',
+    title: 'G-202 返工复核联',
+    line: '返工区复核过了，白印跟着膜揭下来了。箱子还在那儿，单给你。',
+    document: g202RecheckDocument('G-202 返工复核联', '不通过', '返工区', '装配二线 · 返工复核'),
+  },
+  review: {
+    npc: 'xu',
+    title: 'G-202 隔离复核联',
+    line: '黄线里那箱我揭膜看过，视窗没伤。箱子先留着，复核联给你。',
+    document: g202RecheckDocument('G-202 隔离复核联', '要求审查', '黄线隔离区', '装配二线 · 隔离复核'),
+  },
+};
+
 function standard(batch, number) {
   return [label(batch), report(batch, number), order(batch)];
 }

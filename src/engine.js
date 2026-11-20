@@ -1,4 +1,4 @@
-import { DAYS, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, TUTORIAL as tutorialContent } from './content.js';
+import { DAYS, G202_RECHECK, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, TUTORIAL as tutorialContent } from './content.js';
 import { normalizeFindings } from './inspection-findings.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
@@ -11,6 +11,7 @@ const ARRIVAL_ORDERS = {
   4: [[17, 18, 19, 20], [17, 19, 18, 20]],
 };
 const REPLAY_VARIANT_CASES = [8, 12].map((id) => CASE_BY_ID.get(id));
+const REWORK_KEY = 'rework:2';
 const TUTORIAL_KEYS = ['label', 'report', 'signature', 'sample', 'stamp'];
 export const TUTORIAL = tutorialContent.map((step, index) => ({ ...step, key: TUTORIAL_KEYS[index] }));
 
@@ -127,6 +128,14 @@ function getRecord(state, id) {
   return state.records.find((record) => record.id === id);
 }
 
+export function getReworkFollowup(state) {
+  if (!state) return null;
+  const receipt = getRecord(state, 2);
+  const decision = receipt?.original ?? receipt?.amendments?.[0]?.from ?? receipt?.decision;
+  if (decision !== 'fail' && decision !== 'review') return null;
+  return { ...G202_RECHECK[decision], key: REWORK_KEY, caseId: receipt.id };
+}
+
 function getDialogue(state, item) {
   const previous = getPreviousReceipt(state, item)?.record.decision;
   const line = item.followUp?.lines[previous] ?? item.line;
@@ -196,12 +205,22 @@ function isVisitQueued(state, key) {
   return state.pending.includes(key) || activeVisits(state).some((visit) => visit.key === key);
 }
 
+function visitForKey(state, key) {
+  if (key !== REWORK_KEY) return VISITS[key];
+  if (state.phase !== 'brief' || state.day !== 1) return null;
+  const followup = getReworkFollowup(state);
+  if (!followup) return null;
+  const { caseId, npc, title, line } = followup;
+  return { kind: 'rework', key, caseId, npc, title, line };
+}
+
 function deliverVisits(state) {
   if (!state.pending.length) return state;
   const events = [...activeVisits(state)];
   for (const key of state.pending) {
-    if (VISITS[key] && !state.flags[`${key}Document`] && !events.some((visit) => visit.key === key)) {
-      events.push(VISITS[key]);
+    const visit = visitForKey(state, key);
+    if (visit && !state.flags[`${key}Document`] && !events.some((event) => event.key === key)) {
+      events.push(visit);
     }
   }
   return { ...state, event: events[0] ?? null, events, pending: [] };
@@ -228,6 +247,11 @@ function startCase(state, index) {
   const arrived = { ...state, phase: 'case', index };
   return activeVisits(arrived).length || arrived.seen.includes(id)
     ? arrived : { ...arrived, seen: [...arrived.seen, id] };
+}
+
+function startDay(state) {
+  const opening = state.day === 1 && getReworkFollowup(state) ? queueVisit(state, REWORK_KEY) : state;
+  return startCase(deliverVisits(opening), 0);
 }
 
 function ship(records) {
@@ -536,7 +560,7 @@ export function dispatch(state, action) {
   const waitingForVisit = activeVisits(state).length > 0;
   switch (action.type) {
     case 'start-day':
-      return state.phase === 'brief' && !waitingForVisit ? startCase(deliverVisits(state), 0) : state;
+      return state.phase === 'brief' && !waitingForVisit ? startDay(state) : state;
     case 'tutorial': {
       const step = TUTORIAL[state.tutorial];
       const key = action.key ?? action.step ?? action.value;
