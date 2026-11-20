@@ -38,6 +38,44 @@ function caseProgress(item, progress) {
   };
 }
 
+function documentIndex(value, count) {
+  return Number.isInteger(value) && Number.isInteger(count) && value >= 0 && value < count ? value : null;
+}
+
+function workspaceProgress(item, work, { prior, guided } = {}) {
+  const panel = work?.panel;
+  if (!['docs', 'sample', 'phone'].includes(panel)) return null;
+  const scrollTop = Number.isFinite(work.scrollTop) ? Math.max(0, work.scrollTop) : 0;
+  const workspace = { panel, scrollTop };
+  if (panel === 'phone') return workspace;
+  if (panel === 'sample' && !item.sample) return null;
+
+  const count = Array.isArray(item.documents) ? item.documents.length : 0;
+  const doc = documentIndex(work.doc, count);
+  if (panel === 'docs' && doc === null) return null;
+  const returnToDocs = panel === 'sample' && !guided && doc !== null && work.returnToDocs === true;
+  workspace.showFindings = work.showFindings === true;
+
+  if (panel === 'docs' || returnToDocs) {
+    const compare = documentIndex(work.compare, count);
+    workspace.doc = doc;
+    workspace.compare = compare === doc ? null : compare;
+
+    const previousDoc = documentIndex(work.previousDoc, prior?.documentCount);
+    const previousCurrentDoc = documentIndex(work.previousCurrentDoc, count);
+    if (!guided && Number.isInteger(prior?.id) && prior.id > 0 && work.priorId === prior.id &&
+        previousDoc !== null && previousCurrentDoc !== null) {
+      Object.assign(workspace, { priorId: prior.id, previousDoc, previousCurrentDoc });
+    }
+  }
+
+  if (panel === 'sample') {
+    workspace.referenceDoc = guided ? null : documentIndex(work.referenceDoc, count);
+    workspace.returnToDocs = returnToDocs;
+  }
+  return workspace;
+}
+
 export function freshInteraction(carry = {}) {
   return {
     ...caseProgress(null, null),
@@ -56,14 +94,28 @@ export function freshInteraction(carry = {}) {
   };
 }
 
-export function captureInspectionProgress(item, interaction) {
+export function captureInspectionProgress(item, interaction, context = {}) {
   const caseId = Number.isInteger(item?.id) && item.id > 0 ? item.id : null;
-  return { caseId, ...caseProgress(item, caseId === null ? null : interaction), ...carryProgress(interaction) };
+  const progress = { caseId, ...caseProgress(item, caseId === null ? null : interaction), ...carryProgress(interaction) };
+  if (caseId !== null && context?.panel) {
+    const workspace = workspaceProgress(item, {
+      ...interaction,
+      panel: context.panel,
+      scrollTop: context.scrollTop,
+      priorId: context.prior?.id,
+    }, context);
+    if (workspace) progress.workspace = workspace;
+  }
+  return progress;
 }
 
-export function restoreInspectionProgress(progress, item, seen = []) {
+export function restoreInspectionProgress(progress, item, seen = [], context) {
   const interaction = { ...freshInteraction(), ...carryProgress(progress, seen ?? []) };
   const caseId = progress?.caseId;
   if (!Number.isInteger(caseId) || caseId < 1 || item?.id !== caseId) return interaction;
-  return { ...interaction, ...caseProgress(item, progress) };
+  const restored = { ...interaction, ...caseProgress(item, progress) };
+  const workspace = context ? workspaceProgress(item, progress.workspace, context) : null;
+  if (!workspace) return restored;
+  const { panel, scrollTop, priorId: _priorId, ...fields } = workspace;
+  return { ...restored, ...fields, workspace: { panel, scrollTop } };
 }

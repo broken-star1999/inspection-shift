@@ -90,3 +90,88 @@ test('loads legacy saves and accepts only usable values from a stored inspection
     orderSeen: true,
   });
 });
+
+test('restores the current and prior papers separately and falls back to the saved current pair', () => {
+  const itemWithPrior = { id: 9, documents: [{ type: 'label' }, { type: 'report' }, { type: 'order' }] };
+  const prior = { id: 5, documentCount: 2 };
+  const work = Object.assign(freshInteraction(), {
+    doc: 2,
+    compare: 0,
+    previousDoc: 1,
+    previousCurrentDoc: 1,
+    showFindings: true,
+  });
+  const progress = captureInspectionProgress(itemWithPrior, work, { panel: 'docs', scrollTop: 17, prior });
+  assert.deepEqual(progress.workspace, {
+    panel: 'docs', scrollTop: 17, doc: 2, compare: 0,
+    priorId: 5, previousDoc: 1, previousCurrentDoc: 1, showFindings: true,
+  });
+  const saved = JSON.parse(JSON.stringify(progress));
+  const restored = restoreInspectionProgress(saved, itemWithPrior, [5, 9], { prior });
+  assert.deepEqual(restored, { ...work, workspace: { panel: 'docs', scrollTop: 17 } });
+
+  const invalidPrior = [{ id: 4, documentCount: 2 }, { id: 5, documentCount: 1 }, { id: 5, documentCount: '2' }];
+  for (const context of [{}, { prior, guided: true }, ...invalidPrior.map(value => ({ prior: value }))]) {
+    const currentOnly = restoreInspectionProgress(saved, itemWithPrior, [5, 9], context);
+    assert.deepEqual(currentOnly, { ...restored, previousDoc: null, previousCurrentDoc: null });
+  }
+});
+
+test('preserves a sample reference and its return to papers while respecting guided inspection', () => {
+  const sampleItem = { ...item, sample: { kind: 'clear' } };
+  const work = Object.assign(freshInteraction(), {
+    doc: 1, compare: 0, returnToDocs: true, referenceDoc: 0,
+    inspection: { ...freshInteraction().inspection, measured: true },
+  });
+  const progress = captureInspectionProgress(sampleItem, work, { panel: 'sample', scrollTop: 27 });
+  assert.deepEqual(restoreInspectionProgress(progress, sampleItem, [7], {}), {
+    ...work, workspace: { panel: 'sample', scrollTop: 27 },
+  });
+  const guided = restoreInspectionProgress(progress, sampleItem, [7], { guided: true });
+  assert.deepEqual(guided, {
+    ...freshInteraction(),
+    inspection: work.inspection,
+    workspace: { panel: 'sample', scrollTop: 27 },
+  });
+  const noReference = captureInspectionProgress(sampleItem, { ...work, referenceDoc: null }, { panel: 'sample' });
+  const resume = restoreInspectionProgress(noReference, sampleItem, [7], {});
+  assert.equal(resume.referenceDoc, null);
+  assert.equal(resume.returnToDocs, true);
+  assert.equal(resume.compare, 0);
+});
+
+test('phone saves only its surface and cannot open during a receipt, visitor or different case', () => {
+  const work = Object.assign(freshInteraction({ phoneNumber: '204', pinned: [5, 7] }), {
+    doc: 1, compare: 0, referenceDoc: 0, returnToDocs: true, note: '已选依据',
+  });
+  const progress = captureInspectionProgress(item, work, { panel: 'phone', scrollTop: 53 });
+  assert.deepEqual(progress.workspace, { panel: 'phone', scrollTop: 53 });
+  const live = restoreInspectionProgress(progress, item, [5, 7], {});
+  assert.deepEqual(live, {
+    ...freshInteraction({ phoneNumber: '204', pinned: [5, 7] }),
+    note: '已选依据', workspace: { panel: 'phone', scrollTop: 53 },
+  });
+  const { workspace, ...durable } = live;
+  assert.deepEqual(restoreInspectionProgress(progress, item, [5, 7]), durable);
+  assert.deepEqual(restoreInspectionProgress(progress, { ...item, id: 9 }, [7], {}),
+    freshInteraction({ phoneNumber: '204', pinned: [7] }));
+  assert.equal(captureInspectionProgress(null, work, { panel: 'phone', scrollTop: 53 }).workspace, undefined);
+});
+
+test('rejects unsupported workspaces and invalid document values while preserving case progress', () => {
+  const work = { ...freshInteraction(), note: '可恢复' };
+  const progress = captureInspectionProgress(item, work);
+  for (const workspace of [
+    { panel: 'archive' }, { panel: 'phone', linkedTo: 'archive', extra: true, scrollTop: -5 },
+    { panel: 'docs', doc: '1' }, { panel: 'docs', doc: 2 }, { panel: 'sample', referenceDoc: 0 },
+  ]) {
+    const restored = restoreInspectionProgress({ ...progress, workspace }, item, [7], {});
+    if (workspace.panel === 'phone') assert.deepEqual(restored, { ...work, workspace: { panel: 'phone', scrollTop: 0 } });
+    else assert.deepEqual(restored, work);
+  }
+  const malformed = restoreInspectionProgress({
+    ...progress,
+    workspace: { panel: 'docs', doc: 0, compare: 0, scrollTop: Infinity, showFindings: 1, previousDoc: 0, previousCurrentDoc: 1 },
+  }, item, [7], { prior: { id: 5, documentCount: 2 } });
+  assert.deepEqual(malformed, { ...work, workspace: { panel: 'docs', scrollTop: 0 } });
+});

@@ -43,6 +43,7 @@ let scenery;
 let modeledReady = false;
 let toastTimer;
 let arrivalTimer = 0;
+let workspaceScrollTimer = 0;
 let drag;
 let stampTouch = null;
 let suppressPaperClick = false;
@@ -266,8 +267,7 @@ function setScene() {
     positions: interaction.positions, pencil: showPencil(item), ...heldObjects() });
 }
 
-function render() {
-  persistRun();
+function render(resumeScroll) {
   root.dataset.phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
   const waitMessage = arrivalTimer ? '等下一位…' : '';
   if (arrivalStatus.textContent !== waitMessage) arrivalStatus.textContent = waitMessage;
@@ -295,6 +295,8 @@ function render() {
   if (recapScroll !== undefined) screenLayer.querySelector('.summary-body, .ending-body')?.scrollTo(0, recapScroll);
   setScene();
   renderModal(item, step);
+  if (resumeScroll !== undefined) workspaceBody()?.scrollTo(0, resumeScroll);
+  persistRun();
 }
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
@@ -383,11 +385,50 @@ function toast(message) {
   toastTimer = setTimeout(() => { toastBox.textContent = ''; }, 2350);
 }
 
+function workspaceContext() {
+  const item = windowCase();
+  if (!item || run.phase !== 'case') return undefined;
+  const previous = previousInspection(item);
+  return {
+    prior: previous ? { id: previous.record.id, documentCount: previous.documents.length } : null,
+    guided: Boolean(tutorialStep()),
+  };
+}
+
+function workspaceBody() {
+  if (panel === 'docs') return modalLayer.querySelector('.documents-surface .desk-surface-content');
+  if (panel === 'sample') return modalLayer.querySelector('.sample-surface .desk-surface-content');
+  if (panel === 'phone') return modalLayer.querySelector('.phone-modal .modal-body');
+  return null;
+}
+
 function persistRun() {
   if (!run) return;
-  saved = { ...run, inspectionProgress: captureInspectionProgress(getCase(run), interaction) };
+  const body = workspaceBody();
+  const context = body ? workspaceContext() : undefined;
+  const workspace = context ? { ...context, panel, scrollTop: body.scrollTop } : undefined;
+  saved = { ...run, inspectionProgress: captureInspectionProgress(getCase(run), interaction, workspace) };
   writeStorage(SAVE_KEY, saved);
 }
+
+function persistWorkspaceScroll() {
+  clearTimeout(workspaceScrollTimer);
+  const body = workspaceBody();
+  const workspace = saved?.inspectionProgress?.workspace;
+  if (!body || !workspace || workspace.panel !== panel || Math.abs(body.scrollTop - workspace.scrollTop) < 1) return;
+  // Passive scroll saves must not replace newer progress from another tab.
+  if (JSON.stringify(readStorage(SAVE_KEY)) === JSON.stringify(saved)) persistRun();
+}
+
+modalLayer.addEventListener('scroll', (event) => {
+  if (event.target !== workspaceBody()) return;
+  clearTimeout(workspaceScrollTimer);
+  workspaceScrollTimer = setTimeout(persistWorkspaceScroll, 150);
+}, { capture: true, passive: true });
+window.addEventListener('pagehide', persistWorkspaceScroll);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) persistWorkspaceScroll();
+});
 
 function update(action, redraw = true) {
   if (!run) return false;
@@ -418,19 +459,23 @@ function openPanel(name, opener) {
 
 function enter(restore) {
   cancelArrivalPause();
+  let workspace;
   if (restore && saved) {
     const { inspectionProgress, ...savedRun } = saved;
     run = savedRun;
-    interaction = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen);
+    const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
+    ({ workspace, ...interaction } = restored);
   } else {
     run = createRun();
     interaction = freshInteraction();
   }
-  panel = null;
-  modalOpener = null;
+  panel = workspace?.panel ?? null;
+  modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
+    : panel ? { act: panel, fixture: panel } : null;
   phoneArchiveOpener = null;
-  playSound(run.phase === 'ending' ? 'paper' : 'shutter');
-  render();
+  const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
+  playSound(resumeSound ?? (run.phase === 'ending' ? 'paper' : 'shutter'));
+  render(workspace?.scrollTop);
 }
 
 function cancelArrivalPause() {
@@ -646,8 +691,8 @@ function dial() {
 
 function setPhoneNumber(value) {
   interaction.phoneNumber = value;
-  persistRun();
   renderModal();
+  persistRun();
 }
 
 function openArchive(opener) {
