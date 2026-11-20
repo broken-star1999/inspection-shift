@@ -1,4 +1,4 @@
-import { DAYS, G202_RECHECK, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, TUTORIAL as tutorialContent } from './content.js';
+import { DAYS, G202_RECHECK, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, TUTORIAL as tutorialContent } from './content.js';
 import { normalizeFindings } from './inspection-findings.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
@@ -237,7 +237,10 @@ function acknowledgeVisit(state) {
   if (!visit) return state;
   const afterVisit = { ...state, event: events[0] ?? null, events };
   if (visit.kind === 'recall') return acknowledgeRecall(afterVisit, visit);
-  const accepted = setFlags(afterVisit, { [`${visit.key}Document`]: true });
+  const acceptance = visit.kind === 'acceptance' ? getShipmentAcceptance(state, visit) : null;
+  const accepted = visit.kind === 'acceptance'
+    ? (acceptance ? { ...afterVisit, acceptanceReceipt: { caseId: acceptance.caseId, day: acceptance.day } } : afterVisit)
+    : setFlags(afterVisit, { [`${visit.key}Document`]: true });
   return !events.length && accepted.phase === 'case' ? startCase(accepted, accepted.index) : accepted;
 }
 
@@ -245,8 +248,16 @@ function startCase(state, index) {
   const id = getDay(state)?.cases[index]?.id;
   if (!id) return state;
   const arrived = { ...state, phase: 'case', index };
-  return activeVisits(arrived).length || arrived.seen.includes(id)
-    ? arrived : { ...arrived, seen: [...arrived.seen, id] };
+  if (activeVisits(arrived).length || arrived.seen.includes(id)) return arrived;
+  if (id === 20 && !arrived.acceptanceReceipt) {
+    const record = chooseShipmentAcceptance(arrived);
+    if (record) {
+      const { key, caseId, title, line } = shipmentAcceptance(arrived.day, record);
+      const visit = { kind: 'acceptance', key, caseId, npc: 'zhou', title, line };
+      return { ...arrived, event: visit, events: [visit] };
+    }
+  }
+  return { ...arrived, seen: [...arrived.seen, id] };
 }
 
 function startDay(state) {
@@ -295,6 +306,45 @@ function findVerifiedReceipt(records, previous) {
   const next = records.find(({ id }) => id === previous.verifiedBy);
   // A later recall changes where the lot is, while the accepted test evidence is still on file.
   return sameLotFollowup(previous, next) && hasAcceptedProof(next) ? next : null;
+}
+
+function isAcceptedShipment(records, record, day) {
+  return record && record.id !== 7 && record.id !== 20 && record.day < day &&
+    record.status === 'shipped' && record.decision === 'pass' && record.answer === 'pass' &&
+    !findVerifiedReceipt(records, record);
+}
+
+function chooseShipmentAcceptance(state) {
+  const eligible = (record) => isAcceptedShipment(state.records, record, state.day);
+  const g248 = getRecord(state, 14);
+  if (eligible(g248)) return g248;
+  return state.records.slice().reverse().find(eligible) ?? null;
+}
+
+function shipmentAcceptance(day, record) {
+  return {
+    key: `acceptance:${record.id}`, caseId: record.id, record, day,
+    title: `${record.batch} ${SHIPMENT_ACCEPTANCE.title}`, line: SHIPMENT_ACCEPTANCE.delivery(record.batch),
+  };
+}
+
+export function getShipmentAcceptance(state, visit) {
+  if (!state) return null;
+  const closingDay = DAYS.length - 1;
+  if (visit) {
+    if (visit.kind !== 'acceptance' || state.phase !== 'case' || state.day !== closingDay ||
+        getDay(state)?.cases[state.index]?.id !== 20 || state.seen.includes(20) || state.acceptanceReceipt) return null;
+    const active = activeVisits(state)[0];
+    if (active?.kind !== 'acceptance' || active.key !== visit.key || active.caseId !== visit.caseId) return null;
+    const record = chooseShipmentAcceptance(state);
+    if (!record || visit.caseId !== record.id || visit.key !== `acceptance:${record.id}`) return null;
+    return shipmentAcceptance(state.day, record);
+  }
+  const filed = state.acceptanceReceipt;
+  if (!filed || filed.day !== closingDay) return null;
+  const record = getRecord(state, filed.caseId);
+  return record && record.id !== 7 && record.day < filed.day && record.answer === 'pass'
+    ? shipmentAcceptance(filed.day, record) : null;
 }
 
 function confirmFollowup(records, record) {
@@ -603,6 +653,8 @@ export function getEnding(state) {
   const pendingRecalls = [];
   const confirmedRecalls = [];
   const traceReceipt = state.flags.traceAttached ? getRecord(state, 7) ?? null : null;
+  const acceptance = getShipmentAcceptance(state);
+  const acceptedReceipt = isAcceptedShipment(state.records, acceptance?.record, acceptance?.day) ? acceptance.record : null;
   const traceDisposition = {
     shipped: 'G-241 仍在收货方，召回待确认。',
     recallPending: 'G-241 已发出召回请求，等待收货方确认。',
@@ -627,7 +679,7 @@ export function getEnding(state) {
   const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
   const delayedReceipts = [...delayedByBatch.values()];
   const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已封存，安排补检。');
-  const shared = { issues, pendingRecalls, confirmedRecalls, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
+  const shared = { issues, pendingRecalls, confirmedRecalls, acceptedReceipt, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
   if (issues.length) {
     const detail = issues.map(({ batch, reason, answer, status }) => {
       const action = status === 'recallPending' ? '召回待确认' : answer === 'review' ? '暂缓入库' : '收货方复核';

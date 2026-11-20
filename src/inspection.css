@@ -809,9 +809,9 @@
   border-inline-start: 2px solid #a77844;
   background: #a1703f22;
 }
-.ending-recall-confirmed { border-inline-start-color: #637a50; background: #65845321; }
+:is(.ending-recall-confirmed, .ending-acceptance) { border-inline-start-color: #637a50; background: #65845321; }
 .ending-recall > h3 { margin: 0 0 .26rem; color: #6e4628; font: 780 .82rem / 1.35 var(--mono); }
-.ending-recall-confirmed > h3 { color: #3f5734; }
+:is(.ending-recall-confirmed, .ending-acceptance) > h3 { color: #3f5734; }
 .ending-recall .ending-receipt-detail { overflow-wrap: anywhere; }
 
 @container workstation (max-height: 540px) {

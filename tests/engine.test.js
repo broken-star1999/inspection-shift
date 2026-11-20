@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
+import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -35,7 +35,11 @@ function receiptAt(id, value, { seed = 21, decisions = {}, inspect = (state) => 
   let receipt;
   untilHandoff(seed, { decisions, inspect: (state, item) => {
     const prepared = inspect(state, item);
-    if (item.id === id) receipt = act(prepared, 'stamp', { value });
+    if (item.id === id) {
+      let ready = prepared;
+      while (ready.event) ready = act(ready, 'ack-visit');
+      receipt = act(ready, 'stamp', { value });
+    }
     return prepared;
   } });
   return receipt;
@@ -206,6 +210,93 @@ test('G-202 opens normally when passed, and an already open legacy Tuesday does 
 
   const lateRecheck = act(untilHandoff(21), 'recheck', { id: 2, value: 'fail' });
   assert.equal(getReworkFollowup(lateRecheck), null);
+});
+
+test('Friday files the actual G-248 arrival receipt exactly once before the final inspection', () => {
+  const prior = receiptAt(18, 'fail');
+  const waiting = act(prior, 'next');
+  assert.equal(getCase(waiting).id, 20);
+  assert.equal(waiting.seen.includes(20), false);
+  assert.equal(archive(waiting).some(({ id }) => id === 20), false);
+  assert.deepEqual(waiting.events.map(({ kind, key, npc }) => ({ kind, key, npc })), [
+    { kind: 'acceptance', key: 'acceptance:14', npc: 'zhou' },
+  ]);
+  assert.equal(waiting.acceptanceReceipt, undefined);
+  assert.equal(getShipmentAcceptance(waiting), null);
+  assert.equal(act(waiting, 'stamp', { value: 'pass' }), waiting);
+  assert.equal(getShipmentAcceptance(waiting, { ...waiting.event, caseId: 7 }), null);
+
+  const restored = JSON.parse(JSON.stringify(waiting));
+  const delivered = getShipmentAcceptance(restored, restored.event);
+  assert.equal(delivered.caseId, 14);
+  assert.equal(delivered.record, restored.records.find(({ id }) => id === 14));
+  assert.equal(delivered.record.day, 3);
+  assert.equal(delivered.day, 4);
+  assert.match(delivered.title, /G-248.*到货验收联/u);
+  assert.match(delivered.line, /G-248/u);
+
+  const filed = act(restored, 'ack-visit');
+  assert.deepEqual(filed.acceptanceReceipt, { caseId: 14, day: 4 });
+  assert.deepEqual(getShipmentAcceptance(filed), delivered);
+  assert.equal(filed.records, restored.records);
+  assert.equal(filed.flags, restored.flags);
+  assert.equal(filed.event, null);
+  assert.equal(getCase(filed).id, 20);
+  assert.equal(filed.seen.filter((id) => id === 20).length, 1);
+  assert.equal(act(filed, 'ack-visit'), filed);
+
+  const handoff = untilHandoff(21, { initialState: JSON.parse(JSON.stringify(filed)) });
+  const ending = getEnding(act(handoff, 'finish'));
+  assert.equal(handoff.records.length, 20);
+  assert.equal(ending.id, 'routine');
+  assert.equal(ending.acceptedReceipt, handoff.records.find(({ id }) => id === 14));
+
+  const amended = act(handoff, 'recheck', { id: 14, value: 'review' });
+  assert.equal(getShipmentAcceptance(amended).record.status, 'recallPending');
+  assert.equal(getEnding(act(amended, 'finish')).acceptedReceipt, null);
+});
+
+test('Friday chooses prior valid shipments in order and leaves the window clear when none qualifies', () => {
+  const declined = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [index + 1, 'fail']));
+  const arrive = (decisions) => act(receiptAt(18, 'fail', { decisions: { ...declined, ...decisions } }), 'next');
+
+  const recent = arrive({ 5: 'pass', 7: 'pass', 9: 'pass', 13: 'pass' });
+  assert.equal(getShipmentAcceptance(recent, recent.event)?.caseId, 13);
+
+  const supplement = arrive({ 5: 'pass', 7: 'pass', 9: 'pass' });
+  assert.equal(getShipmentAcceptance(supplement, supplement.event)?.caseId, 9);
+
+  const none = arrive({ 5: 'pass', 7: 'pass', 10: 'pass' });
+  assert.equal(none.event, null);
+  assert.equal(none.acceptanceReceipt, undefined);
+  assert.equal(none.seen.includes(20), true);
+  assert.equal(getCase(none).id, 20);
+});
+
+test('Friday waits for earlier visitors and resumes existing saves that already reached case 20', () => {
+  const prior = receiptAt(18, 'fail');
+  let state = act(prior, 'dial', { number: '204', caseIds: [7, 14] });
+  state = act(state, 'dial', { number: '107', caseIds: [11] });
+  state = act(state, 'next');
+  assert.deepEqual(state.events.map(({ key }) => key), ['trace', 'night']);
+  assert.equal(state.seen.includes(20), false);
+  state = act(state, 'ack-visit');
+  assert.equal(state.event.key, 'night');
+  assert.equal(state.seen.includes(20), false);
+  state = act(state, 'ack-visit');
+  assert.equal(state.flags.traceDocument, true);
+  assert.equal(state.flags.nightDocument, true);
+  assert.equal(state.event.key, 'acceptance:14');
+  assert.equal(state.seen.includes(20), false);
+  state = act(state, 'ack-visit');
+  assert.equal(state.event, null);
+  assert.equal(state.seen.includes(20), true);
+
+  const legacy = { ...prior, phase: 'case', index: prior.index + 1, seen: [...prior.seen, 20] };
+  assert.equal(getCase(legacy).id, 20);
+  const legacyHandoff = untilHandoff(21, { initialState: legacy });
+  assert.equal(getShipmentAcceptance(legacyHandoff), null);
+  assert.equal(legacyHandoff.records.length, 20);
 });
 
 test('same seed remains playable after JSON restore and contains one of each pressure event', () => {
@@ -775,6 +866,7 @@ test('a returning delivery finds the exact previous stamp and status after a sav
   ]);
   const checked = new Set();
   untilHandoff(21, { decisions: { 4: 'pass', 10: 'fail' }, inspect: (state, item) => {
+    if (state.event) return state;
     const restored = JSON.parse(JSON.stringify(state));
     const previous = getPreviousReceipt(restored);
     assert.deepEqual(archive(restored).find(({ id }) => id === item.id).previousReceipt, previous);

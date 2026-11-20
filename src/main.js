@@ -1,5 +1,5 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, archive, TUTORIAL, EVIDENCE } from './engine.js';
-import { DAYS, EASTER_EGGS } from './content.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, TUTORIAL, EVIDENCE } from './engine.js';
+import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
@@ -271,11 +271,28 @@ function filedRework() {
   return followup && run.flags[`${followup.key}Document`] ? followup : null;
 }
 
-function filedSupportingPapers(query) {
+function acceptancePaper(state, visit) {
+  const acceptance = getShipmentAcceptance(state, visit);
+  if (!acceptance) return null;
+  const { record, day, title } = acceptance;
+  const report = archive(state).find(({ id }) => id === record.id)?.documents.find(({ type }) => type === 'report');
+  const reportNumber = report?.fields.find(([label]) => label === '报告编号')?.[1];
+  const fields = [['批号', record.batch], ['对应出货单', `${DAYS[record.day]?.title}开单`],
+    ...(reportNumber ? [['检验报告编号', reportNumber]] : []),
+    ['回签日', DAYS[day]?.title], ['签收单位', SHIPMENT_ACCEPTANCE.receiver], ['验收结论', SHIPMENT_ACCEPTANCE.result]];
+  return { ...acceptance, document: { type: 'archive', kind: 'acceptance', title, fields } };
+}
+
+function filedBatchPapers() {
+  return [filedRework(), acceptancePaper(run)].filter(Boolean);
+}
+
+function filedSupportingPapers(query, batchPapers = filedBatchPapers()) {
   const term = query.trim().toLowerCase();
-  const visits = Object.entries(EVIDENCE).filter(([key]) => run.flags[`${key}Document`]);
-  const rework = filedRework();
-  if (rework) visits.push([rework.key, rework.document]);
+  const visits = [
+    ...Object.entries(EVIDENCE).filter(([key]) => run.flags[`${key}Document`]),
+    ...batchPapers.map(({ key, document }) => [key, document]),
+  ];
   const recalls = run.records.filter((record) => record.recallReceipt).map((record) => [
     `recall:${record.id}`, recallPaper(record, record.recallReceipt.day),
   ]);
@@ -355,12 +372,14 @@ function visitDocument(visit, state = run) {
     return record ? recallPaper(record, state.day) : null;
   }
   if (visit?.kind === 'rework') return getReworkFollowup(state)?.document;
+  if (visit?.kind === 'acceptance') return acceptancePaper(state, visit)?.document;
   return visit && EVIDENCE[visit.key];
 }
 
 function scenePaperBatch(doc, item, visit) {
   if (visit?.kind === 'recall') return `${doc.fields[0][1]} · ${doc.fields[1][1]}`;
   if (visit?.kind === 'rework') return `${doc.fields[0][1]} · 周二复核`;
+  if (visit?.kind === 'acceptance') return `${doc.fields[0][1]} · 收货方回签`;
   return visit ? '回访留底' : doc.fields[0]?.[1] ?? item.batch;
 }
 
@@ -441,8 +460,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const { compare, inspection, archiveFocus, archiveQuery, pinned, phoneNumber, egg } = interaction;
   const correction = activeCorrection();
   const correctionFindings = correction ? selectedCorrectionFindings(correction, correctionDraft.keys) : null;
-  const rework = panel === 'archive' || panel === 'handoff' ? filedRework() : null;
-  const reworkBasis = correction && reworkFinding(correction, rework);
+  const batchPapers = panel === 'archive' || panel === 'handoff' ? filedBatchPapers() : [];
+  const reworkBasis = correction && reworkFinding(correction, batchPapers.find(({ document }) => document.kind === 'rework') ?? null);
   const incomingCall = incomingAtWindow();
   const work = { ...interaction, incomingCall };
   let markup = '';
@@ -450,12 +469,12 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'docs' && item) markup = view.documents(item, viewedDocument(), compare, step, work, previousInspection(item));
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, work);
   if (panel === 'archive' && run) {
-    markup = view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery), archiveFocus, pinned,
+    markup = view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
       archiveQuery, Boolean(correction), run.phase === 'handoff', run.phase === 'ending', {
         returnTo: archiveReturn?.panel,
         canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
         correctionFindings: correctionFindings ?? [],
-        rework,
+        batchPapers,
         reworkBasis,
       });
   }
@@ -469,7 +488,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   if (panel === 'handoff' && run?.phase === 'handoff') {
     const rows = archive(run).filter(({ record }) => record);
-    markup = view.handoffPanel(run, EVIDENCE, rows, { focus: handoffFocus, documentIndex: handoffDocument, correctionFindings, rework, reworkBasis });
+    markup = view.handoffPanel(run, EVIDENCE, rows, { focus: handoffFocus, documentIndex: handoffDocument, correctionFindings, batchPapers, reworkBasis });
   }
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
@@ -763,7 +782,10 @@ function finishWindowAdvance(value, restoreFocus) {
       handoffFocus = visit.caseId;
       handoffDocument = null;
       if (!confirmed) toast('这份回执需要再核对');
-    } else toast(visit.kind === 'rework' ? '复核联已收入交接簿' : '留底已收入交接簿');
+    } else {
+      const paper = { rework: '复核联', acceptance: '到货验收联' }[visit.kind] ?? '留底';
+      toast(`${paper}已收入交接簿`);
+    }
   }
   render();
   if (visit?.kind === 'recall') {
@@ -900,7 +922,9 @@ function selectedCorrectionFindings(row, keys = []) {
 
 function hasHandoffDocument(row, documentIndex) {
   if (!row) return false;
-  if (documentIndex === 'rework') return filedRework()?.caseId === row.id;
+  if (typeof documentIndex === 'string') {
+    return filedBatchPapers().some(({ caseId, document }) => caseId === row.id && document.kind === documentIndex);
+  }
   return Number.isInteger(documentIndex) && Boolean(row.documents[documentIndex]);
 }
 
@@ -1380,7 +1404,7 @@ root.addEventListener('click', (event) => {
     case 'handoff-doc': {
       if (panel !== 'handoff') break;
       const row = archive(run).find((entry) => entry.id === handoffFocus && entry.record);
-      const documentIndex = key === 'receipt' ? null : key === 'rework' ? key : index;
+      const documentIndex = key === 'receipt' ? null : key ?? index;
       if (!row || (documentIndex !== null && !hasHandoffDocument(row, documentIndex)) || handoffDocument === documentIndex) break;
       handoffDocument = documentIndex;
       playSound('paper');

@@ -158,6 +158,13 @@ export const INCOMING_CALLS = {
   ringback: { number: '880', npc: PHONE['880'].npc, lines: [PHONE['880'].found] },
 };
 
+export const SHIPMENT_ACCEPTANCE = {
+  title: '到货验收联',
+  delivery: (batch) => `这张是先前 ${batch} 的。收货方签过了，夹回那批旧单。`,
+  receiver: '收货方仓库 · 验收岗',
+  result: '已签收，验收通过',
+};
+
 export const HANDOFF = {
   normal: { title: '周五交班', line: '老周把交接单翻到最后一页。「该留下一班的都在这儿。行，你下班吧。」', stamp: '本周交班完成' },
   investigation: { title: '第二张复检单', line: '老周对着电话念了一遍二四一。他等对方把号码重复一遍，才在回执上圈住那个号。', stamp: 'G-241 追加复检' },
