@@ -105,6 +105,120 @@
 .sample-stage:has(.sample-clasp-state[data-clasp-result]) > .sample-mark { display: none; }
 .sample-findings .sample-clasp-feedback { font-weight: 740; }
 
+.sample-stage.gauge-stage {
+  --gauge-x: 70%;
+  --gauge-y: 39%;
+  --gauge-slot-width: clamp(2.75rem, 37%, 8.6rem);
+  --gauge-slot-height: clamp(2.75rem, 45%, 5.4rem);
+  min-block-size: clamp(7.15rem, 29cqh, 14rem);
+}
+.gauge-stage .sample-object {
+  position: absolute;
+  z-index: 3;
+  inset: var(--gauge-y) auto auto 23.5%;
+  inline-size: min(39%, 11rem);
+  translate: -50% -50%;
+  transform: translate(var(--tool-dx, 0px), var(--tool-dy, 0px));
+}
+.gauge-stage.measured .sample-object {
+  inset-inline-start: var(--gauge-x);
+  inline-size: calc(var(--gauge-slot-width) - .7rem);
+}
+.gauge-stage[data-tool-drag='gauge'] .sample-object { z-index: 6; }
+.sample-gauge {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+}
+.gauge-slot,
+.gauge-jaw {
+  position: absolute;
+  inset: var(--gauge-y) auto auto var(--gauge-x);
+  inline-size: var(--gauge-slot-width);
+  block-size: var(--gauge-slot-height);
+  translate: -50% -50%;
+}
+.gauge-slot {
+  border: 1px dashed #b4ba94;
+  border-radius: .12rem;
+  background: #b8bf8730;
+}
+.gauge-stage.measured .gauge-slot { border-color: transparent; }
+.gauge-stage[data-gauge-over] .gauge-slot {
+  border-color: #f1d494;
+  background: #e6c87354;
+  box-shadow: 0 0 .34rem #dfc27b78;
+}
+.gauge-jaw {
+  inline-size: calc(var(--gauge-slot-width) + .33rem);
+  block-size: calc(var(--gauge-slot-height) + .24rem);
+  border-inline: 3px solid #b5bea0;
+  border-block-end: 3px solid #b5bea0;
+  border-radius: 0 0 .2rem .2rem;
+  box-shadow: 1px 2px #2b3729;
+}
+.gauge-rail {
+  position: absolute;
+  inset: 65% .58rem .58rem 38%;
+  border: 1px solid #c0c4a5;
+  border-block-end: 3px solid #344331;
+  border-radius: .1rem;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 .45rem, #455642 .45rem .51rem),
+    linear-gradient(#a6b093, #79886e);
+  box-shadow: 2px 3px #27372b;
+}
+.gauge-display {
+  position: absolute;
+  inset: auto .78rem .76rem auto;
+  display: grid;
+  place-items: center;
+  min-inline-size: 4.25rem;
+  min-block-size: 1.26rem;
+  padding: .13rem .22rem;
+  border: 1px solid #536147;
+  background: #d0d9ae;
+  color: #243424;
+  font: 850 clamp(.72rem, 2.05cqh, .97rem) / 1 var(--mono);
+  white-space: nowrap;
+}
+
+.sample-wrap,
+.sample-wrap-folded {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(104deg, transparent 0 3px, #553b1a15 4px 5px),
+    linear-gradient(137deg, #d8b476, #b88f50 67%, #a1733e);
+}
+.sample-wrap {
+  inset: -4% -12% 19%;
+  border: 1px solid #8e6237;
+  border-inline-end: .27rem double #92643b;
+  clip-path: polygon(1% 1%, 95% 0, 100% 9%, 99% 97%, 5% 100%, 0 91%);
+  transform: translateY(calc(var(--wrap-pull, 0px) * -.54));
+}
+.sample-wrap-mouth {
+  position: absolute;
+  inset: auto 0 0;
+  block-size: .62rem;
+  border-block-start: 1px solid #8c653a;
+  border-block-end: 2px solid #704c28;
+  background: linear-gradient(180deg, #d0a86b, #9c7242);
+  box-shadow: inset 0 1px #e6c58a;
+}
+.sample-wrap-folded {
+  inset: auto auto 3% -55%;
+  inline-size: 59%;
+  block-size: 31%;
+  rotate: -17deg;
+  border: 1px solid #8e653a;
+  clip-path: polygon(4% 7%, 86% 0, 100% 15%, 92% 87%, 35% 100%, 0 76%);
+  box-shadow: inset 0 3px #dab47a, inset 0 -2px #7b572f;
+}
+
 .sample-film-sheet,
 .sample-lens-crack {
   position: absolute;
@@ -206,16 +320,27 @@
 .sample-stage .film-handle { inset: .42rem .52rem auto auto; }
 .sample-stage .clasp-handle { inset: auto .52rem .43rem auto; }
 .sample-stage .pack-handle { inset: .42rem .52rem auto auto; }
-.sample-stage .gauge-handle { inset: auto .52rem .43rem auto; }
-.sample-stage.measured .gauge-handle { inset-block-start: .42rem; inset-block-end: auto; }
-
-.sample-stage .sample-object .film-handle,
-.sample-stage .sample-object .pack-handle { inset: 0 -3% auto auto; }
-.sample-stage .sample-object :is(.clasp-handle, .gauge-handle) { inset: auto -3% 0 auto; }
-.sample-stage.measured .sample-object .gauge-handle { inset-block-start: 0; inset-block-end: auto; }
+.sample-stage .sample-object .film-handle { inset: 0 -3% auto auto; }
+.sample-stage .sample-object > .pack-handle {
+  inset: auto -.75rem 9% auto;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+}
+.gauge-stage .sample-object > .gauge-handle {
+  inset: -.15rem -.3rem -.65rem;
+  align-content: end;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  max-inline-size: none;
+  padding-block-end: .06rem;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  text-shadow: 1px 1px #192a22, -1px -1px #192a22;
+}
 .sample-stage .sample-object > .clasp-handle { inset: auto -.9rem -.61rem auto; }
-.sample-stage .clasp-handle[data-drag='clasp'] { touch-action: none; cursor: grab; }
-.sample-stage .clasp-handle[data-drag='clasp']:active { cursor: grabbing; }
+.sample-stage .sample-hotspot[data-drag] { touch-action: none; cursor: grab; }
+.sample-stage .sample-hotspot[data-drag]:active { cursor: grabbing; }
 
 .sample-stage .sample-hotspot:focus-visible {
   outline: 2px solid #ffe5ac;
@@ -225,7 +350,7 @@
 @media (hover: hover) {
   .sample-preview:hover .sample-object > img { transform: none; }
 
-  .sample-stage .sample-hotspot:hover {
+  .sample-stage .sample-hotspot:not(.gauge-handle):hover {
     border-color: #d9c296;
     background: linear-gradient(#4d6345, #364936);
   }
@@ -238,9 +363,7 @@
     font-size: .74rem;
   }
   .sample-stage .film-handle,
-  .sample-stage .pack-handle,
-  .sample-stage.measured .gauge-handle { inset-block-start: .30rem; }
-  .sample-stage .clasp-handle,
-  .sample-stage:not(.measured) .gauge-handle { inset-block-end: .30rem; }
+  .sample-stage .pack-handle { inset-block-start: .30rem; }
+  .sample-stage .clasp-handle { inset-block-end: .30rem; }
   .sample-stage .sample-hotspot { inset-inline-end: .34rem; }
 }

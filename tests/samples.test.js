@@ -72,6 +72,15 @@ test('G-218 keeps the reported, measured and allowed thickness in distinct sourc
   assert.equal(papers.report.厚度范围, undefined);
 });
 
+test('G-216 only reveals each side of the glove after the bag is opened', () => {
+  const { sample } = items.get(16);
+  assert.equal(sampleObservation(sample, {}), sample.front);
+  const oldInspection = { back: true, film: true, clasp: true, tug: true, unpacked: false };
+  assert.equal(sampleObservation(sample, oldInspection), sample.front);
+  assert.equal(sampleObservation(sample, { unpacked: true }), sample.unwrapped);
+  assert.equal(sampleObservation(sample, { back: true, unpacked: true }), sample.back);
+});
+
 test('peeling film and pulling a rear clasp report only their respective observations', () => {
   const film = items.get(2).sample;
   const crack = items.get(4).sample;

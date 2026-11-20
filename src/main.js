@@ -80,7 +80,8 @@ let arrivalTimer = 0;
 let arrival = null;
 let workspaceScrollTimer = 0;
 let drag;
-let claspPull = null;
+let toolDrag = null;
+let toolClickTarget = null;
 let stampTouch = null;
 let suppressPaperClick = false;
 let modalOpener = null;
@@ -202,7 +203,7 @@ function resetGaze() {
 
 function followGaze(time) {
   gaze.frame = 0;
-  if (drag || claspPull) { gaze.time = 0; return; }
+  if (drag || toolDrag) { gaze.time = 0; return; }
   if (reducedMotion.matches || root.dataset.rotated === 'true') { resetGaze(); return; }
   const elapsed = gaze.time ? Math.min(time - gaze.time, 48) : 16;
   const blend = 1 - Math.exp(-elapsed / 82);
@@ -221,15 +222,16 @@ function followGaze(time) {
 function setGazeTarget(x, y) {
   gaze.targetX = Math.max(-1, Math.min(1, x));
   gaze.targetY = Math.max(-1, Math.min(1, y));
-  if (!gaze.frame && !drag && !claspPull) gaze.frame = requestAnimationFrame(followGaze);
+  if (!gaze.frame && !drag && !toolDrag) gaze.frame = requestAnimationFrame(followGaze);
 }
 
 root.addEventListener('pointerdown', (event) => {
+  toolClickTarget = null;
   if (event.pointerType !== 'mouse' && !drag) resetGaze();
 }, { capture: true });
 
 root.addEventListener('pointermove', (event) => {
-  if (claspPull) return;
+  if (toolDrag) return;
   if (drag && drag.pointerId !== event.pointerId) return;
   if (event.pointerType !== 'mouse') { if (!drag) resetGaze(); return; }
   if (!run || root.dataset.rotated === 'true' || reducedMotion.matches) return;
@@ -347,7 +349,8 @@ function setScene() {
   }
   const appearance = item ? sampleAppearance(item.sample) : null;
   const inspection = approaching ? {} : interaction.inspection;
-  const side = inspection.back ? '-back' : '';
+  const packed = item?.sample.kind === 'yellow' && !inspection.unpacked;
+  const side = inspection.back && !packed ? '-back' : '';
   const delivered = visitDocument(visit);
   const documents = item?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
@@ -833,6 +836,9 @@ function sampleFinding(spec, inspection) {
     return { key: 'sample:measure', source: '量规实测', text: spec.reading };
   }
   const { back, tug, film, unpacked } = inspection;
+  if (spec.kind === 'yellow' && !unpacked) {
+    return { key: 'sample:package', source: '外包装', text: sampleObservation(spec, inspection) };
+  }
   const operation = back ? (tug ? '轻拉检查' : '背面') : film ? '揭膜后' : unpacked ? '拆袋后' : '正面';
   return {
     key: `sample:${operation}`,
@@ -846,11 +852,15 @@ function checkSample(act) {
   const sample = interaction.inspection;
   const spec = windowCase()?.sample;
   if (!spec) return;
+  const packed = spec.kind === 'yellow' && !sample.unpacked;
   const previousFilm = act === 'sample-film' && modalLayer.querySelector('.sample-film-sheet');
   const previousFold = previousFilm ? getComputedStyle(previousFilm).transform : null;
   let sound = 'slide';
   switch (act) {
-    case 'sample-flip': sample.back = !sample.back; break;
+    case 'sample-flip':
+      if (packed || (spec.reading && sample.measured)) return;
+      sample.back = !sample.back;
+      break;
     case 'sample-film': sample.film = !sample.film; break;
     case 'sample-clasp':
       if (!sample.back || sample.clasp || !sampleAppearance(spec).clasp) return;
@@ -863,12 +873,21 @@ function checkSample(act) {
       sound = ['loose', 'broken'].includes(spec.kind) ? 'claspRelease' : 'tug';
       update({ type: 'tutorial', key: 'sample' }, false);
       break;
-    case 'sample-measure': sample.measured = !sample.measured; break;
-    case 'sample-unpack': sample.unpacked = true; break;
+    case 'sample-measure':
+      if (!spec.reading) return;
+      sample.measured = !sample.measured;
+      sound = sample.measured ? 'clasp' : 'slide';
+      break;
+    case 'sample-unpack':
+      if (!packed) return;
+      sample.unpacked = true;
+      sample.back = false;
+      sound = 'paper';
+      break;
     case 'sample-basis': {
       const finding = sampleFinding(spec, sample);
       updateFindings([...interaction.findings.filter(({ key }) => key !== finding.key), finding]);
-      if (interaction.referenceDoc === null && !interaction.returnToDocs) panel = null;
+      if (!packed && interaction.referenceDoc === null && !interaction.returnToDocs) panel = null;
       toast('已记下检样结果');
       break;
     }
@@ -959,6 +978,7 @@ function closePanel() {
 root.addEventListener('click', (event) => {
   const target = event.target.closest('[data-act]');
   if (!target || target.matches(':disabled')) return;
+  if (target === toolClickTarget && event.detail > 0) return;
   const { act, key } = target.dataset;
   const index = Number(target.dataset.i);
   if (act === 'doc' && suppressPaperClick) return;
@@ -1150,7 +1170,7 @@ document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.isComposing) return;
   const target = event.target;
   if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
-      target.matches('[data-act="stamp"], [data-act="next"], [data-act="event-next"]')) {
+      target.matches('[data-act="stamp"], [data-act="next"], [data-act="event-next"], .sample-hotspot[data-drag]')) {
     event.preventDefault();
     return;
   }
@@ -1172,36 +1192,63 @@ document.addEventListener('keydown', (event) => {
 });
 
 modalLayer.addEventListener('pointerdown', (event) => {
-  const handle = event.target.closest('[data-act="sample-tug"]');
-  if (!handle || event.button !== 0 || !event.isPrimary || claspPull) return;
+  const handle = event.target.closest('.sample-stage [data-drag]');
+  if (!handle || event.button !== 0 || !event.isPrimary || toolDrag || drag) return;
   const stage = handle.closest('.sample-stage');
   const origin = stagePoint(root, event.clientX, event.clientY);
-  claspPull = { stage, origin, pointerId: event.pointerId, pulled: false };
+  toolDrag = {
+    handle, stage, origin, pointerId: event.pointerId, distance: 0,
+    kind: handle.dataset.drag, action: handle.dataset.act,
+    slot: stage.querySelector('[data-gauge-target]'), measured: stage.classList.contains('measured'),
+  };
   handle.setPointerCapture(event.pointerId);
 });
 
+function isOverGauge(event, slot) {
+  if (!slot) return false;
+  const bounds = slot.getBoundingClientRect();
+  return event.clientX >= bounds.left && event.clientX <= bounds.right &&
+    event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+}
+
 window.addEventListener('pointermove', (event) => {
-  if (!claspPull || event.pointerId !== claspPull.pointerId) return;
-  const { stage, origin } = claspPull;
+  if (!toolDrag || event.pointerId !== toolDrag.pointerId) return;
+  const { stage, origin, kind, slot } = toolDrag;
   const point = stagePoint(root, event.clientX, event.clientY);
-  const distance = Math.hypot(point.x - origin.x, point.y - origin.y);
-  claspPull.pulled ||= distance >= 9;
-  stage.style.setProperty('--clasp-pull', `${Math.min(18, distance).toFixed(1)}px`);
+  const dx = point.x - origin.x;
+  const dy = point.y - origin.y;
+  const distance = Math.hypot(dx, dy);
+  toolDrag.distance = Math.max(toolDrag.distance, distance);
+  if (kind === 'clasp') stage.style.setProperty('--clasp-pull', `${Math.min(18, distance).toFixed(1)}px`);
+  if (kind === 'wrapper') stage.style.setProperty('--wrap-pull', `${Math.min(26, distance).toFixed(1)}px`);
+  if (kind === 'gauge' && toolDrag.distance >= 9) {
+    stage.dataset.toolDrag = kind;
+    stage.toggleAttribute('data-gauge-over', isOverGauge(event, slot));
+    stage.style.setProperty('--tool-dx', `${dx.toFixed(1)}px`);
+    stage.style.setProperty('--tool-dy', `${dy.toFixed(1)}px`);
+  }
 });
 
-function endClaspPull(event) {
-  if (!claspPull || (event.type !== 'blur' && event.pointerId !== claspPull.pointerId)) return;
-  const { stage, pulled } = claspPull;
-  claspPull = null;
-  stage.style.removeProperty('--clasp-pull');
-  if (event.type === 'pointerup' && pulled && stage.isConnected) checkSample('sample-tug');
+function endToolDrag(event) {
+  if (!toolDrag || (event.type !== 'blur' && event.pointerId !== toolDrag.pointerId)) return;
+  const { handle, stage, distance, kind, action, slot, measured } = toolDrag;
+  toolDrag = null;
+  delete stage.dataset.toolDrag;
+  stage.removeAttribute('data-gauge-over');
+  for (const property of ['--clasp-pull', '--wrap-pull', '--tool-dx', '--tool-dy']) stage.style.removeProperty(property);
+  if (event.type === 'pointerup' && distance >= 9) {
+    toolClickTarget = handle;
+    const completed = kind === 'gauge' ? Boolean(slot) && isOverGauge(event, slot) !== measured
+      : kind === 'wrapper' ? distance >= 18 : true;
+    if (completed && stage.isConnected) checkSample(action);
+  }
   setGazeTarget(gaze.targetX, gaze.targetY);
 }
 
-window.addEventListener('pointerup', endClaspPull);
-window.addEventListener('pointercancel', endClaspPull);
-window.addEventListener('lostpointercapture', endClaspPull);
-window.addEventListener('blur', endClaspPull);
+window.addEventListener('pointerup', endToolDrag);
+window.addEventListener('pointercancel', endToolDrag);
+window.addEventListener('lostpointercapture', endToolDrag);
+window.addEventListener('blur', endToolDrag);
 
 desktop.addEventListener('pointerdown', (event) => {
   const paper = event.target.closest('[data-drag="paper"]');

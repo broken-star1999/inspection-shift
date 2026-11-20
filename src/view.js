@@ -117,28 +117,36 @@ function claspArt(spec, inspection) {
   return `<span class="sample-clasp-state" data-clasp="${state}"${result ? ` data-clasp-result="${result}"` : ''} aria-hidden="true"><span class="sample-clasp-strap"></span><span class="sample-clasp-hook"></span></span>`;
 }
 
-function sampleArt(spec, appearance, back, measurement, control = '', inspection = null) {
+function sampleArt(spec, appearance, { back = false, unpacked = false, control = '', inspection = null } = {}) {
   const ratio = sampleRatios[appearance.key] ?? 720 / (back ? 384 : 382);
   const lensFilm = !back && (spec.kind === 'film' || spec.kind === 'crack');
+  const wrapped = spec.kind === 'yellow' && !unpacked;
+  const alt = wrapped ? '' : `${appearance.name}${back ? '背面' : appearance.front ?? '正面'}`;
   return `<span class="sample-object" style="--sample-ratio:${ratio}">
-    <img src="${asset(`${appearance.stem}${back ? '-back' : ''}.webp`)}" alt="${appearance.name}${back ? '背面' : appearance.front ?? '正面'}" draggable="false">
+    <img src="${asset(`${appearance.stem}${back ? '-back' : ''}.webp`)}" alt="${esc(alt)}" draggable="false">
     ${lensFilm ? `<span class="sample-film-sheet" aria-hidden="true">${spec.kind === 'film' ? '<span class="sample-film-trace"></span>' : ''}</span>` : ''}
     ${!back && spec.kind === 'crack' ? '<span class="sample-lens-crack" aria-hidden="true"></span>' : ''}
     ${back && spec.model ? `<span class="model-mark" aria-hidden="true">${esc(spec.model)}</span>` : ''}
     ${back && appearance.clasp && inspection ? claspArt(spec, inspection) : ''}
+    ${wrapped ? '<span class="sample-wrap" aria-hidden="true"><span class="sample-wrap-mouth"></span></span>' : spec.kind === 'yellow' ? '<span class="sample-wrap-folded" aria-hidden="true"></span>' : ''}
     ${control}</span>
-    ${lensFilm ? '' : '<span class="sample-mark" aria-hidden="true"></span>'}
-    ${measurement ? `<span class="sample-gauge" aria-hidden="true"><span class="gauge-rail"></span><span class="gauge-jaw"></span><span class="gauge-display">${esc(spec.reading)}</span></span>` : ''}`;
+    ${!lensFilm && spec.kind !== 'yellow' ? '<span class="sample-mark" aria-hidden="true"></span>' : ''}`;
+}
+
+function gaugeArt(reading, measured) {
+  return `<span class="sample-gauge" aria-hidden="true"><span class="gauge-slot" data-gauge-target></span><span class="gauge-rail"></span><span class="gauge-jaw"></span><span class="gauge-display">${measured ? esc(reading) : '—'}</span></span>`;
 }
 
 function sampleHotspot(action, className, text, label, pressed = null) {
-  return `<button type="button" class="sample-hotspot ${className}" data-act="sample-${action}"${action === 'tug' ? ' data-drag="clasp"' : ''} aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
+  const gesture = { tug: 'clasp', measure: 'gauge', unpack: 'wrapper' }[action];
+  return `<button type="button" class="sample-hotspot ${className}" data-act="sample-${action}"${gesture ? ` data-drag="${gesture}"` : ''} aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
 }
 
 export function desk(run, item, tutorial, interaction) {
   if (!item) return '';
   const { note, positions, pencil, inspection, heldDocuments = [], sampleHeld, stampBlocked, benchFindingsOpen } = interaction;
   const appearance = sampleAppearance(item.sample);
+  const sampleBack = inspection.back && (item.sample.kind !== 'yellow' || inspection.unpacked);
   const issued = run.phase === 'receipt';
   const findings = readFindings(interaction);
   const benchDraft = run.phase === 'case' && !stampBlocked && findings.length ? `<aside class="bench-draft" data-fixture="findings">
@@ -147,7 +155,7 @@ export function desk(run, item, tutorial, interaction) {
   </aside>` : '';
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, tutorial, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
-    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="检查${appearance.name}"${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', inspection.back)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, inspection.back, false)}</span><span class="sample-caption">${appearance.name}</span></button></section>
+    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="检查${appearance.name}"${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
     <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
       ${benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
@@ -301,12 +309,14 @@ export function documents(item, index, compare, tutorial, progress, previous) {
 }
 
 export function sample(item, inspection, tutorial, progress) {
-  const { back, film, clasp, tug, measured, unpacked } = inspection;
+  const { film, clasp, tug, measured, unpacked } = inspection;
   const spec = item.sample;
   const kind = spec.kind;
   const appearance = sampleAppearance(spec);
   const packaged = kind === 'yellow' && !unpacked;
-  const visual = sampleObservation(spec, inspection);
+  const back = !packaged && inspection.back;
+  const inGauge = measured && Boolean(spec.reading);
+  const visual = inGauge ? '量爪贴住了插片的平面。' : sampleObservation(spec, { ...inspection, back });
   const findings = readFindings(progress);
   const draft = findingsDraft(findings, progress?.showFindings);
   const referenceIndex = progress?.referenceDoc;
@@ -325,12 +335,14 @@ export function sample(item, inspection, tutorial, progress) {
   if (appearance.clasp && back && !tug) control = clasp
     ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查')
     : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件');
-  return deskSurface(`${item.batch} · ${appearance.name}`, `${draft.list}${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
-    ${sampleArt(spec, appearance, back, measured && spec.reading, control, inspection)}${spec.reading ? sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '量规', measured ? '取出量规' : '放进量规', measured) : ''}</div><div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
+  if (spec.reading) control = sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '放入', measured ? '取出量规' : '放进量规', measured);
+  const basis = packaged ? button('记下包装', 'sample-basis') : tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : '';
+  return deskSurface(`${item.batch} · ${appearance.name}`, `${draft.list}${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
+    ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(spec.reading, measured) : ''}</div><div class="sample-findings"><b>${inGauge ? '已放入量规' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
     ${back && appearance.clasp && clasp && !tug ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}
-    ${measured && spec.reading ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
-    <div class="modal-actions">${packaged ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
-    ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div></div>${referencePicker}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: referenceActions + phoneAction + draft.header });
+    ${inGauge ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
+    <div class="modal-actions">${packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
+    ${basis}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div></div>${referencePicker}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: referenceActions + phoneAction + draft.header });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false) {

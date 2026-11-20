@@ -70,6 +70,57 @@ function makeTexture(doc, style, ownerDocument) {
   return texture;
 }
 
+function makeGloveSleeve(ownerDocument) {
+  const imageWidth = 282;
+  const imageHeight = 363;
+  const margin = 20;
+  const canvas = ownerDocument.createElement('canvas');
+  canvas.width = imageWidth + margin * 2;
+  canvas.height = imageHeight + margin * 2;
+  const ctx = canvas.getContext('2d');
+  const sleeve = new Path2D('M 17 15 L 302 9 L 313 25 L 317 307 L 306 339 L 266 335 L 232 343 L 191 334 L 151 341 L 113 336 L 60 345 L 19 339 L 9 306 L 8 29 Z');
+  const kraft = ctx.createLinearGradient(15, 20, 309, 330);
+  kraft.addColorStop(0, '#e1c18a');
+  kraft.addColorStop(.52, '#cb9f60');
+  kraft.addColorStop(1, '#a87840');
+  ctx.fillStyle = kraft;
+  ctx.fill(sleeve);
+  ctx.save();
+  ctx.clip(sleeve);
+  ctx.fillStyle = '#8f5b3154';
+  ctx.fill(new Path2D('M 9 14 L 30 21 L 29 304 L 45 344 L 9 344 Z M 300 12 L 314 17 L 321 344 L 284 341 L 300 311 Z'));
+  ctx.fillStyle = '#f2d9a182';
+  ctx.fill(new Path2D('M 17 14 L 307 8 L 312 27 L 12 36 Z M 28 46 L 34 56 L 42 296 L 36 299 Z'));
+  ctx.strokeStyle = '#80502887';
+  ctx.lineWidth = 2;
+  ctx.stroke(new Path2D('M 20 34 L 306 25 M 33 64 L 40 284 M 191 251 L 265 283 L 294 278'));
+  for (let index = 0; index < 530; index++) {
+    const x = (index * 149 + 57) % canvas.width;
+    const y = (index * 79 + 43) % canvas.height;
+    ctx.fillStyle = index % 4 ? '#6942222c' : '#fae5bb79';
+    ctx.fillRect(x, y, index % 5 === 0 ? 4 : 2, 1);
+  }
+  const mouth = new Path2D('M 19 339 L 60 345 L 113 336 L 151 341 L 191 334 L 232 343 L 266 335 L 306 339');
+  ctx.strokeStyle = '#674321';
+  ctx.lineWidth = 10;
+  ctx.stroke(mouth);
+  ctx.strokeStyle = '#edc581';
+  ctx.lineWidth = 3;
+  ctx.stroke(mouth);
+  ctx.restore();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  const cover = new THREE.Mesh(
+    new THREE.PlaneGeometry(canvas.width / imageWidth, canvas.height / imageHeight),
+    new THREE.MeshBasicMaterial({ map: texture, alphaTest: .4, toneMapped: false }),
+  );
+  cover.position.z = .009;
+  cover.visible = false;
+  return cover;
+}
+
 function createContactTexture() {
   const size = 48;
   const pixels = new Uint8Array(size * size * 4);
@@ -321,6 +372,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   );
   sample.visible = false;
   sample.rotation.x = -Math.PI / 2;
+  const gloveSleeve = makeGloveSleeve(ownerDocument);
+  sample.add(gloveSleeve);
   scene.add(sample);
 
   scene.updateMatrixWorld(true);
@@ -400,6 +453,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       });
       const filename = working && frame.sample?.filename;
       sampleOnDesk = Boolean(filename && !frame.sampleHeld);
+      gloveSleeve.visible = Boolean(filename && frame.sample.kind === 'yellow' && !frame.sample.unpacked);
       if (filename) {
         if (filename !== sampleFilename) {
           sampleFilename = filename;
@@ -411,7 +465,6 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
             sample.material.needsUpdate = true;
           }
         }
-        sample.material.color.setHex(frame.sample.kind === 'yellow' && !frame.sample.unpacked ? 0xdcccc0 : 0xffffff);
       }
     }
     if (!waiting && (frame.npc !== before.npc || (before.phase === 'waiting' && !before.keepVisitor) || (before.phase === 'receipt' && frame.phase === 'case'))) {

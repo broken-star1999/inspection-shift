@@ -15,6 +15,7 @@ export function sampleAppearance(spec) {
 
 export function sampleObservation(spec, inspection) {
   const { back, film, tug, unpacked } = inspection;
+  if (spec.unwrapped && !unpacked) return spec.front;
   if (back) {
     if (tug && spec.afterTug) return spec.afterTug;
     if (tug || spec.model || !sampleAppearance(spec).clasp || spec.kind === 'broken') return spec.back;
