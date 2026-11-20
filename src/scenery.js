@@ -274,7 +274,9 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
 
     placeWorker() {
       if (!this.worker.visible) return;
-      const stageProgress = this.arrival.progress;
+      const stageProgress = reducedMotion.matches
+        ? Number(this.frame.phase !== 'waiting' || this.frame.keepVisitor === true)
+        : this.arrival.progress;
       const slide = this.frame.phase === 'waiting' ? 37 : -21;
       const breath = reducedMotion.matches ? 0 : Math.sin(this.elapsed * 1.9) * 0.85;
       this.worker.setPosition(
@@ -287,9 +289,10 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
     show(next) {
       const previous = this.frame;
       const enters = next.npc !== previous.npc || (next.phase === 'case' && previous.phase === 'receipt');
+      const waiting = next.phase === 'waiting';
       this.frame = next;
-      if (next.phase === 'waiting') {
-        if (previous.phase === 'waiting') return;
+      if (waiting && !next.keepVisitor) {
+        if (previous.phase === 'waiting' && !previous.keepVisitor) return;
         this.tweens.killTweensOf(this.arrival);
         if (this.worker.visible && !reducedMotion.matches) {
           this.tweens.add({ targets: this.arrival, progress: 0, duration: 280, ease: 'Quad.In',
@@ -298,8 +301,11 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
               delete host.dataset.npcArt;
             },
           });
-          return;
+        } else {
+          this.worker.setVisible(false);
+          delete host.dataset.npcArt;
         }
+        return;
       }
       if (!sprites.includes(next.npc)) {
         this.worker.setVisible(false);
@@ -317,10 +323,13 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
         const height = logicalHeight * 0.91;
         this.worker.setScale(Math.min(height / texture.height, 204 / texture.width));
         this.tweens.killTweensOf(this.arrival);
-        this.arrival.progress = reducedMotion.matches ? 1 : 0;
+        this.arrival.progress = waiting || reducedMotion.matches ? 1 : 0;
         if (this.arrival.progress === 0) {
           this.tweens.add({ targets: this.arrival, progress: 1, duration: 420, ease: 'Cubic.Out' });
         }
+      } else if (waiting) {
+        this.tweens.killTweensOf(this.arrival);
+        this.arrival.progress = 1;
       }
       this.placeWorker();
     }

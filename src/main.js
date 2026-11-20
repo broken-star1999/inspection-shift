@@ -19,6 +19,8 @@ const COLLECTION_KEY = 'nandu-inspection-endings-v1';
 const COMPLETED_KEY = 'nandu-inspection-completed-v1';
 const ENDING_IDS = ['routine', 'trace', 'issue'];
 const ARRIVAL_PAUSE_MS = 1150;
+const VISIT_HANDOVER_MS = 760;
+const ARRIVAL_APPROACH_MS = 465;
 
 function readStorage(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
@@ -75,6 +77,7 @@ let scenery;
 let modeledReady = false;
 let toastTimer;
 let arrivalTimer = 0;
+let arrival = null;
 let workspaceScrollTimer = 0;
 let drag;
 let claspPull = null;
@@ -249,8 +252,8 @@ function showPencil(item) {
   return item?.id === 8 && run.flags.rollingPencil && !run.flags.pencil;
 }
 
-function activeVisit() {
-  return run?.events ? (run.events[0] ?? null) : (run?.event ?? null);
+function activeVisit(state = run) {
+  return state?.events ? (state.events[0] ?? null) : (state?.event ?? null);
 }
 
 function windowCase() {
@@ -313,11 +316,28 @@ function heldObjects(item) {
   };
 }
 
+function visitorAt(state) {
+  return activeVisit(state)?.npc ?? (state && getCase(state)?.npc) ?? null;
+}
+
+function arrivalApproach(state) {
+  const item = activeVisit(state) ? null : getCase(state);
+  return { npc: visitorAt(state), sampleFilename: item ? `${sampleAppearance(item.sample).stem}.webp` : null };
+}
+
+function visitDocument(visit) {
+  return visit && EVIDENCE[visit.key];
+}
+
 function setScene() {
-  const visit = arrivalTimer ? null : activeVisit();
-  const phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
-  const item = windowCase();
-  const npc = visit?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
+  const approaching = arrival?.stage === 'approach';
+  const waiting = arrival && !approaching;
+  const sceneRun = approaching ? arrival.next : run;
+  const visit = waiting ? null : activeVisit(sceneRun);
+  const phase = approaching ? 'arriving' : waiting ? 'waiting' : (run?.phase ?? 'home');
+  const item = !waiting && !visit && sceneRun ? getCase(sceneRun) : null;
+  const npc = waiting ? (arrival.keepVisitor ? visitorAt(run) : null)
+    : visit?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
   if (illustratedWorker && root.dataset.modeled !== 'true' && roomHost.dataset.sceneReady !== 'true') {
     if (npc) {
       const image = view.asset(`${npc}.webp`);
@@ -326,18 +346,25 @@ function setScene() {
     illustratedWorker.hidden = !npc;
   }
   const appearance = item ? sampleAppearance(item.sample) : null;
-  const side = interaction.inspection.back ? '-back' : '';
-  scenery?.setFrame({ day: run?.day ?? 0, phase, npc: npc || null,
-    documents: item?.documents.map((doc) => ({ type: doc.type, title: doc.title, batch: doc.fields[0]?.[1] ?? item.batch })) ?? [],
-    sample: appearance ? { ...interaction.inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
-    positions: interaction.positions, pencil: showPencil(item), ...heldObjects(item) });
+  const inspection = approaching ? {} : interaction.inspection;
+  const side = inspection.back ? '-back' : '';
+  const delivered = visitDocument(visit);
+  const documents = item?.documents ?? (delivered ? [delivered] : []);
+  const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
+  scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit),
+    documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: visit ? '回访留底' : doc.fields[0]?.[1] ?? item.batch })),
+    sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
+    positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
+    keepVisitor: arrival?.keepVisitor ?? false, approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined) });
 }
 
 function render(resumeScroll) {
   root.dataset.phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
+  if (arrival) root.dataset.arrivalStage = arrival.stage;
+  else delete root.dataset.arrivalStage;
   const incomingCall = incomingAtWindow();
   showRinging(incomingCall);
-  const waitMessage = arrivalTimer ? '等下一位…' : '';
+  const waitMessage = arrival?.stage === 'approach' ? '窗口递件…' : arrival ? '等下一位…' : '';
   if (arrivalStatus.textContent !== waitMessage) arrivalStatus.textContent = waitMessage;
   status.innerHTML = run ? `<span>${getDay(run).title}</span><span>第 ${run.day + 1} 天 / 5</span>` : '<span>质检员的一天</span>';
   wallShift.innerHTML = run ? view.wallShift(run) : '';
@@ -349,9 +376,13 @@ function render(resumeScroll) {
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
   hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous) : '';
-  desktop.innerHTML = item ? view.desk(run, item, step, {
+  const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
+  const previewVisit = preview ? activeVisit(preview) : null;
+  const previewItem = preview && !previewVisit ? getCase(preview) : null;
+  const delivered = visitDocument(visit ?? previewVisit);
+  desktop.innerHTML = delivered ? view.visitSlip(delivered) : item ? view.desk(run, item, step, {
     ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(item),
-  }) : '';
+  }) : previewItem ? view.desk(preview, previewItem, null, { ...freshInteraction(), stampBlocked: true }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   showModeledScene();
   if (root.dataset.modeled === 'true') placeFixtures();
@@ -405,7 +436,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     });
     markup = view.dialog('交班存根', view.completedShifts(entries), 'completed-shifts-modal');
   }
-  if (!markup && run?.phase === 'receipt' && !activeVisit()) markup = view.receipt(run.records.at(-1));
+  if (!markup && !arrival && run?.phase === 'receipt' && !activeVisit()) markup = view.receipt(run.records.at(-1));
 
   const focused = document.activeElement;
   const hadModal = Boolean(modalLayer.firstElementChild);
@@ -501,7 +532,11 @@ function persistRun() {
     ...context, panel: workspacePanel, scrollTop: body?.scrollTop ?? archiveReturn?.scrollTop ?? 0,
     returnTo: workspacePanel === 'phone' ? phoneReturn : undefined,
   } : undefined;
-  saved = { ...run, inspectionProgress: captureInspectionProgress(getCase(run), interaction, workspace) };
+  saved = {
+    ...run,
+    ...(arrival ? { arrivalAction: arrival.type } : {}),
+    inspectionProgress: captureInspectionProgress(getCase(run), interaction, workspace),
+  };
   writeStorage(SAVE_KEY, saved);
 }
 
@@ -558,8 +593,10 @@ function enter(restore) {
   cancelArrivalPause();
   reviewingHistory = false;
   let workspace;
+  let arrivalAction;
   if (restore && saved) {
-    const { inspectionProgress, ...savedRun } = saved;
+    const { inspectionProgress, arrivalAction: savedArrival, ...savedRun } = saved;
+    arrivalAction = savedArrival;
     run = restoreRun(savedRun);
     const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
@@ -574,6 +611,12 @@ function enter(restore) {
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
   archiveReturn = null;
+  const next = windowAdvance(arrivalAction);
+  if (needsArrival(next)) {
+    panel = null;
+    pauseBeforeArrival(arrivalAction, next, true, true);
+    return;
+  }
   const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
   playSound(resumeSound ?? (run.phase === 'ending' ? 'paper' : 'shutter'));
   render(workspace?.scrollTop);
@@ -598,26 +641,59 @@ function reviewCompletedShift(id) {
 function cancelArrivalPause() {
   clearTimeout(arrivalTimer);
   arrivalTimer = 0;
+  arrival = null;
 }
 
 function focusNextWindowAction() {
   requestAnimationFrame(() => {
     if (document.activeElement !== document.body) return;
-    const target = hud.querySelector('[data-act="event-next"]')
+    const target = desktop.querySelector('[data-act="event-next"]')
       ?? screenLayer.querySelector('.primary')
       ?? desktop.querySelector('.paper-card');
     target?.focus({ preventScroll: true });
   });
 }
 
-function pauseBeforeArrival(restoreFocus) {
+function windowAdvance(type) {
+  if (!run || (type !== 'next' && type !== 'ack-visit')) return null;
+  const next = dispatch(run, { type });
+  return next !== run ? next : null;
+}
+
+function needsArrival(next) {
+  return next && (next.phase === 'case' || activeVisit(next));
+}
+
+function finishWindowAdvance(type, restoreFocus) {
+  const visit = type === 'ack-visit' ? activeVisit() : null;
+  if (!update({ type }, false)) return;
+  if (visit) {
+    interaction.archiveFocus = visit.key;
+    interaction.archiveQuery = '';
+    interaction.archiveEditing = false;
+    toast('留底已收入交接簿');
+  }
+  render();
+  if (restoreFocus) focusNextWindowAction();
+}
+
+function pauseBeforeArrival(type, next, restoreFocus, resumed = false) {
   modalOpener = null;
+  const npc = visitorAt(next);
+  arrival = {
+    type, next, stage: 'waiting', keepVisitor: !resumed && npc !== null && npc === visitorAt(run),
+    approach: arrivalApproach(next),
+  };
+  const duration = type === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
   arrivalTimer = setTimeout(() => {
-    arrivalTimer = 0;
-    playSound('bell');
+    arrival.stage = 'approach';
+    arrivalTimer = setTimeout(() => {
+      cancelArrivalPause();
+      finishWindowAdvance(type, restoreFocus);
+    }, ARRIVAL_APPROACH_MS);
+    playSound('slide');
     render();
-    if (restoreFocus) focusNextWindowAction();
-  }, ARRIVAL_PAUSE_MS);
+  }, duration - ARRIVAL_APPROACH_MS);
   render();
 }
 
@@ -909,31 +985,16 @@ root.addEventListener('click', (event) => {
     }
     case 'start-day': playSound('shutter'); update({ type: 'start-day' }); break;
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
-    case 'next': {
-      if (arrivalTimer || !update({ type: 'next' }, false)) break;
-      panel = null;
-      if (run.phase === 'case' || activeVisit()) pauseBeforeArrival(event.detail === 0);
-      else {
-        if (!incomingAtWindow()) playSound('bell');
-        render();
-        if (event.detail === 0) focusNextWindowAction();
-      }
-      break;
-    }
+    case 'next':
     case 'event-next': {
-      const visit = activeVisit();
-      if (arrivalTimer || !visit || !update({ type: 'ack-visit' }, false)) break;
-      interaction.archiveFocus = visit.key;
-      interaction.archiveQuery = '';
-      interaction.archiveEditing = false;
+      const type = act === 'next' ? 'next' : 'ack-visit';
+      const next = !arrival && windowAdvance(type);
+      if (!next) break;
       panel = null;
-      playSound('paper');
-      toast('留底已收入交接簿');
-      if (run.phase === 'case' || activeVisit()) pauseBeforeArrival(event.detail === 0);
-      else {
-        render();
-        if (event.detail === 0) focusNextWindowAction();
-      }
+      if (type === 'ack-visit') playSound('paper');
+      else if (needsArrival(next) || !getIncomingCall(next)) playSound('bell');
+      if (needsArrival(next)) pauseBeforeArrival(type, next, event.detail === 0);
+      else finishWindowAdvance(type, event.detail === 0);
       break;
     }
     case 'doc': case 'reference-doc': if (run) chooseDoc(index, target); break;
@@ -1089,7 +1150,7 @@ document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.isComposing) return;
   const target = event.target;
   if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
-      target.matches('[data-act="stamp"], [data-act="next"]')) {
+      target.matches('[data-act="stamp"], [data-act="next"], [data-act="event-next"]')) {
     event.preventDefault();
     return;
   }

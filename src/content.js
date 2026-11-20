@@ -296,8 +296,8 @@ export const DAYS = [
       },
       {
         id: 20, batch: 'G-220', npc: 'zhou', title: '交班前的最后一箱',
-        line: '最后一箱。车先等你，你慢慢看。',
-        answer: 'pass', reason: '本批实物与全部材料吻合', response: '还记得谁说明天来顶班吗？我呀。把交接板递给我看一眼。',
+        line: '最后一箱。装车的人在外头等回单。',
+        answer: 'pass', reason: '本批实物与全部材料吻合', response: '这张回单我交给装车的。交接板给我，我再核一遍。',
         documents: [label('G-220', [], '防噪耳罩'), report('G-220', 'R-090', earmuffReport), order('G-220', earmuffChecks)], sample: earmuff,
       },
     ],

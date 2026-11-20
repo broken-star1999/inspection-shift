@@ -4,7 +4,9 @@ import { BOOTH_METRICS, createWorkbenchModels } from './workbench-models.js';
 const pixelsPerUnit = 86;
 const workerNames = new Set(['luo', 'tang', 'xu', 'chen', 'zhou', 'sun']);
 const baseFov = 38;
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false };
+const deskDepartureMs = 285;
+const deskArrivalMs = 368;
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null };
 const paperStyles = {
   label: { width: 1.04, depth: .78, bright: '#ead2a0', shade: '#c4a875', edge: '#a67b52', turn: -.081 },
   report: { width: 1.22, depth: .97, bright: '#f2e4bb', shade: '#d4c4a0', edge: '#6e7955', turn: .048 },
@@ -99,7 +101,7 @@ function contactShadow(texture, width, depth, opacity) {
   return shadow;
 }
 
-function buildPaper(doc, index, count, ownerDocument, shadowTexture) {
+function buildPaper(doc, index, count, ownerDocument, shadowTexture, standalone) {
   const style = paperStyles[doc.type] ?? paperStyles.archive;
   const footprint = Math.min(1, 3 / count);
   const width = style.width * footprint;
@@ -121,10 +123,11 @@ function buildPaper(doc, index, count, ownerDocument, shadowTexture) {
   paper.userData.paperBounds = edge;
   paper.rotation.y = style.turn;
   paper.userData.origin = {
-    x: -2.43 + index * Math.min(1.16, 3.46 / Math.max(1, count)),
+    x: standalone ? -.82 : -2.43 + index * Math.min(1.16, 3.46 / Math.max(1, count)),
     y: BOOTH_METRICS.deskTop + .024 + index * .004,
     z: [2.05, 1.91, 2.12, 1.96][index % 4],
   };
+  paper.userData.rest = new THREE.Vector3();
   return paper;
 }
 
@@ -219,6 +222,9 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let frame = initialFrame;
   let paperSet = [];
   let paperKey = null;
+  let deskMotionAt = -Infinity;
+  let sampleOnDesk = false;
+  let sampleFilename = null;
   let portraitMotionAt = -Infinity;
   let pressed = null;
   let pressedAt = -Infinity;
@@ -337,6 +343,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   const sampleSize = sampleBounds?.getSize(new THREE.Vector3());
   const sampleCenter = sampleBounds?.getCenter(new THREE.Vector3());
   sample.position.set(sampleCenter?.x ?? 1.62, (sampleBounds?.max.y ?? BOOTH_METRICS.deskTop) + .02, sampleCenter?.z ?? 1.7);
+  const sampleRest = sample.position.clone();
 
   function fitSample(aspect) {
     const modelWidth = Math.min(1.57, (sampleSize?.x || 1.64) * .89);
@@ -348,21 +355,22 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   function setPaperOffset(index, offset) {
     const paper = paperSet[index];
     if (!paper) return;
-    const origin = paper.userData.origin;
-    paper.position.set(origin.x + (offset?.x || 0) / pixelsPerUnit, origin.y, origin.z + (offset?.y || 0) / pixelsPerUnit);
+    const { origin, rest } = paper.userData;
+    rest.set(origin.x + (offset?.x || 0) / pixelsPerUnit, origin.y, origin.z + (offset?.y || 0) / pixelsPerUnit);
+    paper.position.copy(rest);
     layoutDirty = true;
     invalidate();
   }
 
-  function updatePaperSet(documents) {
-    const signature = JSON.stringify(documents);
+  function updatePaperSet(documents, standalone) {
+    const signature = JSON.stringify([standalone, documents]);
     if (paperKey === signature) return;
     paperKey = signature;
     for (const paper of paperSet) {
       papers.remove(paper);
       disposeObject(paper, shadowTexture);
     }
-    paperSet = documents.map((doc, index) => buildPaper(doc, index, documents.length, ownerDocument, shadowTexture));
+    paperSet = documents.map((doc, index) => buildPaper(doc, index, documents.length, ownerDocument, shadowTexture, standalone));
     paperSet.forEach((paper) => papers.add(paper));
   }
 
@@ -374,16 +382,39 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     if (destroyed) return;
     const before = frame;
     frame = { ...initialFrame, ...next };
-    const working = frame.phase === 'case' || frame.phase === 'receipt';
-    if (models.anchors?.pencil) models.anchors.pencil.visible = working && Boolean(frame.pencil);
-    updatePaperSet(working ? frame.documents ?? [] : []);
-    paperSet.forEach((paper, index) => {
-      paper.visible = !frame.heldDocuments.includes(index);
-      setPaperOffset(index, frame.positions?.[index]);
-    });
-    if (frame.phase === 'waiting') {
-      if (before.phase !== 'waiting') portraitMotionAt = view.performance.now();
-    } else if (frame.npc !== before.npc || (before.phase === 'receipt' && frame.phase === 'case')) {
+    const waiting = frame.phase === 'waiting';
+    const arriving = frame.phase === 'arriving';
+    const working = arriving || frame.phase === 'case' || frame.phase === 'receipt' || frame.visit;
+    if ((waiting || arriving) && before.phase !== frame.phase) deskMotionAt = view.performance.now();
+    if (models.anchors?.pencil) models.anchors.pencil.visible = working && !arriving && Boolean(frame.pencil);
+    const { npc: nextNpc, sampleFilename: nextSample } = frame.approach ?? {};
+    if (workerNames.has(nextNpc)) loadTexture(`${art}${nextNpc}.webp`);
+    if (nextSample) loadTexture(artPath(nextSample));
+    if (waiting) {
+      if (!frame.keepVisitor && before.phase !== 'waiting') portraitMotionAt = deskMotionAt;
+    } else {
+      updatePaperSet(working ? frame.documents ?? [] : [], frame.visit);
+      paperSet.forEach((paper, index) => {
+        paper.userData.onDesk = !frame.heldDocuments.includes(index);
+        setPaperOffset(index, frame.positions?.[index]);
+      });
+      const filename = working && frame.sample?.filename;
+      sampleOnDesk = Boolean(filename && !frame.sampleHeld);
+      if (filename) {
+        if (filename !== sampleFilename) {
+          sampleFilename = filename;
+          const texture = loadTexture(artPath(filename), (loaded) => {
+            if (sampleFilename === filename) fitSample(loaded.image.width / loaded.image.height);
+          });
+          if (sample.material.map !== texture) {
+            sample.material.map = texture;
+            sample.material.needsUpdate = true;
+          }
+        }
+        sample.material.color.setHex(frame.sample.kind === 'yellow' && !frame.sample.unpacked ? 0xdcccc0 : 0xffffff);
+      }
+    }
+    if (!waiting && (frame.npc !== before.npc || (before.phase === 'waiting' && !before.keepVisitor) || (before.phase === 'receipt' && frame.phase === 'case'))) {
       portrait.visible = false;
       if (workerNames.has(frame.npc)) {
         const id = frame.npc;
@@ -400,23 +431,32 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
         });
       }
     }
-    const filename = working && frame.sample?.filename;
-    if (filename) {
-      const path = artPath(filename);
-      const texture = loadTexture(path);
-      if (sample.material.map !== texture) {
-        sample.material.map = texture;
-        sample.material.needsUpdate = true;
-      }
-      if (texture.image) fitSample(texture.image.width / texture.image.height);
-      else loadTexture(path, (image) => {
-        if (frame.sample?.filename === filename) fitSample(image.image.width / image.image.height);
-      });
-      sample.visible = !frame.sampleHeld;
-      sample.material.color.setHex(frame.sample.kind === 'yellow' && !frame.sample.unpacked ? 0xdcccc0 : 0xffffff);
-    } else sample.visible = false;
     layoutDirty = true;
     invalidate();
+  }
+
+  function placeDesk(now) {
+    const leaving = frame.phase === 'waiting';
+    const arriving = frame.phase === 'arriving';
+    const moving = (leaving || arriving) && !reduced.matches;
+    const duration = leaving ? deskDepartureMs : deskArrivalMs;
+    const elapsed = now - deskMotionAt;
+    let active = false;
+    function place(object, rest, onDesk, stagger, distance) {
+      const progress = moving ? THREE.MathUtils.clamp((elapsed - stagger) / duration, 0, 1) : 1;
+      object.visible = Boolean(onDesk && (!leaving || progress < 1));
+      if (!object.visible) return;
+      active ||= moving && progress < 1;
+      const slide = leaving ? progress ** 1.7 : (1 - progress) ** 2.6;
+      const offset = leaving || arriving ? slide : 0;
+      object.position.set(rest.x + (BOOTH_METRICS.window.x - rest.x) * offset * .13,
+        rest.y + Math.sin(progress * Math.PI) * .026, rest.z - offset * distance);
+    }
+    paperSet.forEach((paper, index) => {
+      place(paper, paper.userData.rest, paper.userData.onDesk, index * 13, .69 + (index % 3) * .13);
+    });
+    place(sample, sampleRest, sampleOnDesk && sample.material.map?.image, 24, .69);
+    return active;
   }
 
   function refreshLayout() {
@@ -426,10 +466,12 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       const rect = projectBox(box, camera, width, height);
       if (rect) controls[key] = rect;
     }
-    paperSet.forEach((paper, index) => {
-      const rect = projectBox(new THREE.Box3().setFromObject(paper.userData.paperBounds), camera, width, height);
-      if (rect) controls[`doc${index}`] = rect;
-    });
+    if (frame.phase !== 'waiting' && frame.phase !== 'arriving') {
+      paperSet.forEach((paper, index) => {
+        const rect = projectBox(new THREE.Box3().setFromObject(paper.userData.paperBounds), camera, width, height);
+        if (rect) controls[`doc${index}`] = rect;
+      });
+    }
     onLayout(controls);
   }
 
@@ -499,7 +541,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       backdrop.material.color.setRGB(closing ? .72 : .9 + .04 * (1 - day), closing ? .74 : .92, closing ? .74 : .89 + .06 * day);
     }
 
-    const leaving = frame.phase === 'waiting';
+    const leaving = frame.phase === 'waiting' && !frame.keepVisitor;
     const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - portraitMotionAt) / (leaving ? 280 : 340), 0, 1);
     const presence = leaving ? 1 - progress : 1 - (1 - progress) ** 2;
     const slide = (leaving ? .94 : -.52) * (1 - presence);
@@ -508,6 +550,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     if (leaving && progress === 1) portrait.visible = false;
     portrait.material.color.setScalar(closing ? .81 : .98 - day * .045);
 
+    const deskMoving = placeDesk(now);
     const pressAge = now - pressedAt;
     const pressDepth = reduced.matches || pressAge >= 165 ? 0 : Math.sin(pressAge / 165 * Math.PI) * .073;
     for (const { key, cap, baseY } of caps) cap.position.y = baseY - (pressed === key ? pressDepth : 0);
@@ -523,7 +566,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       ready = true;
       onReady?.();
     }
-    if ((portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
+    if (deskMoving || (portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 
   function captureDeskProjection() {

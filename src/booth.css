@@ -170,6 +170,17 @@
 .booth-layout .canvas-room[data-scene-ready='true'] .static-worker { display: none; }
 .booth-layout .canvas-room:not([data-scene-ready='true']) canvas { visibility: hidden; }
 
+@media (prefers-reduced-motion: no-preference) {
+  #game:not([data-modeled='true'])[data-arrival-stage='approach'] #desk :is(.papers, .sample-preview) {
+    animation: paperwork-arrives .42s cubic-bezier(.25, .7, .29, 1) both;
+  }
+}
+
+@keyframes paperwork-arrives {
+  from { translate: .4rem -1.1rem; opacity: 0; }
+  to { translate: 0 0; opacity: 1; }
+}
+
 .booth-layout .room::after {
   inset: 0;
   box-shadow: inset 0 0 0 1px #080f0c9c, inset 0 5px 18px #09120a7a, inset 0 -4px #a5b49a39;
@@ -427,6 +438,20 @@
 .booth-layout .paper-card > small { display: none; }
 .booth-layout .paper-card h3 { margin-block: .12rem .13rem; }
 .booth-layout .paper-rules { opacity: .66; }
+
+#game:not([data-modeled='true']) .booth-layout .visit-work .visit-slip {
+  grid-column: 1 / -1;
+  inline-size: min(100%, 13rem);
+  rotate: -1.5deg;
+}
+#game:not([data-modeled='true']) .booth-layout .visit-slip > small { display: block; }
+#game[data-modeled='true'] .booth-layout .visit-slip.paper-card[data-fixture] > h3 {
+  inset: auto auto .12rem 50%;
+  translate: -50% 0;
+  background: #372a1c;
+  color: #f7dfaa;
+  opacity: 1;
+}
 
 .booth-layout .sample-preview {
   align-self: center;

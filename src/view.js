@@ -91,13 +91,18 @@ export function room(run, item, tutorial, firstIssue, pressure, sceneEvent, prev
   const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
   return `<div class="speech${cls('dispatch-event', sceneEvent)}" aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
       <p>${esc(line)}</p>${pressure && !sceneEvent && !record ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
-      ${sceneEvent ? button('收下留底', 'event-next', 'primary') : earlier}</div>
+      ${earlier}</div>
     ${tutorial && !sceneEvent ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>` : firstIssue ? `<div class="training"><span class="tutorial-index">查验卡</span><small>老周</small><p>${esc(firstIssue)}</p></div>` : ''}`;
 }
 
 function paperCard(doc, index, tutorial, offset, lifted, disabled = false) {
   return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', tutorial?.target === doc.type)}" data-act="doc" data-i="${index}" data-drag="paper" data-fixture="doc${index}"${lifted ? ' data-lifted' : ''}${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}"${disabled ? ' disabled' : ''}>
     <small>${types[doc.type] ?? '归档'}</small><h3>${esc(doc.title)}</h3><b class="paper-num">${esc(doc.fields[0]?.[1])}</b><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">${doc.type === 'label' ? '批' : doc.type === 'report' ? '检' : '联'}</span></button>`;
+}
+
+export function visitSlip(doc) {
+  return `<section class="paper-work visit-work"><div class="papers"><button type="button" class="paper-card paper-archive visit-slip" data-act="event-next" data-fixture="doc0" aria-label="收下${esc(doc.title)}">
+    <small>回访留底</small><h3>收下留底</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
 }
 
 function stampButtons(instructed, disabled = false, action = 'stamp') {
@@ -132,7 +137,7 @@ function sampleHotspot(action, className, text, label, pressed = null) {
 
 export function desk(run, item, tutorial, interaction) {
   if (!item) return '';
-  const { note, positions, pencil, inspection, heldDocuments, sampleHeld, stampBlocked, benchFindingsOpen } = interaction;
+  const { note, positions, pencil, inspection, heldDocuments = [], sampleHeld, stampBlocked, benchFindingsOpen } = interaction;
   const appearance = sampleAppearance(item.sample);
   const issued = run.phase === 'receipt';
   const findings = readFindings(interaction);
