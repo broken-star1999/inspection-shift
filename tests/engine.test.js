@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, restoreRun, TUTORIAL } from '../src/engine.js';
+import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -29,6 +29,16 @@ function untilHandoff(seed, { decisions = {}, inspect = (state) => state, initia
     } else state = act(state, 'next');
   }
   return state;
+}
+
+function receiptAt(id, value, { seed = 21, decisions = {}, inspect = (state) => state } = {}) {
+  let receipt;
+  untilHandoff(seed, { decisions, inspect: (state, item) => {
+    const prepared = inspect(state, item);
+    if (item.id === id) receipt = act(prepared, 'stamp', { value });
+    return prepared;
+  } });
+  return receipt;
 }
 
 function tuesdayClosingReceipt() {
@@ -102,6 +112,34 @@ test('a receipt preserves selected findings alongside the legacy note after relo
   state = act(state, 'stamp', { value: 'review', findings: [] });
   assert.equal(Object.hasOwn(state.records[1], 'findings'), false);
   assert.equal(state.records[1].note, '请核对送检材料');
+});
+
+test('receipt feedback follows handling rather than revealing whether the stamp was right', () => {
+  const replies = new Map();
+  for (let seed = 0; seed < 24 && replies.size < 2; seed++) {
+    const issued = receiptAt(8, 'fail', { seed });
+    const record = issued.records.at(-1);
+    replies.set(record.answer, receiptFeedback(issued));
+    assert.equal(Object.hasOwn(record, 'response'), false);
+  }
+  assert.equal(replies.size, 2);
+  assert.equal(replies.get('pass'), replies.get('fail'));
+  assert.doesNotMatch(replies.get('fail'), /错型|型号 B|拿错/);
+
+  const issued = receiptAt(4, 'fail');
+  const legacy = JSON.parse(JSON.stringify(issued));
+  legacy.records.at(-1).response = '镜片内侧有分叉裂纹。';
+  assert.equal(receiptFeedback(legacy), receiptFeedback(issued));
+  assert.doesNotMatch(receiptFeedback(legacy), /裂纹/);
+  assert.equal(receiptFeedback(act(issued, 'next')), null);
+  assert.doesNotMatch(receiptFeedback(receiptAt(18, 'fail')), /1\.80|2\.00|偏薄|超差|单上写|记下/);
+
+  const warned = receiptAt(createRun(0).flags.warningCase, 'review', { seed: 0 });
+  assert.match(receiptFeedback(warned), /^行，我先让他们挪进黄线里。/);
+  const last = receiptAt(20, 'review');
+  assert.match(receiptFeedback(last), /交班时把板给我/);
+  const umbrella = receiptAt(17, 'review', { inspect: (state, item) => item.id === 16 ? act(state, 'explore', { key: 'umbrella' }) : state });
+  assert.match(receiptFeedback(umbrella), /晾伞/);
 });
 
 test('same seed remains playable after JSON restore and contains one of each pressure event', () => {
@@ -490,6 +528,58 @@ test('newly signed proof clears a premature release, while G-204 is tracked sepa
   const corrected = getEnding(act(state, 'finish'));
   assert.equal(corrected.id, 'routine');
   assert.deepEqual(corrected.delayedReceipts, []);
+});
+
+test('unadopted offsite supplements only handle their paperwork and preserve the original shipment', () => {
+  for (const [value, expectedStatus] of [['review', 'held'], ['fail', 'returned']]) {
+    const issued = receiptAt(9, value, { decisions: { 5: 'pass' } });
+    const original = issued.records.find(({ id }) => id === 5);
+    const supplement = issued.records.at(-1);
+    assert.equal(original.status, 'shipped');
+    assert.equal(original.verifiedBy, undefined);
+    assert.equal(supplement.priorShipmentId, 5);
+    assert.equal(supplement.status, expectedStatus);
+    assert.equal(isSupplementOnly(supplement), true);
+    assert.match(receiptFeedback(issued), /补验联.*原批还在收货方/);
+
+    const legacy = JSON.parse(JSON.stringify(issued));
+    delete legacy.records.at(-1).priorShipmentId;
+    legacy.records.at(-1).response = '我先放在黄线里。';
+    assert.equal(receiptFeedback(legacy), receiptFeedback(issued));
+    const archived = archive(legacy, 'G-205').find(({ id }) => id === 9);
+    assert.equal(isSupplementOnly(archived.record), true);
+    assert.equal(archived.previousReceipt.record.id, 5);
+    assert.equal(legacy.records.at(-1).priorShipmentId, undefined);
+    assert.equal(restoreRun(legacy).records.at(-1).priorShipmentId, 5);
+    const handoff = untilHandoff(21, { initialState: legacy });
+    const ending = getEnding(act(handoff, 'finish'));
+    assert.deepEqual(ending.issues.map(({ id }) => id), [5]);
+    assert.deepEqual(ending.delayedReceipts, []);
+    const accepted = act(handoff, 'recheck', { id: 9, value: 'pass' });
+    const active = archive(accepted, 'G-205').find(({ id }) => id === 5).latestReceipt;
+    assert.equal(active.priorShipmentId, 5);
+    assert.equal(active.status, 'shipped');
+    assert.equal(isSupplementOnly(active), false);
+  }
+
+  const remainder = receiptAt(15, 'fail', { decisions: { 4: 'pass' } }).records.at(-1);
+  assert.equal(remainder.priorShipmentId, undefined);
+  assert.equal(isSupplementOnly(remainder), false);
+});
+
+test('departure leaves a superseded queued receipt as history while only the active one ships', () => {
+  let state = untilHandoff(21, { decisions: { 5: 'review', 9: 'review' } });
+  state = act(state, 'recheck', { id: 5, value: 'pass' });
+  state = act(state, 'recheck', { id: 9, value: 'pass' });
+  const prior = archive(state, 'G-205').find(({ id }) => id === 5);
+  assert.equal(prior.record.status, 'shipping');
+  assert.equal(prior.latestReceipt.status, 'shipping');
+  const finished = act(state, 'finish');
+  const after = archive(finished, 'G-205').find(({ id }) => id === 5);
+  assert.equal(after.record, prior.record);
+  assert.equal(after.latestReceipt.id, 9);
+  assert.equal(after.latestReceipt.status, 'shipped');
+  assert.equal(getEnding(finished).id, 'routine');
 });
 
 test('a signed same-lot supplement preserves the prior shipment in its immediate receipt', () => {

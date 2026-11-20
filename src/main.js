@@ -463,7 +463,11 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     });
     markup = view.dialog('交班存根', view.completedShifts(entries), 'completed-shifts-modal');
   }
-  if (!markup && !arrival && run?.phase === 'receipt' && !activeVisit()) markup = view.receipt(run.records.at(-1));
+  if (!markup && !arrival && run?.phase === 'receipt' && !activeVisit()) {
+    const record = run.records.at(-1);
+    const previous = run.records.find(({ id }) => id === record.priorShipmentId);
+    markup = view.receipt(record, previous);
+  }
 
   const focused = document.activeElement;
   const hadModal = Boolean(modalLayer.firstElementChild);

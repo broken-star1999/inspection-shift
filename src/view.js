@@ -1,16 +1,27 @@
 import { CHARACTERS, DAYS, EASTER_EGGS } from './content.js';
+import { isSupplementOnly, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 
 export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
 export const labels = { pass: '通过', fail: '不通过', review: '要求审查' };
-export const statuses = { shipping: '排车', shipped: '已出库', returned: '退回', held: '隔离待查', recallPending: '待召回回执', recalled: '召回确认' };
+export const statuses = { shipping: '排车', shipped: '已出库', returned: '退回', held: '隔离待查', recallPending: '待召回回执', recalled: '召回确认',
+  supplementHeld: '补验联待查', supplementReturned: '补验联退回' };
 const types = { label: '标签', report: '检验', order: '送检', archive: '留底' };
 const glyphs = { pass: '✓', fail: '×', review: '…' };
 
 export const esc = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const cls = (name, enabled) => enabled ? ` ${name}` : '';
 const active = (selected) => selected ? ' aria-pressed="true"' : ' aria-pressed="false"';
+
+function dispositionKey(record) {
+  if (isSupplementOnly(record)) return record.status === 'held' ? 'supplementHeld' : 'supplementReturned';
+  return record.status;
+}
+
+function dispositionLabel(record) {
+  return statuses[dispositionKey(record)] ?? '待登记';
+}
 
 export function button(text, action, variant = 'secondary', attributes = '') {
   return `<button class="button ${variant}" data-act="${action}" ${attributes}>${text}</button>`;
@@ -79,7 +90,7 @@ function priorReceipt({ record, sameLot }) {
   const day = DAYS[record.day];
   const title = sameLot ? '查看上次回执' : '查看原批回执';
   return `<button type="button" class="prior-receipt" data-act="archive-receipt" data-i="${esc(record.id)}">
-    <b>${title}</b><span>${esc(day?.title)} · ${esc(labels[record.decision])} · ${esc(statuses[record.status])}</span>${sameLot ? '' : '<small>留厂返工件单独核对</small>'}
+    <b>${title}</b><span>${esc(day?.title)} · ${esc(labels[record.decision])} · ${esc(dispositionLabel(record))}</span>${sameLot ? '' : '<small>留厂返工件单独核对</small>'}
   </button>`;
 }
 
@@ -87,7 +98,7 @@ export function room(run, item, tutorial, firstIssue, pressure, sceneEvent, prev
   const day = DAYS[run.day];
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
   const record = run.phase === 'receipt' ? run.records.at(-1) : null;
-  const line = sceneEvent?.line ?? record?.response ?? item?.line ?? day.intro;
+  const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? item?.line ?? day.intro;
   const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
   return `<div class="speech${cls('dispatch-event', sceneEvent)}" aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
       <p>${esc(line)}</p>${pressure && !sceneEvent && !record ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
@@ -201,7 +212,7 @@ function endingView(ending, reviewingHistory) {
       ${endingRecallGroup(pending, 'pending', '待召回回执', pendingText)}
       ${endingRecallGroup(confirmed, 'confirmed', '召回确认', '已收下收货方回执')}
       ${delayed.length ? `<details class="ending-delay"><summary><b>仍未放行</b> ${delayed.length} 批来件已符合放行要求</summary>
-        <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, statuses[record.status])}</li>`).join('')}</ul></details>` : ''}
+        <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, dispositionLabel(record))}</li>`).join('')}</ul></details>` : ''}
       <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
     </div>
     <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(reviewingHistory ? '返回首页' : '返回窗口', 'home')}${reviewingHistory ? '' : button('再接一周', 'new', 'primary')}</footer>
@@ -218,7 +229,7 @@ export function overlay(run, ending, reviewingHistory = false, incomingCall = nu
       <div class="summary-body"><ul class="summary-list">${records.map((record) => {
         const batch = esc(record.batch);
         const decision = esc(labels[record.decision]);
-        const destination = esc(statuses[record.status]);
+        const destination = esc(dispositionLabel(record));
         return `<li><button type="button" class="summary-record" data-act="archive-receipt" data-i="${esc(record.id)}" aria-label="查看 ${batch} 回执，${decision}，${destination}"><b>${batch}</b><span>${decision} · ${destination}</span></button></li>`;
       }).join('')}</ul><p>${esc(day.outro)}</p></div>
       <footer class="summary-footer">${incomingCall ? button('接电话', 'phone', 'secondary summary-phone') : ''}${button('下一班', 'advance-day', 'primary')}</footer>
@@ -285,7 +296,7 @@ function returnComparison(item, index, previous, previousIndex, inspection) {
     <section class="return-current"><div class="return-source"><b>${sameLot ? '本次来件' : '留厂件'}</b><small>${esc(day)}</small></div>
       ${returnTabs(item.documents, 'doc', index, '切换本次单据')}${sheet(item.documents[index], index, inspection)}</section>
     <section class="return-previous" data-previous-doc="${previousIndex}"><div class="return-source"><b>${sameLot ? '前次留底' : '原批留底'}</b><small>${esc(DAYS[record.day]?.title)}</small>
-      <span class="return-disposition">${esc(labels[record.decision])} · ${esc(statuses[record.status])}</span></div>
+      <span class="return-disposition">${esc(labels[record.decision])} · ${esc(dispositionLabel(record))}</span></div>
       ${returnTabs(documents, 'previous-doc', previousIndex, '切换留底单据')}${sheet(documents[previousIndex])}</section>
   </div>`;
 }
@@ -364,7 +375,7 @@ export function sample(item, inspection, tutorial, progress) {
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {
   const findings = readFindings(record);
-  return `<dl class="receipt-facts"><div><dt>${destinationLabel}</dt><dd>${esc(statuses[record.status] ?? '待登记')}</dd></div>
+  return `<dl class="receipt-facts"><div><dt>${destinationLabel}</dt><dd>${esc(dispositionLabel(record))}</dd></div>
     ${findings.length || showEmptyNote ? `<div class="receipt-findings"><dt>${basisLabel}</dt><dd>${findings.length ? findingLines(findings) : '未另记'}</dd></div>` : ''}</dl>`;
 }
 
@@ -387,7 +398,11 @@ function receiveRecallAction(record, className, text = '取收货方回执') {
   return button(text, 'receive-recall', `secondary ${className}`, `data-i="${esc(record.id)}" aria-label="取 ${esc(record.batch)} ${esc(DAYS[record.day]?.title)} 收货方回执"`);
 }
 
-function archivedReceipt(record, latestReceipt) {
+function amendmentDisposition(record, count, decision, status) {
+  return dispositionLabel({ ...record, status, decision, amendments: record.amendments.slice(0, count) });
+}
+
+function archivedReceipt(record, latestReceipt, previousReceipt) {
   if (!record) return '';
   const changed = record.amendments?.length > 0;
   const latestAmendment = latestReceipt?.amendments?.at(-1);
@@ -395,21 +410,27 @@ function archivedReceipt(record, latestReceipt) {
     <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
       <span class="receipt-result">${esc(labels[record.decision])}</span></div>
     ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true, changed ? '原开单依据' : '开单依据')}
-    ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(statuses[latestReceipt.status])}</strong>。</p>` : ''}
+    ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(dispositionLabel(latestReceipt))}</strong>。</p>` : ''}
+    ${previousReceipt && previousReceipt.record.id === record.priorShipmentId ? `<p class="archive-current-disposition">补验时原批已出库，原出货单开于<strong>${esc(DAYS[previousReceipt.record.day]?.title)}</strong>。</p>` : ''}
     ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry, index) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}更正</b>
-      <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(statuses[entry.previousStatus] ?? '待登记')} → ${esc(statuses[entry.status] ?? '待登记')}</small>${amendmentFindings(entry)}${recallConfirmation(record.recallReceipt, index)}</li>`).join('')}</ol>` : ''}</article>`;
+      <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(amendmentDisposition(record, index, entry.from, entry.previousStatus))} → ${esc(amendmentDisposition(record, index + 1, entry.to, entry.status))}</small>${amendmentFindings(entry)}${recallConfirmation(record.recallReceipt, index)}</li>`).join('')}</ol>` : ''}</article>`;
 }
 
-export function receipt(record) {
+export function receipt(record, previous) {
   const disposition = {
     shipping: '这批货等装车，回执交装货台。',
     shipped: '这批货已经出库，补签回执归入原批留底。',
     returned: '这批退回，重新送检时另查。',
     held: '这批留在黄线内，等补材料或复检。',
+    supplementHeld: '补验联暂留待核。原批已出库，仍按原单追查。',
+    supplementReturned: '本次补验联退回。原批已出库，仍按原单追查。',
     recallPending: '已发出召回申请，等收货方回签。',
     recalled: '已确认召回，下一班按留底复检。',
-  }[record.status];
-  return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
+  }[dispositionKey(record)];
+  const original = previous && previous.id === record.priorShipmentId
+    ? button(`查看原出货回执 · ${esc(DAYS[previous.day]?.title)}`, 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}"`)
+    : '';
+  return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${original}${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
 }
 
 function correctionPanel(record, findings, selected) {
@@ -431,7 +452,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   const visitIndex = evidenceIndex(visits.filter((entry) => !isCall(entry)), '回访留底');
   const callIndex = evidenceIndex(visits.filter(isCall), '电话留底');
   const records = rows.slice().reverse().map(({ id, batch, title, record, latestReceipt }) => {
-    const status = latestReceipt ? '前次回执' : record ? statuses[record.status] : '本班来件';
+    const status = latestReceipt ? '前次回执' : record ? dispositionLabel(record) : '本班来件';
     return `<button class="record-button" data-act="archive-focus" data-i="${id}"${active(id === focus)}><b>${esc(batch)}</b><span>${esc(title)}</span><small>${esc(status)}</small></button>`;
   }).join('');
   const index = `${visitIndex}${callIndex}${visits.length && rows.length ? '<h3 class="archive-group-title">批次单据</h3>' : ''}${records}`;
@@ -455,7 +476,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
     ].filter(Boolean).join('');
     details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
       ${correction ? correctionPanel(row.record, findings, correction.selected) : ''}
-      ${archivedReceipt(row.record, latestReceipt)}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction)).join('')}</div>`;
+      ${archivedReceipt(row.record, latestReceipt, previousReceipt)}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction)).join('')}</div>`;
   }
   const navigation = { phone: '回到电话', handoff: '回到交接板' }[returnTo];
   return deskSurface('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
@@ -488,13 +509,15 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const lot = row.previousReceipt?.sameLot === false ? '留厂件' : following.get(row.id)?.previousReceipt.sameLot === false ? '原批' : '';
     return [day, lot].filter(Boolean).join(' · ');
   };
-  const dispositions = { recallPending: statuses.recallPending, shipping: '排车待发', held: '黄线隔离', returned: '退回', recalled: '召回确认', shipped: '已出库' };
+  const dispositions = { recallPending: statuses.recallPending, shipping: '排车待发', held: '黄线隔离', returned: '退回',
+    supplementHeld: statuses.supplementHeld, supplementReturned: statuses.supplementReturned, recalled: '召回确认', shipped: '已出库' };
   const currentRows = rows.filter(({ latestReceipt }) => !latestReceipt);
   const groups = Object.entries(dispositions).map(([status, title]) => {
-    const group = currentRows.filter(({ record }) => record.status === status);
+    const group = currentRows.filter(({ record }) => dispositionKey(record) === status);
     if (!group.length) return '';
     const pending = status === 'recallPending';
-    return `<section class="handoff-group" data-disposition="${status}"><h3>${title}<small>${group.length} 批</small></h3><ul class="handoff-slips">
+    const documentOnly = status === 'supplementHeld' || status === 'supplementReturned';
+    return `<section class="handoff-group" data-disposition="${status}"><h3>${title}<small>${group.length} ${documentOnly ? '张' : '批'}</small></h3><ul class="handoff-slips">
       ${group.map((row) => `<li${pending ? ' class="handoff-recall-chip"' : ''}><button type="button" class="handoff-slip" data-act="handoff-focus" data-i="${esc(row.id)}"${active(focus === row.id)}><b>${esc(row.batch)}</b><small>${esc(provenance(row))}</small></button>${pending ? receiveRecallAction(row.record, 'handoff-recall-action', '取回执') : ''}</li>`).join('')}</ul></section>`;
   }).join('');
   const attachmentKeys = ['trace', 'night'].filter((key) => run.flags[`${key}Document`]);
@@ -520,13 +543,13 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const tabs = `<nav class="doc-tabs handoff-detail-tabs" aria-label="本批归档单据">
       ${button('回执', 'handoff-doc', 'tab', `data-key="receipt"${active(!doc)}`)}${documents.map(({ title, type }, index) =>
         button(types[type] ?? '归档', 'handoff-doc', 'tab', `data-i="${index}"${active(Boolean(doc) && index === documentIndex)} aria-label="${esc(title)}" title="${esc(title)}"`)).join('')}</nav>`;
-    header = `<div class="handoff-detail-heading"><div class="handoff-detail-name"><h3>${esc(row.batch)}</h3><small>${esc(provenance(row))}</small></div><span class="handoff-detail-status">${esc(statuses[(latestReceipt ?? record).status])}</span>
+    header = `<div class="handoff-detail-heading"><div class="handoff-detail-name"><h3>${esc(row.batch)}</h3><small>${esc(provenance(row))}</small></div><span class="handoff-detail-status">${esc(dispositionLabel(latestReceipt ?? record))}</span>
       ${!latestReceipt && !editing ? button('更正开单', 'edit-record', 'secondary handoff-detail-edit', `data-i="${esc(row.id)}"`) : ''}</div>${tabs}`;
     const related = [
       previousReceipt && button(previousReceipt.sameLot ? '前次回执' : '原批回执', 'handoff-focus', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`),
       (latestReceipt || next) && button(next?.previousReceipt.sameLot === false ? '留厂件回执' : '后续回执', 'handoff-focus', 'secondary', `data-i="${esc(latestReceipt?.id ?? next.id)}"`),
     ].filter(Boolean).join('');
-    detail = `${doc ? sheet(doc, documentIndex, correction) : archivedReceipt(record, latestReceipt)}
+    detail = `${doc ? sheet(doc, documentIndex, correction) : archivedReceipt(record, latestReceipt, previousReceipt)}
       ${correction ? correctionPanel(record, findings, correction.selected) : ''}
       ${related && !editing ? `<div class="modal-actions handoff-related">${related}</div>` : ''}`;
     if (editing) actions = `<div class="stamp-buttons archive-correction" aria-label="更正开单">${stampButtons(false, false, 'recheck', record.decision)}</div>${button('取消更正', 'edit-record', 'secondary handoff-cancel', `data-i="${esc(row.id)}"`)}`;

@@ -1,4 +1,4 @@
-import { DAYS, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, TUTORIAL as tutorialContent } from './content.js';
+import { DAYS, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, TUTORIAL as tutorialContent } from './content.js';
 import { normalizeFindings } from './inspection-findings.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
@@ -17,12 +17,6 @@ export const TUTORIAL = tutorialContent.map((step, index) => ({ ...step, key: TU
 export const EVIDENCE = {
   trace: PHONE['204'].evidence,
   night: PHONE['107'].evidence,
-};
-
-const STANDARD_RESPONSE = {
-  pass: '我照这张去装货台。',
-  fail: '我拿这张回返工区。',
-  review: '我先放在黄线里。',
 };
 
 function makeSeed(seed) {
@@ -90,15 +84,17 @@ export function createFollowingRun(previousRun, seed) {
 }
 
 export function restoreRun(state) {
-  if (state.phase !== 'case' && state.phase !== 'receipt') return state;
-  let records = state.records;
-  for (const previous of state.records) {
-    if (previous.status !== 'shipped' || !(previous.day < state.day)) continue;
-    const supplement = findVerifiedReceipt(state.records, previous);
-    if (!supplement || supplement.day !== state.day || supplement.status !== 'shipping' ||
-        supplement.original !== 'pass' || supplement.decision !== 'pass' || supplement.amendments?.length) continue;
-    // Correct older saves that queued a supplement for a previously shipped lot.
-    records = updateRecord(records, supplement.id, { status: 'shipped' });
+  let records = state.records.map((record) => withPriorShipment(state.records, record));
+  if (records.every((record, index) => record === state.records[index])) records = state.records;
+  if (state.phase === 'case' || state.phase === 'receipt') {
+    for (const previous of state.records) {
+      if (previous.status !== 'shipped' || !(previous.day < state.day)) continue;
+      const supplement = findVerifiedReceipt(state.records, previous);
+      if (!supplement || supplement.day !== state.day || supplement.status !== 'shipping' ||
+          supplement.original !== 'pass' || supplement.decision !== 'pass' || supplement.amendments?.length) continue;
+      // Older saves could queue a permit for goods already at the receiving side.
+      records = updateRecord(records, supplement.id, { status: 'shipped' });
+    }
   }
   return records === state.records ? state : { ...state, records };
 }
@@ -162,8 +158,8 @@ export function archive(state, query = '') {
     ? getDay(state)?.cases[state.index]?.id : null;
   return state.seen.map((id) => {
     const item = getVariant(state, CASE_BY_ID.get(id));
-    const record = getRecord(state, id) ?? null;
-    const latestReceipt = record ? findVerifiedReceipt(state.records, record) : null;
+    const record = withPriorShipment(state.records, getRecord(state, id) ?? null);
+    const latestReceipt = record ? withPriorShipment(state.records, findVerifiedReceipt(state.records, record)) : null;
     return { ...item, record, latestReceipt, previousReceipt: getPreviousReceipt(state, item) };
   }).filter((item) => {
     if (item.id === waitingForArrival && !item.record) return false;
@@ -235,7 +231,8 @@ function startCase(state, index) {
 }
 
 function ship(records) {
-  return records.map((record) => record.status === 'shipping' ? { ...record, status: 'shipped' } : record);
+  return records.map((record) => record.status === 'shipping' && !findVerifiedReceipt(records, record)
+    ? { ...record, status: 'shipped' } : record);
 }
 
 function updateRecord(records, id, changes) {
@@ -253,9 +250,20 @@ function previousSameLot(records, record) {
   return sameLotFollowup(previous, record) ? previous : null;
 }
 
+function withPriorShipment(records, record) {
+  if (!record || Number.isInteger(record.priorShipmentId)) return record;
+  const previous = previousSameLot(records, record);
+  // The original pass went out at the previous close, before any Friday corrections.
+  return previous?.original === 'pass' && previous.day < record.day ? { ...record, priorShipmentId: previous.id } : record;
+}
+
 function hasAcceptedProof(record) {
   return record.answer === 'pass' && (record.decision === 'pass' || record.original === 'pass' ||
     record.amendments?.some(({ to }) => to === 'pass') === true);
+}
+
+export function isSupplementOnly(record) {
+  return Number.isInteger(record?.priorShipmentId) && (record.status === 'held' || record.status === 'returned') && !hasAcceptedProof(record);
 }
 
 function findVerifiedReceipt(records, previous) {
@@ -283,14 +291,23 @@ function disposition(records, item, decision) {
   return 'shipping';
 }
 
+export function receiptFeedback(state) {
+  if (state?.phase !== 'receipt') return null;
+  const record = withPriorShipment(state.records, state.records.at(-1));
+  if (!record) return null;
+  const kind = isSupplementOnly(record) ? (record.status === 'held' ? 'supplementHeld' : 'supplementReturned') : record.status;
+  let line = RECEIPT_HANDLING[record.npc]?.[kind] ?? RECEIPT_HANDLING.default[kind] ?? '';
+  if (record.id === state.flags.warningCase && record.decision === 'review') line = '行，我先让他们挪进黄线里。';
+  const umbrella = record.id === 17 && state.flags.umbrella ? '你也看见了？老周这两天看见我就催我晾伞。' : null;
+  return [line, umbrella, CASE_BY_ID.get(record.id)?.receiptAside].filter(Boolean).join(' ');
+}
+
 function stamp(state, action) {
   const item = getCase(state);
   const { value } = action;
   if (!item || !DECISIONS.includes(value) || (item.id === 1 && state.tutorial < TUTORIAL.length - 1)) return state;
-  let response = value === item.answer ? item.response : STANDARD_RESPONSE[value];
-  if (item.pressure === 'warning' && value === 'review') response = '行，我先让他们挪进黄线里。';
-  if (item.id === 17 && state.flags.umbrella) response += ' 你也看见了？老周这两天看见我就催我晾伞。';
   const findings = normalizeFindings(action.findings);
+  const previous = previousSameLot(state.records, item);
   const record = {
     id: item.id,
     batch: item.batch,
@@ -303,7 +320,7 @@ function stamp(state, action) {
     reason: item.reason,
     note: String(action.note ?? action.reason ?? '').trim().slice(0, 100) || (value === 'review' ? '请核对送检材料' : ''),
     ...(findings.length ? { findings } : {}),
-    response,
+    ...(isOffsite(previous?.status) ? { priorShipmentId: previous.id } : {}),
     status: disposition(state.records, item, value),
     amendments: [],
   };
@@ -319,7 +336,7 @@ function amendedDisposition(records, record, decision) {
 
 function recheck(state, action) {
   if (!DECISIONS.includes(action.value)) return state;
-  const record = getRecord(state, Number(action.id));
+  const record = withPriorShipment(state.records, getRecord(state, Number(action.id)));
   if (!record || action.value === record.decision || findVerifiedReceipt(state.records, record)) return state;
   const status = amendedDisposition(state.records, record, action.value);
   const findings = normalizeFindings(action.findings);
@@ -569,7 +586,8 @@ export function getEnding(state) {
   };
   const counts = { pass: 0, fail: 0, review: 0 };
   const delayedByBatch = new Map();
-  for (const receipt of state.records) {
+  for (const record of state.records) {
+    const receipt = withPriorShipment(state.records, record);
     const { id, batch, decision, answer, status } = receipt;
     counts[decision] += 1;
     const latestReceipt = findVerifiedReceipt(state.records, receipt);
@@ -579,7 +597,8 @@ export function getEnding(state) {
     if (status === 'recalled' && receipt.recallReceipt && id !== traceReceipt?.id) confirmedRecalls.push(receipt);
     const stillWithheld = status === 'held' || status === 'returned' || status === 'recalled';
     const justifiedTraceHold = id === traceReceipt?.id;
-    if (answer === 'pass' && stillWithheld && !justifiedTraceHold) delayedByBatch.set(batch, receipt);
+    const original = isSupplementOnly(receipt) ? getRecord(state, receipt.priorShipmentId) : null;
+    if (answer === 'pass' && stillWithheld && !justifiedTraceHold && !isOffsite(original?.status)) delayedByBatch.set(batch, receipt);
   }
   const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
   const delayedReceipts = [...delayedByBatch.values()];

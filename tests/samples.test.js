@@ -61,11 +61,10 @@ test('G-212 states the accepted pull behavior without distinguishing the samples
 });
 
 test('G-218 keeps the reported, measured and allowed thickness in distinct sources', () => {
-  const { documents, sample, title, response } = items.get(18);
+  const { documents, sample, title } = items.get(18);
   const papers = Object.fromEntries(documents.map(({ type, fields }) => [type, Object.fromEntries(fields)]));
   const observations = [title, sampleObservation(sample, {}), sampleObservation(sample, { back: true })].join(' ');
   assert.doesNotMatch(observations, /薄件|偏薄|低于|超差|1\.80|2\.00/);
-  assert.doesNotMatch(response, /单上写|记下/);
   assert.equal(sample.reading, '1.80 mm');
   assert.equal(papers.report.厚度, '2.10 mm');
   assert.equal(papers.order.厚度范围, '2.00–2.20 mm');

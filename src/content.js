@@ -7,6 +7,43 @@ export const CHARACTERS = {
   sun: { name: '孙姐', role: '夜班接货员' },
 };
 
+export const RECEIPT_HANDLING = {
+  default: {
+    shipping: '我把这张送装货台，货先排着。',
+    shipped: '货已经出库，我把补联夹在原回执后面。',
+    returned: '我带这张去退件区，单跟件走。',
+    held: '我先把货放到黄线里，审查单跟着走。',
+    supplementReturned: '这次送来的留样我带回退件区，原来的出库回执还留着。',
+    supplementHeld: '这次送来的留样先放黄线里，原来的出库回执还留着。',
+  },
+  luo: {
+    shipping: '这张给装货台，我去排车。',
+    shipped: '货已经出库了，我把这联送去并单。',
+    returned: '我从退件门走，回单压在箱盖上。',
+    held: '我先把箱子推到黄线里，这张夹箱盖上。',
+    supplementReturned: '补验联我带回去，原批还在收货方。',
+    supplementHeld: '补验联先留在你这儿，原批还在收货方。',
+  },
+  tang: {
+    shipping: '那我拿这联去装货台。',
+    shipped: '车已经走了。这张我夹回原单后面。',
+    returned: '这份我先带回退件区，单也一块儿交。',
+    held: '这张我夹在上面，货先放黄线里。',
+    supplementReturned: '我先带这次的留样去退件区，装车那天的回单另外存。',
+    supplementHeld: '我先把这次的留样放黄线里，装车那天的回单另外存。',
+  },
+  xu: {
+    shipping: '让装货台照这联排。我顺路给他们带过去。',
+    returned: '返工区我熟。单跟件走，省得他们回头找。',
+    held: '我把件搁在黄线里，单压在上头。',
+  },
+  zhou: {
+    shipping: '这联给装货台，我叫他们排上。',
+    returned: '我让返工区接一下，单跟货走。',
+    held: '先放黄线里。这张我夹在隔离架上。',
+  },
+};
+
 const seal = ['签发', '已签发'];
 const visual = ['外观', '符合'];
 const clasp = ['扣合', '符合'];
@@ -124,13 +161,13 @@ export const DAYS = [
       {
         id: 1, batch: 'G-201', npc: 'luo', title: '小罗的第一箱',
         line: '二零一，单都在这儿。那张出门联给我就行。',
-        answer: 'pass', reason: '实物与材料齐全', response: '好，我去叫车。下一批就在门外。',
+        answer: 'pass', reason: '实物与材料齐全', receiptAside: '下一批就在门外。',
         documents: standard('G-201', 'R-061'), sample: clear,
       },
       {
         id: 2, batch: 'G-202', npc: 'tang', title: '灯下那道白痕',
         line: '我在灯下看到一条白的。要不我先拿回去？',
-        answer: 'pass', reason: '白痕随保护膜脱离', response: '原来在膜上。下回我自己先看一眼。',
+        answer: 'pass', reason: '白痕随保护膜脱离',
         documents: standard('G-202', 'R-062'),
         sample: {
           ...clear, kind: 'film', front: '视窗上有一道斜过来的白痕。膜角还没有粘紧。',
@@ -140,14 +177,14 @@ export const DAYS = [
       {
         id: 3, batch: 'G-203', npc: 'xu', title: '老模子的细线',
         line: '耳罩外壳这条线每次都有人问。你拿夹板上的图对一对。',
-        answer: 'pass', reason: '细线与允许的合模线相符', response: '这套模子比我进厂还早两年。',
+        answer: 'pass', reason: '细线与允许的合模线相符',
         documents: [label('G-203', [], '防噪耳罩'), report('G-203', 'R-063', earmuffReport), archive('耳罩外壳工艺示意', [['图号', 'WX-3'], ['合模线允许位置', '耳杯外壳下沿'], ['目视限制', '不得贯穿壳体或延伸到软垫']], '逆着这张纸看，夹板背面还压了东西。')],
         sample: { kind: 'line', appearance: 'earmuff', front: '耳杯外壳下沿有一道细线，边缘很整齐。', back: '细线沿外壳收住，内侧壳体没有裂口，软垫也完整。' },
       },
       {
         id: 4, batch: 'G-204', npc: 'zhou', title: '最后一趟车',
         line: '今天这趟还剩一个位子。你先看，有问题我让车等。',
-        answer: 'fail', reason: '镜片内侧有分叉裂纹', response: '二零四先卸下来。记一下裂的地方，明早返工的人好找。',
+        answer: 'fail', reason: '镜片内侧有分叉裂纹',
         documents: standard('G-204', 'R-064'),
         sample: {
           ...clear, kind: 'crack', front: '一道分叉白纹伸进镜片中间。',
@@ -164,30 +201,30 @@ export const DAYS = [
       {
         id: 5, batch: 'G-205', npc: 'luo', title: '少来了一张报告',
         line: '二零五的箱签和送检联我都带了。实验室那份还没送下来。',
-        answer: 'review', reason: '未随货提供本批检验报告', response: '行，我让他们别装这箱。拿到报告我再来。',
+        answer: 'review', reason: '未随货提供本批检验报告', receiptAside: '拿到报告我再来一趟。',
         documents: [label('G-205', [], '防噪耳罩'), order('G-205', earmuffChecks)], sample: earmuff,
       },
       {
         id: 6, batch: 'G-206', npc: 'tang', title: '换过一只纸箱',
         line: '外箱昨晚淋湿了，换了干箱子。旧签还夹在登记上。',
-        answer: 'pass', reason: '换签登记对应本箱', response: '我就怕丢了这张。下回我把它夹在第一张。',
+        answer: 'pass', reason: '换签登记对应本箱',
         documents: [label('G-206', [], '作业防护手套'), report('G-106', 'R-066', gloveReport), archive('换签登记', [['原箱批号', 'G-106'], ['现箱批号', 'G-206'], ['缘由', '外箱受潮；原货转箱'], seal])], sample: glove,
       },
       {
         id: 7, batch: 'G-241', npc: 'luo', title: '横折过的随货联',
         line: '二四一。补印那张给你夹好了，几箱一趟走，我去喊车。',
-        answer: 'pass', reason: '随货核验联与实物一致', response: '我把这联压平再交给装车的，折过有点翘。',
+        answer: 'pass', reason: '随货核验联与实物一致', receiptAside: '这联折过，有点翘。我先压平。',
         documents: [label('G-241', [], '防护面屏'), report('G-241', 'R-071', shieldReport, '随货核验联', '横折痕很浅，没有盖住签发栏。'), order('G-241', [['发货区', '二号装货台'], ['检验项目', '外观、耐冲击']])], sample: shield,
       },
       {
         id: 8, batch: 'G-208', npc: 'xu', title: '框里一行刻字',
         line: '外箱是 A。框里头有一行小字，你帮我对一下。',
-        answer: 'pass', reason: '框内为发货指定型号 A', response: '好，这回我拿对格子了。',
+        answer: 'pass', reason: '框内为发货指定型号 A',
         documents: [label('G-208', [['型号', 'A']]), report('G-208', 'R-072', [visual, clasp, ['型号', 'A'], seal]), order('G-208', [['指定型号', 'A'], ['接口要求', 'A 型卡口']])],
         sample: { kind: 'clear', appearance: 'vented', front: '视窗无伤。接口型号刻在框的内侧。', back: '内框刻字：型号 A。', model: 'A' },
         variants: [
           {},
-          { answer: 'fail', reason: '检样刻字 B，发货要求 A', response: '还真拿错了。库里左边那两格贴得太像。', sample: { kind: 'wrongModel', back: '内框刻字：型号 B。', model: 'B' } },
+          { answer: 'fail', reason: '检样刻字 B，发货要求 A', sample: { kind: 'wrongModel', back: '内框刻字：型号 B。', model: 'B' } },
         ],
       },
     ],
@@ -200,31 +237,31 @@ export const DAYS = [
       {
         id: 9, batch: 'G-205', npc: 'luo', title: '送到窗口的二零五报告',
         line: '昨天等的那份送到了。你对一下签发栏。',
-        answer: 'pass', reason: '本批已签发报告齐全，检样合格', response: '行，这回我把回单和报告钉在一起。',
+        answer: 'pass', reason: '本批已签发报告齐全，检样合格',
         documents: [label('G-205', [], '防噪耳罩'), report('G-205', 'R-065', [...earmuffReport, ['签发时间', '周三 08:06']], '耳罩检验报告'), order('G-205', earmuffChecks)], sample: earmuff,
         followUp: { caseId: 5, sameLot: true, lines: { pass: '车那边还收着回单。昨天缺的报告刚领到，你帮我核一下。', fail: '二零五从退件区搬回来了。实验室报告也拿到了。', review: '昨天等的那份送到了。那箱耳罩还在黄线里，你对一下。' } },
       },
       {
         id: 10, batch: 'G-248', npc: 'zhou', title: '等着上车的二四八',
         line: '装车那边在等二四八。我能多留一会儿，你告诉我缺的是哪张。',
-        answer: 'review', reason: '缺少本批耐冲击结果', response: '二四八先挪到黄线内，实验室那份我明早去问。',
+        answer: 'review', reason: '缺少本批耐冲击结果', receiptAside: '实验室那份，我明早去问。',
         documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-079', [visual, seal], '外观抽检报告'), order('G-248', [['必查项目', '外观、耐冲击'], ['随货要求', '附本批实验室耐冲击结果']])], sample: shield,
       },
       {
         id: 11, batch: 'G-211', npc: 'tang', title: '记录差了一行',
         line: '还是昨晚那一摞。这个我对过，应该一样。',
-        answer: 'review', reason: '登记的新签号不是本箱', response: '夜班退过一次。我问了两个人，都叫我先送来看看。',
+        answer: 'review', reason: '登记的新签号不是本箱', receiptAside: '这摞单昨晚也送来过。我问了两个人，都叫我先送来看看。',
         documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签登记', [['原箱批号', 'G-111'], ['现箱批号', 'G-216'], ['夜班退单', '请核对实物对应批号'], ['经手窗口', '内线 107']], '右下是前一晚的退单章。')], sample: glove,
       },
       {
         id: 12, batch: 'G-212', npc: 'xu', title: '响了一声的卡扣',
         line: '这批扣子偏紧。压到头的时候响一声，你听听。',
-        answer: 'pass', reason: '扣合后轻拉保持闭合', response: '行，我回去教他们怎么按，好多人按到一半就松手。',
+        answer: 'pass', reason: '扣合后轻拉保持闭合',
         documents: [label('G-212'), report('G-212', 'R-083'), order('G-212', [['检验项目', '外观、扣合'], ['扣合要求', '按合后轻拉，扣件不得脱开']])],
         sample: { kind: 'clear', appearance: 'compact', front: '镜片无伤，卡扣放开时张得比较大。', back: '按紧有一声咔哒。再轻拉，扣件仍然闭合。' },
         variants: [
           {},
-          { answer: 'fail', reason: '卡扣发声后轻拉脱开', response: '响是响了，拔一下就开。这箱我带回去。', sample: { kind: 'loose', appearance: 'compact', front: '镜片无伤，卡扣放开时张得比较大。', back: '按紧有一声咔哒。再轻拉，扣件一下弹了开。' } },
+          { answer: 'fail', reason: '卡扣发声后轻拉脱开', sample: { kind: 'loose', appearance: 'compact', front: '镜片无伤，卡扣放开时张得比较大。', back: '按紧有一声咔哒。再轻拉，扣件一下弹了开。' } },
         ],
       },
     ],
@@ -237,7 +274,7 @@ export const DAYS = [
       {
         id: 13, batch: 'G-211', npc: 'tang', title: '换签登记的原件',
         line: '这次是原件。我自己顺着出货栏对了一遍。',
-        answer: 'pass', reason: '原件显示 G-111 更为 G-211', response: '昨天说是我夹错的。也有可能吧，我今天先把单收好。',
+        answer: 'pass', reason: '原件显示 G-111 更为 G-211', receiptAside: '昨天那张我也留一份，省得下个班再找。',
         documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签原件', [['原箱批号', 'G-111'], ['现箱批号', 'G-211'], ['签发人', '库管二班'], ['签发时间', '周四 07:48'], seal])], sample: glove,
         followUp: { caseId: 11, sameLot: true, lines: { pass: '我重对过出货栏，这是原件，你再把它夹在昨天那一联旁边。', fail: '不是返工出来的。昨晚重新找了原签，这回我带在最上面。', review: '这次是原件。我自己顺着出货栏对了一遍。' } },
         nightResponse: '孙姐也给我留了那晚的回执。',
@@ -245,14 +282,14 @@ export const DAYS = [
       {
         id: 14, batch: 'G-248', npc: 'luo', title: '夹回来的作废联',
         line: '二四八，这回结果签了。实验室把那张作废随货联也夹来了。',
-        answer: 'pass', reason: 'R-084 补齐了本批耐冲击结果', response: '耐冲击报告总算签了。你把旧联留着，我喊下一位进来。',
+        answer: 'pass', reason: 'R-084 补齐了本批耐冲击结果',
         documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-084', shieldReport, '本批复检报告'), archive('作废随货联', [['批号', 'G-248'], ['原报告编号', 'R-071'], ['状态', '已撤回'], ['复检通知', '改用 R-084']], '原随货联仅留档。')], sample: shield,
         followUp: { caseId: 10, sameLot: true, lines: { pass: '二四八的留样和补检回执。上一车那批也记在这张新报告上。', fail: '返送的二四八在这儿。这次实验室把结果签完了。', review: '黄线里面那箱二四八，这回结果签了。实验室把作废联也夹来了。' } },
       },
       {
         id: 15, batch: 'G-204', npc: 'xu', title: '修好的镜片',
         line: '二零四换了镜片。头一天那道缝，从边上就看得出来。',
-        answer: 'fail', reason: '扣件插片折断', response: '镜片做完了，扣还是老的。回去按整件修。',
+        answer: 'fail', reason: '扣件插片折断',
         documents: [label('G-204'), report('G-204', 'R-085', [['返工项目', '换镜片'], ['镜片复测', '符合'], seal], '返工复检联'), order('G-204')],
         sample: {
           kind: 'broken', appearance: 'classic', front: '新镜片透亮。正面盖住了扣件插片。',
@@ -263,7 +300,7 @@ export const DAYS = [
       {
         id: 16, batch: 'G-216', npc: 'luo', title: '泛黄的纸袋',
         line: '上面那只袋子黄成这样，你拆开看看里头。',
-        answer: 'pass', reason: '泛黄在外包，实物正常', response: '外面晒过太阳。库里还有一卷，我拿去装湿雨鞋吧。',
+        answer: 'pass', reason: '泛黄在外包，实物正常',
         documents: [label('G-216', [], '作业防护手套'), report('G-112', 'R-086', gloveReport), archive('本箱换签登记', [['原箱批号', 'G-112'], ['现箱批号', 'G-216'], seal], '背面夹着一张作废单，像是顺手写的借伞条。')],
         sample: { kind: 'yellow', appearance: 'glove', front: '外层包装袋泛黄，开口能看到手套的织布腕口。', unwrapped: '取出后，手套织物与掌面覆层的颜色均匀，泛黄留在包装袋上。', back: '翻过手套，背面的缝线连续，织布腕口没有松脱。' },
       },
@@ -277,27 +314,27 @@ export const DAYS = [
       {
         id: 17, batch: 'G-217', npc: 'luo', title: '掉了的箱签',
         line: '签掉了。我肯定这是二一七，库里那排只剩这一箱。',
-        answer: 'review', reason: '箱与本批报告无法对应', response: '我先把它放黄线里，审查单夹在箱盖上。',
+        answer: 'review', reason: '箱与本批报告无法对应',
         documents: [label('无法识别', [['残留', '只剩空白底纸']], '防噪耳罩'), report('G-217', 'R-087', earmuffReport), order('G-217', earmuffChecks)], sample: earmuff,
       },
       {
         id: 18, batch: 'G-218', npc: 'xu', title: '卡扣插片的厚度',
         line: '这盒颜色跟昨天的一样。你量一下这个地方。',
-        answer: 'fail', reason: '实测 1.80 mm，低于 2.00 mm', response: '这盒装上去会滑出来。我带回装配二线。',
+        answer: 'fail', reason: '实测 1.80 mm，低于 2.00 mm',
         documents: [label('G-218', [], '卡扣插片'), report('G-218', 'R-088', [['厚度', '2.10 mm'], seal]), order('G-218', [['检查部位', '卡扣插片'], ['厚度范围', '2.00–2.20 mm']])],
         sample: { kind: 'thin', appearance: 'clip', front: '一枚灰色插片。厚薄需要放进量规确认。', back: '插片两端平整，中间的平面可以贴住量规。', reading: '1.80 mm' },
       },
       {
         id: 19, batch: 'G-219', npc: 'tang', title: '小唐自己对过的单',
         line: '这回我把旧签带着。红夹子也换下来了。',
-        answer: 'pass', reason: '旧签、换签登记和现箱一致', response: '我记住了，得是手里这箱。',
+        answer: 'pass', reason: '旧签、换签登记和现箱一致', receiptAside: '旧签和登记我还是夹在一起，找的时候省事。',
         documents: [label('G-219', [], '作业防护手套'), report('G-119', 'R-089', gloveReport), archive('换签登记', [['原箱批号', 'G-119'], ['现箱批号', 'G-219'], ['随附', 'G-119 原箱签'], seal])], sample: glove,
         nightResponse: '孙姐的回执我也留了一份。以后谁先接、谁退回，顺着这摞都能找着。',
       },
       {
         id: 20, batch: 'G-220', npc: 'zhou', title: '交班前的最后一箱',
         line: '最后一箱。装车的人在外头等回单。',
-        answer: 'pass', reason: '本批实物与全部材料吻合', response: '这张回单我交给装车的。交接板给我，我再核一遍。',
+        answer: 'pass', reason: '本批实物与全部材料吻合', receiptAside: '交班时把板给我，我再核一遍。',
         documents: [label('G-220', [], '防噪耳罩'), report('G-220', 'R-090', earmuffReport), order('G-220', earmuffChecks)], sample: earmuff,
       },
     ],
