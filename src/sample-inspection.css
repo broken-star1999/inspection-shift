@@ -1,0 +1,177 @@
+/* Image-space inspection marks stay on the specimen as the tray changes size. */
+.sample-visual .sample-object {
+  position: relative;
+  isolation: isolate;
+  display: block;
+  aspect-ratio: var(--sample-ratio, 1.8848);
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+.sample-stage {
+  --sample-image-height: clamp(5.5rem, 24cqh, 13rem);
+  --sample-image-width: 84%;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sample-stage[data-appearance='clip'] { --sample-image-width: 60%; }
+
+.sample-stage .sample-object {
+  inline-size: min(var(--sample-image-width), calc(var(--sample-image-height) * var(--sample-ratio, 1.8848)));
+}
+
+.sample-preview-art { container-type: size; }
+
+.sample-preview-art .sample-object {
+  inline-size: min(100%, 15rem, calc(100cqh * var(--sample-ratio, 1.8848)));
+}
+
+.sample-preview-art[data-appearance='clip'] .sample-object {
+  inline-size: min(60%, 15rem, calc(100cqh * var(--sample-ratio, 1.8848)));
+}
+
+.sample-visual .sample-object > img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  max-inline-size: none;
+  max-block-size: none;
+  object-fit: fill;
+}
+
+.sample-film-sheet,
+.sample-lens-crack {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.sample-film-sheet {
+  --film-fold: translate(12%, -20%) rotate(-17deg) scale(.98);
+  z-index: 3;
+  inset: 0;
+  transform-origin: 61% 58%;
+}
+
+.sample-film-sheet::before,
+.sample-film-sheet::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+.sample-film-sheet::before {
+  inset: 0;
+  clip-path: polygon(9% 32%, 17% 29%, 33% 38%, 48% 44%, 63% 48%, 71% 53%, 74% 61%, 74% 78%, 70% 86%, 64% 89%, 54% 86%, 49% 82%, 45% 71%, 41% 64%, 38% 62%, 32% 62%, 28% 69%, 25% 76%, 21% 79%, 16% 77%, 12% 72%, 9% 62%, 8% 48%);
+  background: linear-gradient(147deg, #c2e1d526 0 46%, #e8f5db51 46.3% 46.9%, #bfddd628 47.2% 65%, #d4f5ee47 65.3% 66%, #c2e1d51c 66.5%);
+}
+
+.sample-film-sheet::after {
+  inset: 44% auto auto 64%;
+  inline-size: 12%;
+  block-size: 16%;
+  clip-path: polygon(0 48%, 53% 14%, 84% 7%, 100% 38%, 51% 98%);
+  background:
+    linear-gradient(139deg, #eff9e6c9, #9ac3b75c 39%, #c3e1d396 58%, #466b5e45 61%, #c7ecd074);
+  filter: drop-shadow(1px 2px #253d38a6);
+}
+
+.sample-film-trace {
+  position: absolute;
+  inset: 60% auto auto 54%;
+  inline-size: 14%;
+  block-size: clamp(1px, .23cqh, 2px);
+  transform: rotate(-21deg);
+  transform-origin: 62% 50%;
+  background: #f2f2d4;
+  box-shadow: 0 1px #45605c99;
+}
+
+.sample-visual.peeled .sample-film-sheet { transform: var(--film-fold); }
+
+.sample-visual.peeled .sample-film-sheet::before {
+  clip-path: polygon(49% 60%, 57% 48%, 68% 44%, 77% 52%, 78% 68%, 69% 76%, 59% 72%);
+  background: linear-gradient(136deg, #d1eee0be 0 9%, #8ab4a995 12% 52%, #eef5d8b9 54% 55%, #b4d5b97d 58% 81%, #507869b3 83%);
+}
+
+.sample-visual.peeled .sample-film-sheet::after {
+  background: linear-gradient(143deg, #f5ffe9f0, #9ac3b7ac 43%, #d5e9d4a6 55%, #476a5dc9 59%, #c1d8b7bb);
+}
+
+.sample-lens-crack {
+  z-index: 2;
+  inset: 54% auto auto 56%;
+  inline-size: 16%;
+  block-size: 23%;
+  filter: drop-shadow(.55px .65px #edf4d3b8);
+}
+
+.sample-lens-crack::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(12% 3%, 18% 0, 41% 25%, 38% 30%, 62% 52%, 93% 40%, 100% 47%, 68% 61%, 63% 83%, 70% 100%, 62% 98%, 55% 84%, 59% 61%, 46% 49%, 31% 64%, 2% 73%, 0 66%, 28% 57%, 41% 43%, 30% 31%, 33% 27%);
+  background: #243b34;
+}
+
+.sample-stage .sample-hotspot {
+  position: absolute;
+  z-index: 5;
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 2.36rem;
+  min-block-size: 2.26rem;
+  max-inline-size: 70%;
+  padding: .27rem .48rem;
+  border: 1px solid #9d9e71;
+  border-block-end-color: #474f3a;
+  border-radius: .13rem;
+  background: linear-gradient(#344a39, #293b2f);
+  box-shadow: inset 0 1px #b9b58065, inset 0 -2px #192c21, 1px 2px 3px #1926199c;
+  color: #ffebc4;
+  font-size: clamp(.76rem, 1.32cqh, .88rem);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+
+.sample-stage .film-handle { inset: .42rem .52rem auto auto; }
+.sample-stage .clasp-handle { inset: auto .52rem .43rem auto; }
+.sample-stage .pack-handle { inset: .42rem .52rem auto auto; }
+.sample-stage .gauge-handle { inset: auto .52rem .43rem auto; }
+.sample-stage.measured .gauge-handle { inset-block-start: .42rem; inset-block-end: auto; }
+
+.sample-stage .sample-object .film-handle,
+.sample-stage .sample-object .pack-handle { inset: 0 -3% auto auto; }
+.sample-stage .sample-object :is(.clasp-handle, .gauge-handle) { inset: auto -3% 0 auto; }
+.sample-stage.measured .sample-object .gauge-handle { inset-block-start: 0; inset-block-end: auto; }
+
+.sample-stage .sample-hotspot:focus-visible {
+  outline: 2px solid #ffe5ac;
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .sample-preview:hover .sample-object > img { transform: none; }
+
+  .sample-stage .sample-hotspot:hover {
+    border-color: #d9c296;
+    background: linear-gradient(#4d6345, #364936);
+  }
+}
+
+@container workstation (max-height: 440px) {
+  .sample-stage .sample-hotspot {
+    min-block-size: 2.12rem;
+    padding-inline: .35rem;
+    font-size: .74rem;
+  }
+  .sample-stage .film-handle,
+  .sample-stage .pack-handle,
+  .sample-stage.measured .gauge-handle { inset-block-start: .30rem; }
+  .sample-stage .clasp-handle,
+  .sample-stage:not(.measured) .gauge-handle { inset-block-end: .30rem; }
+  .sample-stage .sample-hotspot { inset-inline-end: .34rem; }
+}

@@ -16,10 +16,11 @@ export function sampleAppearance(spec) {
 export function sampleObservation(spec, inspection) {
   const { back, film, tug, unpacked } = inspection;
   if (back) {
+    if (tug && spec.afterTug) return spec.afterTug;
     if (tug || spec.model || !sampleAppearance(spec).clasp || spec.kind === 'broken') return spec.back;
     return '检样已翻到背面。两侧是扣件和框内刻字。';
   }
   if (spec.unwrapped && unpacked) return spec.unwrapped;
-  if (spec.kind === 'film' && film) return '白痕随薄膜掀起。下方的镜片平整。';
+  if (film && spec.afterFilm) return spec.afterFilm;
   return spec.front;
 }

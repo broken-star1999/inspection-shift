@@ -121,7 +121,10 @@ export const DAYS = [
         line: '我在灯下看到一条白的。要不我先拿回去？',
         answer: 'pass', reason: '白痕随保护膜脱离', response: '原来在膜上。下回我自己先看一眼。',
         documents: standard('G-202', 'R-062'),
-        sample: { kind: 'film', appearance: 'classic', front: '视窗上有一道斜过来的白痕。膜角还没有粘紧。', back: '掀起膜角，白痕跟着薄膜抬起来。镜片下面平整。' },
+        sample: {
+          ...clear, kind: 'film', front: '视窗上有一道斜过来的白痕。膜角还没有粘紧。',
+          afterFilm: '白痕随薄膜掀起。下方的镜片平整。',
+        },
       },
       {
         id: 3, batch: 'G-203', npc: 'xu', title: '老模子的细线',
@@ -135,7 +138,10 @@ export const DAYS = [
         line: '今天这趟还剩一个位子。你先看，有问题我让车等。',
         answer: 'fail', reason: '镜片内侧有分叉裂纹', response: '二零四先卸下来。记一下裂的地方，明早返工的人好找。',
         documents: standard('G-204', 'R-064'),
-        sample: { kind: 'crack', appearance: 'classic', front: '一道分叉白纹伸进镜片中间。', back: '保护膜揭开后裂纹还留在镜片上。' },
+        sample: {
+          ...clear, kind: 'crack', front: '一道分叉白纹伸进镜片中间。',
+          afterFilm: '膜角已经掀起，分叉白纹还留在镜片上。',
+        },
       },
     ],
   },
@@ -237,7 +243,10 @@ export const DAYS = [
         line: '二零四换了镜片。头一天那道缝，从边上就看得出来。',
         answer: 'fail', reason: '扣件插片折断', response: '镜片做完了，扣还是老的。回去按整件修。',
         documents: [label('G-204'), report('G-204', 'R-085', [['返工项目', '换镜片'], ['镜片复测', '符合'], seal], '返工复检联'), order('G-204')],
-        sample: { kind: 'broken', appearance: 'classic', front: '新镜片透亮。正面盖住了扣件插片。', back: '扣件内侧少一截插片，压到底也会弹开。' },
+        sample: {
+          kind: 'broken', appearance: 'classic', front: '新镜片透亮。正面盖住了扣件插片。',
+          back: '扣件内侧少了一截插片。', afterTug: '轻拉一下，缺了一截插片的扣件立刻弹开。',
+        },
         followUp: { caseId: 4, sameLot: false, lines: { pass: '这趟是厂里留下的几箱，先装车的你翻周一那张回单。这副换了镜片。' } },
       },
       {

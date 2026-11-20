@@ -1057,20 +1057,6 @@ button:disabled { opacity: .46; }
 .sample-findings .reading strong { color: #ffd395; font-family: var(--mono); }
 
 .sample-mark { position: absolute; pointer-events: none; }
-.sample-visual[data-kind='film']:not(.peeled, .turned) .sample-mark {
-  inset: 45% 31% auto auto;
-  inline-size: 18%;
-  block-size: 2px;
-  background: #f5f2d2;
-  transform: rotate(-18deg);
-}
-.sample-visual[data-kind='crack']:not(.turned) .sample-mark {
-  inset: 37% 31% auto auto;
-  inline-size: 17%;
-  block-size: 24%;
-  background: #f7e8c1;
-  clip-path: polygon(9% 0, 44% 35%, 40% 50%, 53% 63%, 94% 45%, 67% 70%, 50% 74%, 61% 100%, 43% 78%, 44% 65%, 27% 46%, 33% 39%);
-}
 .sample-visual[data-kind='line'] .sample-mark { inset: auto auto 29% 25%; inline-size: 14%; border-bottom: 2px solid #493c24; transform: rotate(8deg); }
 .sample-stage[data-kind='broken'].turned .sample-mark { inset: 57% 19% auto auto; inline-size: 11%; block-size: 10%; border-block-end: 2px dashed #ffc78a; transform: rotate(-14deg); }
 .sample-stage[data-kind='loose'].turned.pulled .sample-mark { inset: 48% 13% auto auto; inline-size: 1rem; block-size: 1rem; border-right: 3px solid #ffc78a; border-bottom: 3px solid #ffc78a; transform: rotate(-35deg) translate(.25rem,.2rem); }

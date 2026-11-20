@@ -82,11 +82,23 @@ function stampButtons(instructed, disabled = false, action = 'stamp') {
   return Object.entries(labels).map(([key, value]) => `<button class="stamp ${key}${cls('instructed', instructed && key === 'pass')}" data-act="${action}" data-key="${key}"${action === 'stamp' ? ` data-fixture="${key}"` : ''} ${disabled ? 'disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`).join('');
 }
 
-function sampleArt(spec, appearance, back, measurement) {
-  return `<img src="${asset(`${appearance.stem}${back ? '-back' : ''}.webp`)}" alt="${appearance.name}${back ? '背面' : appearance.front ?? '正面'}" draggable="false">
-    <span class="sample-mark" aria-hidden="true"></span>
+const sampleRatios = { vented: 508 / 318, compact: 508 / 284, shield: 357 / 363, clip: 496 / 218, glove: 282 / 363, earmuff: 396 / 363 };
+
+function sampleArt(spec, appearance, back, measurement, control = '') {
+  const ratio = sampleRatios[appearance.key] ?? 720 / (back ? 384 : 382);
+  const lensFilm = !back && (spec.kind === 'film' || spec.kind === 'crack');
+  return `<span class="sample-object" style="--sample-ratio:${ratio}">
+    <img src="${asset(`${appearance.stem}${back ? '-back' : ''}.webp`)}" alt="${appearance.name}${back ? '背面' : appearance.front ?? '正面'}" draggable="false">
+    ${lensFilm ? `<span class="sample-film-sheet" aria-hidden="true">${spec.kind === 'film' ? '<span class="sample-film-trace"></span>' : ''}</span>` : ''}
+    ${!back && spec.kind === 'crack' ? '<span class="sample-lens-crack" aria-hidden="true"></span>' : ''}
+    ${control}</span>
+    ${lensFilm ? '' : '<span class="sample-mark" aria-hidden="true"></span>'}
     ${back && spec.model ? `<span class="model-mark">${esc(spec.model)}</span>` : ''}
     ${measurement ? `<span class="sample-gauge" aria-hidden="true"><span class="gauge-rail"></span><span class="gauge-jaw"></span><span class="gauge-display">${esc(spec.reading)}</span></span>` : ''}`;
+}
+
+function sampleHotspot(action, className, text, label, pressed = null) {
+  return `<button type="button" class="sample-hotspot ${className}" data-act="sample-${action}" aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
 }
 
 export function desk(run, item, tutorial, interaction) {
@@ -174,13 +186,17 @@ export function sample(item, inspection, tutorial) {
   const appearance = sampleAppearance(spec);
   const packaged = kind === 'yellow' && !unpacked;
   const visual = sampleObservation(spec, inspection);
+  let control = '';
+  if (packaged) control = sampleHotspot('unpack', 'pack-handle', '拆袋', '拆开包装');
+  if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜', film ? '放回保护膜' : '揭开膜角', film);
+  if (appearance.clasp && back && !tug) control = clasp
+    ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查')
+    : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件');
   return deskSurface(`${item.batch} · ${appearance.name}`, `${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-inspector"><div class="sample-visual sample-stage${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
-    ${sampleArt(spec, appearance, back, measured && spec.reading)}</div><div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
+    ${sampleArt(spec, appearance, back, measured && spec.reading, control)}${spec.reading ? sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '量规', measured ? '取出量规' : '放进量规', measured) : ''}</div><div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
     ${measured && spec.reading ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
-    <div class="modal-actions">${packaged ? button('拆开包装', 'sample-unpack', 'primary') : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
-    ${!back && ['film', 'crack'].includes(kind) ? button(film ? '放回保护膜' : '揭开膜角', 'sample-film') : ''}
-    ${appearance.clasp && back && !tug ? button(!clasp ? '按合扣件' : '轻拉检查', !clasp ? 'sample-clasp' : 'sample-tug', tutorial?.key === 'sample' ? 'primary' : 'secondary') : ''}
-    ${spec.reading ? button(measured ? '取出量规' : '放进量规', 'sample-measure') : ''}${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div>`, 'sample-surface', '放下检样');
+    <div class="modal-actions">${packaged ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
+    ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div>`, 'sample-surface', '放下检样');
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false) {

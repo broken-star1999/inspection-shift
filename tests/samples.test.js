@@ -38,6 +38,23 @@ test('reinspection preserves product identity and physical clues follow what was
   assert.equal(sampleAppearance(items.get(18).sample).clasp, false);
 });
 
+test('peeling film and pulling a rear clasp report only their respective observations', () => {
+  const film = items.get(2).sample;
+  const crack = items.get(4).sample;
+  assert.equal(sampleObservation(film, { film: true }), '白痕随薄膜掀起。下方的镜片平整。');
+  assert.match(sampleObservation(crack, { film: true }), /白纹还留在镜片上/);
+  for (const sample of [film, crack]) {
+    assert.doesNotMatch(sampleObservation(sample, {}), /掀起|留在镜片/);
+    assert.match(sampleObservation(sample, { back: true, clasp: true, tug: true }), /扣上后轻拉，没有脱开/);
+    assert.doesNotMatch(sampleObservation(sample, { back: true, film: true, tug: true }), /薄膜|膜角/);
+  }
+
+  const damagedClip = items.get(15).sample;
+  assert.match(sampleObservation(damagedClip, { back: true }), /少了一截插片/);
+  assert.doesNotMatch(sampleObservation(damagedClip, { back: true, clasp: true }), /弹开/);
+  assert.match(sampleObservation(damagedClip, { back: true, clasp: true, tug: true }), /立刻弹开/);
+});
+
 test('the first G-205 delivery omits the entire report and the follow-up supplies it', () => {
   const first = items.get(5);
   const followup = items.get(9);

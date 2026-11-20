@@ -11,6 +11,7 @@ import './inspection.css';
 import './view-camera.css';
 import './modeled-booth.css';
 import './devices.css';
+import './sample-inspection.css';
 
 const root = document.querySelector('#game');
 const SAVE_KEY = 'nandu-inspection-save-v1';
@@ -273,7 +274,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
   (restored || focusables.find((element) => element instanceof HTMLButtonElement && element.dataset.act && element.dataset.act !== 'close') || focusables[0])?.focus({ preventScroll: true });
   if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
-    const object = surface.querySelector('.sheet, .sample-stage img, .receipt-slip');
+    const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
     animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
   } else if (surface && surface.dataset.surfacePage !== previousSurface?.dataset.surfacePage) {
     const sheet = surface.querySelector('.doc-grid.pair .sheet:last-child, .doc-grid:not(.pair) .sheet');
@@ -418,6 +419,8 @@ function checkSample(act) {
   const sample = interaction.inspection;
   const spec = getCase(run)?.sample;
   if (!spec) return;
+  const previousFilm = act === 'sample-film' && modalLayer.querySelector('.sample-film-sheet');
+  const previousFold = previousFilm ? getComputedStyle(previousFilm).transform : null;
   switch (act) {
     case 'sample-flip': sample.back = !sample.back; break;
     case 'sample-film': sample.film = !sample.film; break;
@@ -434,10 +437,13 @@ function checkSample(act) {
   }
   playSound(act === 'sample-clasp' || act === 'sample-tug' ? 'click' : 'slide');
   render();
-  const graphic = modalLayer.querySelector('.sample-stage img');
+  const graphic = modalLayer.querySelector('.sample-stage .sample-object');
   if (act === 'sample-flip') {
     animateOnDesk(graphic, [{ transform: 'perspective(600px) rotateY(-57deg)', opacity: .8 }, { transform: 'perspective(600px) rotateY(0deg)', opacity: 1 }], 220);
-  } else if (act === 'sample-unpack' || act === 'sample-film') {
+  } else if (act === 'sample-film' && previousFold) {
+    const film = modalLayer.querySelector('.sample-film-sheet');
+    if (film) animateOnDesk(film, [{ transform: previousFold }, { transform: getComputedStyle(film).transform }], 225);
+  } else if (act === 'sample-unpack') {
     animateOnDesk(graphic, [{ translate: '0 .38rem', opacity: .7 }, { translate: '0 0', opacity: 1 }], 210);
   }
 }
