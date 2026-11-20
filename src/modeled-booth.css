@@ -280,11 +280,31 @@
 #game[data-modeled='true'] .booth-layout .paper-card[data-fixture] h3 { opacity: 0; }
 #game[data-modeled='true'] .booth-layout .paper-card[data-fixture]:is(.instructed, :focus-visible) h3 { opacity: 1; }
 
+/* The outer bounds of adjacent caps overlap in perspective. Keep action areas centered on the caps and separate. */
+#game[data-modeled='true'] .booth-layout .stamp[data-fixture] {
+  --stamp-hit-width: calc(var(--fixture-w, 0px) * .64);
+  inset-inline-start: calc(var(--fixture-x, 0px) + (var(--fixture-w, 0px) - var(--stamp-hit-width)) / 2);
+  inline-size: var(--stamp-hit-width);
+}
+
 #game[data-modeled='true'] .booth-layout .stamp[data-fixture] b {
-  inset-block-start: auto;
-  inset-block-end: 0;
-  padding: .12em .28em;
-  translate: -50% 55%;
+  inset: 100% auto auto 0;
+  display: grid;
+  align-content: center;
+  inline-size: 100%;
+  min-block-size: 2rem;
+  padding: .18rem .05rem;
+  translate: none;
+  background: #24271c;
+  line-height: 1.12;
+  text-align: center;
+  text-wrap: balance;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#game[data-modeled='true'] .booth-layout .stamp[data-fixture-visible]:not([data-fixture-visible='false']):enabled b {
+  pointer-events: auto;
 }
 
 #game[data-modeled='true'] .booth-layout .stamp[data-fixture]:disabled b {
