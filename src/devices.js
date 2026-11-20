@@ -384,6 +384,10 @@ const effects = {
     rustle(ctx, time, { from: 1020, to: 410, duration: 0.22, level: 0.32, attack: 0.03 });
     wood(ctx, time + 0.185, 0.18);
   },
+  knock(ctx, time) {
+    wood(ctx, time, .44);
+    wood(ctx, time + .095, .34);
+  },
   ok(ctx, time) {
     tone(ctx, time, { from: 392, duration: 0.17, level: 0.16 });
     tone(ctx, time + 0.073, { from: 523.25, duration: 0.24, level: 0.18 });

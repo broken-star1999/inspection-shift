@@ -20,6 +20,7 @@ const COLLECTION_KEY = 'nandu-inspection-endings-v1';
 const COMPLETED_KEY = 'nandu-inspection-completed-v1';
 const ENDING_IDS = ['routine', 'trace', 'issue'];
 const ARRIVAL_PAUSE_MS = 1150;
+const NEXT_BATCH_PAUSE_MS = 1650;
 const VISIT_HANDOVER_MS = 760;
 const ARRIVAL_APPROACH_MS = 465;
 
@@ -146,7 +147,7 @@ function placeFixtures() {
 
 function showModeledScene() {
   if (!modeledReady || root.dataset.modeled === 'true' || panel || drag) return;
-  if (!arrivalTimer && (run?.phase === 'case' || run?.phase === 'receipt' || activeVisit())) return;
+  if (!arrival && (run?.phase === 'case' || run?.phase === 'receipt' || activeVisit())) return;
   root.dataset.modeled = 'true';
 }
 
@@ -265,8 +266,12 @@ function activeVisit(state = run) {
   return state?.events ? (state.events[0] ?? null) : (state?.event ?? null);
 }
 
+function toolsAvailableBetweenBatches() {
+  return arrival?.action === 'next' && arrival.stage === 'waiting';
+}
+
 function windowCase() {
-  return run && !arrivalTimer && !activeVisit() ? getCase(run) : null;
+  return run && !arrival && !activeVisit() ? getCase(run) : null;
 }
 
 function filedRework() {
@@ -312,7 +317,7 @@ function filedSupportingPapers(query, batchPapers = filedBatchPapers()) {
 }
 
 function incomingAtWindow() {
-  return run && !arrivalTimer && !activeVisit() && ['case', 'receipt', 'summary', 'handoff'].includes(run.phase)
+  return run && (!arrival || arrival.action === 'next') && !activeVisit() && ['case', 'receipt', 'summary', 'handoff'].includes(run.phase)
     ? getIncomingCall(run) : null;
 }
 
@@ -426,14 +431,12 @@ function render(resumeScroll) {
   const settingDownCloseSheet = run?.phase === 'summary' &&
     (root.dataset.phase === 'receipt' || root.dataset.phase === 'summary') &&
     !screenLayer.querySelector('.shift-close-sheet');
-  root.dataset.phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
+  root.dataset.phase = arrival ? 'waiting' : (run?.phase ?? 'home');
   if (arrival) root.dataset.arrivalStage = arrival.stage;
   else delete root.dataset.arrivalStage;
   const incomingCall = incomingAtWindow();
   showRinging(incomingCall);
-  const waitMessage = arrival?.stage === 'approach' ? '窗口递件…'
-    : arrival?.action?.type === 'receive-recall' ? '等收货方回执…' : arrival ? '等下一位…' : '';
-  if (arrivalStatus.textContent !== waitMessage) arrivalStatus.textContent = waitMessage;
+  renderArrivalStatus();
   status.innerHTML = run ? `<span>${getDay(run).title}</span><span>第 ${run.day + 1} 天 / 5</span>` : '<span>质检员的一天</span>';
   wallShift.innerHTML = run ? view.wallShift(run) : '';
   soundToggle.setAttribute('aria-pressed', String(!isMuted()));
@@ -443,9 +446,9 @@ function render(resumeScroll) {
   const deskGuide = step?.key === 'signature' && interaction.signed
     ? { ...step, target: 'order', line: step.orderLine }
     : step;
-  const visit = arrivalTimer ? null : activeVisit();
+  const visit = arrival ? null : activeVisit();
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
-  hud.innerHTML = run && !arrivalTimer && !closingShot && (run.phase !== 'summary' || visit)
+  hud.innerHTML = run && !arrival && !closingShot && (run.phase !== 'summary' || visit)
     ? view.room(run, item, deskGuide, item?.pressureLine, visit, previous)
     : '';
   const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
@@ -461,7 +464,7 @@ function render(resumeScroll) {
   const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
   const delayOpen = screenLayer.querySelector('details.ending-delay')?.open;
   screenLayer.innerHTML = run
-    ? (arrivalTimer || visit || closingShot ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory, incomingCall))
+    ? (arrival || visit || closingShot ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory, incomingCall))
     : view.home(saved, endings, completedShifts.size);
   if (closingShot === 'cat') screenLayer.innerHTML = '<span class="visually-hidden" role="status">窗外，厂猫走过了装货台。</span>';
   if (settingDownCloseSheet) {
@@ -477,6 +480,15 @@ function render(resumeScroll) {
   renderModal(item, step);
   if (resumeScroll !== undefined) workspaceBody()?.scrollTo(0, resumeScroll);
   persistRun();
+}
+
+function renderArrivalStatus() {
+  const someoneWaiting = arrival?.ready && arrival.stage === 'waiting';
+  const message = someoneWaiting ? '窗口有人等候'
+    : arrival?.stage === 'approach' ? '窗口递件…'
+    : arrival?.action?.type === 'receive-recall' ? '等收货方回执…' : arrival ? '等下一位…' : '';
+  arrivalStatus.toggleAttribute('data-visitor-waiting', Boolean(someoneWaiting));
+  if (arrivalStatus.textContent !== message) arrivalStatus.textContent = message;
 }
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
@@ -554,7 +566,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (handoffDetailScroll !== undefined) modalLayer.querySelector('.handoff-detail-scroll')?.scrollTo(0, handoffDetailScroll);
   const blockingDialog = Boolean(markup && !surface);
   const screenCoversBooth = Boolean(screenLayer.firstElementChild) && run?.phase !== 'summary';
-  booth.inert = blockingDialog || !run || Boolean(arrivalTimer || closingShot) || screenCoversBooth;
+  booth.inert = blockingDialog || !run || Boolean(closingShot || (arrival && !toolsAvailableBetweenBatches())) || screenCoversBooth;
   screenLayer.inert = Boolean(markup);
   if (!markup) {
     if (hadModal && modalOpener) {
@@ -874,22 +886,43 @@ function finishWindowAdvance(value, restoreFocus) {
   if (restoreFocus) focusNextWindowAction();
 }
 
+function beginWindowApproach() {
+  const { action, restoreFocus } = arrival;
+  // A call at the empty window can put a different visitor at the head of the queue.
+  const next = windowAdvance(action);
+  if (!needsArrival(next)) {
+    cancelArrivalPause();
+    if (next) finishWindowAdvance(action, restoreFocus);
+    else render();
+    return;
+  }
+  arrival.stage = 'approach';
+  arrival.next = next;
+  arrival.keepVisitor &&= visitorAt(next) === visitorAt(run);
+  arrival.approach = arrivalApproach(next);
+  arrivalTimer = setTimeout(() => {
+    cancelArrivalPause();
+    finishWindowAdvance(action, restoreFocus);
+  }, ARRIVAL_APPROACH_MS);
+  playSound('slide');
+  render();
+}
+
 function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
   modalOpener = null;
   const npc = visitorAt(next);
   arrival = {
-    action, next, stage: 'waiting', keepVisitor: !resumed && npc !== null && npc === visitorAt(run),
+    action, restoreFocus, stage: 'waiting', keepVisitor: !resumed && npc !== null && npc === visitorAt(run),
     approach: arrivalApproach(next),
   };
-  const duration = action === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
+  const duration = action === 'next' ? NEXT_BATCH_PAUSE_MS : action === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
   arrivalTimer = setTimeout(() => {
-    arrival.stage = 'approach';
-    arrivalTimer = setTimeout(() => {
-      cancelArrivalPause();
-      finishWindowAdvance(action, restoreFocus);
-    }, ARRIVAL_APPROACH_MS);
-    playSound('slide');
-    render();
+    arrivalTimer = 0;
+    if (panel && toolsAvailableBetweenBatches()) {
+      arrival.ready = true;
+      renderArrivalStatus();
+      playSound('knock');
+    } else beginWindowApproach();
   }, duration - ARRIVAL_APPROACH_MS);
   render();
 }
@@ -1213,7 +1246,7 @@ function checkSample(act) {
 }
 
 function stamp(value) {
-  if (arrivalTimer || activeVisit() || run?.phase !== 'case') return;
+  if (arrival || activeVisit() || run?.phase !== 'case') return;
   if (panel) {
     if (['docs', 'sample', 'archive'].includes(panel)) toast('先回到台面，再用开单机盖章');
     return;
@@ -1255,6 +1288,10 @@ function setPhoneNumber(value) {
 
 function openArchive(opener) {
   reportIndex = null;
+  if (toolsAvailableBetweenBatches() && !panel && opener === booth.querySelector('.wall-archive')) {
+    focusArchiveRow(run.records.at(-1)?.id ?? null);
+    interaction.archiveQuery = '';
+  }
   interaction.archiveFocus ??= archive(run).at(-1)?.id ?? null;
   playSound('paper');
   openPanel('archive', opener);
@@ -1327,6 +1364,10 @@ function closePanel() {
   panel = previousPanel?.panel ?? null;
   archiveReturn = previousPanel?.archiveReturn ?? null;
   reportIndex = previousPanel?.reportIndex ?? null;
+  if (arrival?.ready && !panel) {
+    beginWindowApproach();
+    return;
+  }
   const toBoard = previousPanel?.panel === 'handoff';
   render(toBoard ? previousPanel.detailScroll : previousPanel?.scrollTop);
   if (previousPanel) {

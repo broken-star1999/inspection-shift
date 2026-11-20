@@ -385,6 +385,14 @@
   background: #141b13df;
 }
 
+.arrival-status[data-visitor-waiting] {
+  inset-block-start: .35rem;
+  translate: -50% 0;
+  z-index: 10;
+  border-color: #b69b65;
+  background: #29291de8;
+}
+
 .booth-layout .speech p,
 .booth-layout .training p {
   line-height: 1.5;
