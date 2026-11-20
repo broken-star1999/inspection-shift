@@ -139,6 +139,9 @@ export function getReworkFollowup(state) {
 function getDialogue(state, item) {
   const previous = getPreviousReceipt(state, item)?.record.decision;
   const line = item.followUp?.lines[previous] ?? item.line;
+  const requestCaseId = item.followUp?.caseId;
+  const request = PHONE['204'].requests?.[requestCaseId];
+  if (request?.followupId === item.id && labRequest(state, requestCaseId)) return `${line} ${request.delivery}`;
   if (item.nightResponse && state.flags.nightDocument) return `${line} ${item.nightResponse}`;
   if (item.id === 12 && state.flags.pencil) return `${line} 你看，我给笔尾绑了截木头，这下它滚不了了。`;
   return line;
@@ -483,18 +486,31 @@ function isIncomingKey(key) {
   return typeof key === 'string' && Object.hasOwn(INCOMING_CALLS, key);
 }
 
+function labRequest(state, caseId) {
+  return state.phoneLog.find((call) => call?.kind === 'lab-request' && call.caseId === caseId);
+}
+
+function retainedCallKey(call) {
+  if (call?.kind === 'incoming' && isIncomingKey(call.incomingKey)) return `incoming:${call.incomingKey}`;
+  if (call?.kind === 'lab-request' && Number.isInteger(call.caseId) && PHONE['204'].requests?.[call.caseId]) return `lab-request:${call.caseId}`;
+  return null;
+}
+
 function phoneLogWithCall(phoneLog, phone) {
   const log = [...phoneLog, phone];
-  const isIncoming = (call) => call?.kind === 'incoming' && isIncomingKey(call.incomingKey);
-  const incoming = new Map(log.filter(isIncoming).map((call) => [call.incomingKey, call]));
-  const outgoing = log.filter((call) => !isIncoming(call)).slice(-(20 - incoming.size));
-  const retained = new Set([...outgoing, ...incoming.values()]);
+  const permanent = new Map();
+  const ordinary = [];
+  for (const call of log) {
+    const key = retainedCallKey(call);
+    if (key) permanent.set(key, call);
+    else ordinary.push(call);
+  }
+  const retained = new Set([...ordinary.slice(-(20 - permanent.size)), ...permanent.values()]);
   return log.filter((call) => retained.has(call));
 }
 
-function callResult(state, number, npc, lines, kind = 'call', incomingKey) {
-  const phone = { number, npc, lines, line: lines.join('\n'), kind };
-  if (incomingKey) Object.assign(phone, { incomingKey, day: state.day });
+function callResult(state, number, npc, lines, kind = 'call', details = {}) {
+  const phone = { number, npc, lines, line: lines.join('\n'), kind, ...details };
   return { ...state, phone, phoneLog: phoneLogWithCall(state.phoneLog, phone) };
 }
 
@@ -523,7 +539,7 @@ function answerCall(state) {
   const { number, npc, lines } = INCOMING_CALLS[key];
   let answered = { ...state, incomingCalls: incomingQueue(state).filter((call) => call !== key) };
   if (key === 'ringback') answered = setFlags(answered, { ringback: true });
-  return callResult(answered, number, npc, [...lines], 'incoming', key);
+  return callResult(answered, number, npc, [...lines], 'incoming', { incomingKey: key, day: state.day });
 }
 
 function selectedRecords(state, action) {
@@ -540,22 +556,39 @@ function selectedRecords(state, action) {
 
 function dialLab(state, action, number) {
   const script = PHONE[number];
-  if (state.flags.traceDocument) {
-    return callResult(state, number, script.npc, [script.received]);
-  }
-  if (isVisitQueued(state, 'trace')) return callResult(state, number, 'chen', ['原件已经留出来了。我们在窗口交接一下。']);
   const ids = selectedRecords(state, action);
-  if (ids.has(7) && ids.has(14)) {
+  const oldCase = ids.has(14) ? 14 : ids.has(7) ? 7 : null;
+  const bothOldPapers = ids.has(7) && ids.has(14);
+  if (!bothOldPapers) {
+    const explicit = Array.isArray(action.caseIds) ? action.caseIds.map(Number) : [];
+    const request = selectedLabRequest(state, script, explicit.slice(explicit.lastIndexOf(oldCase) + 1));
+    if (request) return dialLabRequest(state, number, script.npc, request);
+  }
+  if (!oldCase) return callResult(state, number, script.npc, [script.greeting]);
+  if (state.flags.traceDocument) return callResult(state, number, script.npc, [script.received]);
+  if (isVisitQueued(state, 'trace')) return callResult(state, number, script.npc, ['原件已经留出来了。我们在窗口交接一下。']);
+  if (bothOldPapers) {
     const called = callResult(state, number, script.npc, [script.inquiry, script.found], 'trace');
     return queueVisit(called, 'trace');
   }
-  if (ids.has(14)) {
-    return callResult(state, number, script.npc, [script.archiveHint], 'hint');
+  return callResult(state, number, script.npc, [oldCase === 14 ? script.archiveHint : script.relatedHint], 'hint');
+}
+
+function selectedLabRequest(state, script, explicit) {
+  if (!explicit.some((id) => script.requests?.[id])) return null;
+  const visible = new Map(archive(state).map((item) => [item.id, item]));
+  const caseId = explicit.findLast((id) => script.requests?.[id] && visible.get(id)?.documents.some(({ type }) => type === 'order'));
+  if (!caseId) return null;
+  const request = script.requests[caseId];
+  return { caseId, request, arrived: visible.has(request.followupId) };
+}
+
+function dialLabRequest(state, number, npc, { caseId, request, arrived }) {
+  const registration = labRequest(state, caseId);
+  if (arrived || registration) {
+    return callResult(state, number, npc, [arrived ? request.arrived : request.repeat], 'call', registration ? { caseId } : {});
   }
-  if (ids.has(7)) {
-    return callResult(state, number, script.npc, [script.relatedHint], 'hint');
-  }
-  return callResult(state, number, script.npc, [script.greeting]);
+  return callResult(state, number, npc, [request.requested], 'lab-request', { caseId, day: state.day });
 }
 
 function dialNight(state, action, number) {

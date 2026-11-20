@@ -1,5 +1,5 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, receiptDisposition, TUTORIAL, EVIDENCE } from './engine.js';
-import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE } from './content.js';
+import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
@@ -298,6 +298,30 @@ function filedBatchPapers() {
   return [filedRework(), acceptancePaper(run)].filter(Boolean);
 }
 
+function labRegistrationKey(caseId) {
+  return `call:lab-request:${caseId}`;
+}
+
+function filedPhonePapers() {
+  const hasRegistration = run.phoneLog.some((call) => call?.kind === 'lab-request');
+  const filed = hasRegistration ? archive(run) : [];
+  return run.phoneLog.flatMap((call) => {
+    if (call?.kind === 'incoming') {
+      return [[`call:${call.incomingKey}`, {
+        type: 'archive', title: call.incomingKey === 'ringback' ? '回铃录音' : '实验室收班来电',
+        fields: [['内线', call.number], ['接听', DAYS[call.day]?.title ?? '已登记'], ['通话内容', call.lines.join(' ')]],
+      }]];
+    }
+    if (call?.kind !== 'lab-request') return [];
+    const item = filed.find(({ id }) => id === call.caseId);
+    if (!item) return [];
+    return [[labRegistrationKey(item.id), {
+      type: 'archive', kind: 'lab-request', caseId: item.id, title: `实验室电话登记 · ${item.batch}`,
+      fields: [['批号', item.batch], ['内线', call.number], ['登记日', DAYS[call.day]?.title ?? '已登记'], ['通话内容', call.lines.join(' ')]],
+    }]];
+  });
+}
+
 function filedSupportingPapers(query, batchPapers = filedBatchPapers()) {
   const term = query.trim().toLowerCase();
   const visits = [
@@ -307,15 +331,7 @@ function filedSupportingPapers(query, batchPapers = filedBatchPapers()) {
   const recalls = run.records.filter((record) => record.recallReceipt).map((record) => [
     `recall:${record.id}`, recallPaper(record, record.recallReceipt.day),
   ]);
-  const calls = run.phoneLog.filter((call) => call?.kind === 'incoming').map((call) => [
-    `call:${call.incomingKey}`,
-    {
-      type: 'archive',
-      title: call.incomingKey === 'ringback' ? '回铃录音' : '实验室收班来电',
-      fields: [['内线', call.number], ['接听', DAYS[call.day]?.title ?? '已登记'], ['通话内容', call.lines.join(' ')]],
-    },
-  ]);
-  return [...visits, ...recalls, ...calls].filter(([, doc]) =>
+  return [...visits, ...recalls, ...filedPhonePapers()].filter(([, doc]) =>
     !term || [doc.title, ...doc.fields.flat(), doc.note].some((text) => text?.toLowerCase().includes(term)));
 }
 
@@ -1356,12 +1372,25 @@ function dial() {
 function openPhone(opener) {
   if (!run || reviewingHistory) return;
   if (incomingAtWindow()) update({ type: 'answer-call' }, false);
+  else if (opener.dataset.key === 'bring-order' && panel === 'docs') {
+    const item = windowCase();
+    if (PHONE['204'].requests[item?.id] && heldObjects(item).heldDocuments.some((index) => item.documents[index]?.type === 'order')) {
+      const displaced = pinPhonePaper(item.id);
+      if (displaced) toast(`${displaced} 已收回交接簿`);
+    }
+  }
   playSound('click');
   if (panel === 'archive' && archiveReturn?.panel === 'phone') {
     closePanel();
     return;
   }
   openPanel('phone', opener);
+}
+
+function pinPhonePaper(id) {
+  const retained = interaction.pinned.filter((key) => key !== id);
+  interaction.pinned = [...retained.slice(-1), id];
+  return retained.length === 2 ? archive(run).find((row) => row.id === retained[0])?.batch : null;
 }
 
 function setPhoneNumber(value) {
@@ -1568,6 +1597,16 @@ root.addEventListener('click', (event) => {
     case 'stamp': stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
     case 'report-search': openReportIndex(key, target); break;
+    case 'archive-call': {
+      if (panel !== 'phone') break;
+      const registration = labRegistrationKey(index);
+      if (!filedPhonePapers().some(([entry]) => entry === registration)) break;
+      focusArchiveRow(registration);
+      interaction.archiveQuery = '';
+      openArchive(target);
+      revealArchiveReceipt(true);
+      break;
+    }
     case 'report-index-back':
       if (panel === 'archive' && reportIndex) {
         reportIndex = null;
@@ -1596,9 +1635,9 @@ root.addEventListener('click', (event) => {
       if (!run?.seen.includes(index) || run.phase === 'ending') break;
       const pinned = interaction.pinned;
       const removing = pinned.includes(index);
-      const displaced = !removing && pinned.length === 2 ? archive(run).find(({ id }) => id === pinned[0]) : null;
-      interaction.pinned = removing ? pinned.filter((id) => id !== index) : [...pinned.slice(-1), index];
-      if (displaced) toast(`新单据已放到电话旁，${displaced.batch} 已收回交接簿`);
+      const displaced = removing ? null : pinPhonePaper(index);
+      if (removing) interaction.pinned = pinned.filter((id) => id !== index);
+      if (displaced) toast(`新单据已放到电话旁，${displaced} 已收回交接簿`);
       else toast(removing ? '单据已收回交接簿' : '单据已放到电话旁');
       playSound('paper');
       render();

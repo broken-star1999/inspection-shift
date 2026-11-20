@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { PHONE } from '../src/content.js';
 import { archive, archivedReportSources, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, isSupplementOnly, receiptFeedback, restoreRun, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
@@ -1010,6 +1011,97 @@ test('Tuesday close rings once and can be answered or left without changing the 
   assert.deepEqual(answered.pending, []);
   assert.equal(act(answered, 'answer-call'), answered);
   assert.equal(act(answered, 'advance-day').day, 2);
+});
+
+test('204 registers the G-205 inquiry once only when its order is explicitly brought', () => {
+  const { greeting, requests } = PHONE['204'];
+  const script = requests[5];
+  const inspected = [];
+  const handoff = untilHandoff(21, { inspect: (state, item) => {
+    if (item.id === 5) {
+      assert.equal(act(state, 'dial', { number: '204', report: true, context: true }).phone.line, greeting);
+      assert.equal(act(state, 'dial', { number: '204', caseIds: [10] }).phone.line, greeting);
+      const requested = act(state, 'dial', { number: '204', caseIds: [5] });
+      assert.equal(requested.records, state.records);
+      assert.equal(requested.flags, state.flags);
+      assert.equal(requested.seen, state.seen);
+      assert.equal(requested.pending, state.pending);
+      assert.deepEqual(requested.phone, {
+        number: '204', npc: 'chen', lines: [script.requested], line: script.requested,
+        kind: 'lab-request', caseId: 5, day: 1,
+      });
+      const reloaded = JSON.parse(JSON.stringify(requested));
+      const repeated = act(reloaded, 'dial', { number: '204', caseIds: [5] });
+      assert.equal(repeated.phone.line, script.repeat);
+      assert.equal(repeated.phone.caseId, 5);
+      assert.equal(repeated.phoneLog.filter(({ kind }) => kind === 'lab-request').length, 1);
+      inspected.push(item.id);
+      return repeated;
+    }
+    if (item.id === 9) {
+      assert.equal(item.line, `${item.followUp.lines.review} ${script.delivery}`);
+      assert.equal(act(state, 'dial', { number: '204', caseIds: [5] }).phone.line, script.arrived);
+      assert.equal(getCase(state).answer, 'pass');
+      inspected.push(item.id);
+    }
+    return state;
+  } });
+  assert.deepEqual(inspected, [5, 9]);
+  assert.equal(handoff.records.length, 20);
+  assert.equal(getEnding(act(handoff, 'finish')).id, 'routine');
+
+  const afterFirst = act(receiptAt(5, 'review'), 'next');
+  assert.notEqual(getCase(afterFirst).id, 5);
+  assert.equal(act(afterFirst, 'dial', { number: '204', caseIds: [5] }).phone.kind, 'lab-request');
+  const afterBoth = act(untilHandoff(21), 'dial', { number: '204', caseIds: [5] });
+  assert.equal(afterBoth.phone.line, script.arrived);
+  assert.equal(afterBoth.phone.caseId, undefined);
+  assert.equal(afterBoth.phoneLog.some(({ kind }) => kind === 'lab-request'), false);
+});
+
+test('the G-248 inquiry follows the newest explicit order until both R-071 slips take priority', () => {
+  const lab = PHONE['204'];
+  const script = lab.requests[10];
+  const inspected = [];
+  untilHandoff(21, { inspect: (state, item) => {
+    if (item.id === 10) {
+      assert.equal(act(state, 'dial', { number: '204' }).phone.line, lab.greeting);
+      assert.equal(act(state, 'dial', { number: '204', caseIds: [10, 7] }).phone.line, lab.relatedHint);
+      const marked = act(state, 'explore', { key: 'r071-241' });
+      assert.equal(act(marked, 'dial', { number: '204' }).phone.line, lab.relatedHint);
+      assert.equal(act(marked, 'dial', { number: '204', caseIds: [10] }).phone.line, script.requested);
+      const requested = act(marked, 'dial', { number: '204', caseIds: [7, 10] });
+      assert.equal(requested.phone.caseId, 10);
+      assert.equal(requested.phone.day, 2);
+      assert.equal(requested.phone.line, script.requested);
+      assert.deepEqual(requested.pending, []);
+      inspected.push(item.id);
+      return requested;
+    }
+    if (item.id === 14) {
+      assert.equal(item.line, `${item.followUp.lines.review} ${script.delivery}`);
+      assert.equal(act(state, 'dial', { number: '204', caseIds: [10] }).phone.line, script.arrived);
+      const both = act(state, 'explore', { key: 'r071-248' });
+      const traced = act(both, 'dial', { number: '204', caseIds: [7, 10] });
+      assert.equal(traced.phone.kind, 'trace');
+      assert.deepEqual(traced.pending, ['trace']);
+      assert.equal(traced.phoneLog.filter(({ kind }) => kind === 'lab-request').length, 1);
+      inspected.push(item.id);
+    }
+    return state;
+  } });
+  assert.deepEqual(inspected, [10, 14]);
+});
+
+test('ordinary lab requests and answered calls remain in the limited phone log after unrelated calls', () => {
+  let state = untilHandoff(21, { inspect: (state, item) => [5, 10].includes(item.id)
+    ? act(state, 'dial', { number: '204', caseIds: [item.id] }) : state });
+  state = act(act(act(state, 'dial', { number: '880' }), 'hang-up'), 'answer-call');
+  for (let i = 0; i < 25; i++) state = act(state, 'dial', { number: '555' });
+  assert.equal(state.phoneLog.length, 20);
+  assert.equal(state.phoneLog.at(-1), state.phone);
+  assert.deepEqual(state.phoneLog.filter(({ kind }) => kind === 'lab-request').map(({ caseId }) => caseId), [5, 10]);
+  assert.equal(state.phoneLog.find(({ kind }) => kind === 'incoming').incomingKey, 'ringback');
 });
 
 test('the 880 recording waits for hang-up and pickup, and answered calls survive later outgoing calls', () => {

@@ -69,6 +69,7 @@
 }
 .desk-surface-tools :is(.findings-toggle, .reference-control):hover { filter: brightness(1.11); }
 .desk-surface-tools .phone-work-tool { border-color: #8f9a72; background: #364a38; }
+.desk-surface-tools .phone-work-tool.phone-bring-order { min-block-size: 2.75rem; }
 
 .desk-surface-bar:has(.reference-control) { gap: .45rem; }
 .desk-surface-bar:has(.reference-control) h2 {
@@ -646,6 +647,16 @@
 .archive-current-disposition strong { margin-inline-start: .18em; }
 
 .wall-phone .phone-ring-indicator { display: none; }
+.phone-log .phone-registration {
+  min-block-size: 2.75rem;
+  margin-block-start: .26rem;
+  border-color: #a38b5d;
+  background: #d8bf8d;
+  color: #3d3022;
+  text-shadow: none;
+}
+.phone-log .phone-registration:is(:hover, :focus-visible) { background: #eed5a0; }
+.archive-surface .archive-actions .button.registration-source { min-block-size: 2.75rem; }
 #game[data-ringing='true'] .booth-layout .wall-phone .phone-ring-indicator {
   position: absolute;
   z-index: 3;
