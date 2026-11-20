@@ -649,6 +649,7 @@ button:disabled { opacity: .46; }
 .paper-work { position: relative; }
 .paper-card { translate: var(--paper-x, 0px) var(--paper-y, 0px); }
 .paper-card[data-drag] { touch-action: none; }
+.paper-card.moving { transition: none; }
 .paper-card:focus-visible, .paper-card:hover { z-index: 2; }
 .paper-label { border-inline-start-color: #b78e5e; }
 .paper-report { border-inline-start-color: #7f8c68; background-color: #ddd8b5; background-blend-mode: normal, multiply; }

@@ -26,15 +26,16 @@ export function shell() {
       </nav>
     </header>
     <main class="playfield">
+      <div class="model-world" aria-hidden="true"></div>
       <div class="booth-layout">
         <aside class="booth-wing booth-left" aria-label="值班工具">
-          <button class="wall-tool wall-phone" data-act="phone"><img src="${asset('tool-phone.webp')}" alt="" draggable="false"><b>内线电话</b></button>
-          <button class="wall-tool wall-archive" data-act="archive"><img src="${asset('tool-archive.webp')}" alt="" draggable="false"><b>交接簿</b></button>
+          <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" draggable="false"><b>内线电话</b></button>
+          <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" draggable="false"><b>交接簿</b></button>
         </aside>
-        <div class="room"><div class="canvas-room" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
+        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
         <aside class="booth-wing booth-right" aria-label="值班告示">
-          <div id="wall-shift"></div>
-          <button class="wall-notice" data-act="rules">查验要求<span aria-hidden="true">﹣﹣﹣</span></button>
+          <div id="wall-shift" data-fixture="shift"></div>
+          <button class="wall-notice" data-act="rules" data-fixture="rules">查验要求<span aria-hidden="true">﹣﹣﹣</span></button>
         </aside>
         <div class="console" id="desk"></div>
       </div>
@@ -74,12 +75,12 @@ export function room(run, item, tutorial, firstIssue, pressure, eventIndex) {
 }
 
 function paperCard(doc, index, tutorial, offset) {
-  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', tutorial?.target === doc.type)}" data-act="doc" data-i="${index}" data-drag="paper"${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}">
+  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', tutorial?.target === doc.type)}" data-act="doc" data-i="${index}" data-drag="paper" data-fixture="doc${index}"${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}">
     <small>${types[doc.type] ?? '归档'}</small><h3>${esc(doc.title)}</h3><b class="paper-num">${esc(doc.fields[0]?.[1])}</b><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">${doc.type === 'label' ? '批' : doc.type === 'report' ? '检' : '联'}</span></button>`;
 }
 
 function stampButtons(instructed, disabled = false, action = 'stamp') {
-  return Object.entries(labels).map(([key, value]) => `<button class="stamp ${key}${cls('instructed', instructed && key === 'pass')}" data-act="${action}" data-key="${key}" ${disabled ? 'disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`).join('');
+  return Object.entries(labels).map(([key, value]) => `<button class="stamp ${key}${cls('instructed', instructed && key === 'pass')}" data-act="${action}" data-key="${key}"${action === 'stamp' ? ` data-fixture="${key}"` : ''} ${disabled ? 'disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`).join('');
 }
 
 function sampleArt(spec, appearance, back, measurement) {
@@ -94,8 +95,8 @@ export function desk(run, item, tutorial, interaction) {
   const { note, positions, pencil, inspection } = interaction;
   const appearance = sampleAppearance(item.sample);
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, tutorial, positions[index])).join('')}</div>
-      ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
-    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" aria-label="检查${appearance.name}"><span class="sample-visual sample-preview-art${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, false, false)}</span><span class="sample-caption">${appearance.name}</span></button></section>
+      ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
+    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample" aria-label="检查${appearance.name}"><span class="sample-visual sample-preview-art${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, false, false)}</span><span class="sample-caption">${appearance.name}</span></button></section>
     <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
       <p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上选一项作为依据'}</p></aside>`;
 }

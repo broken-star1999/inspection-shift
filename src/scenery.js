@@ -4,8 +4,9 @@ const roomKey = 'shift-room';
 const sprites = ['luo', 'tang', 'xu', 'chen', 'zhou', 'sun'];
 const evening = new Set(['summary', 'handoff', 'ending']);
 const logicalHeight = 220;
-const roomTravel = { x: 7, y: 4 };
-const workerTravel = { x: 13, y: 7 };
+// Inside the moving frame, distant layers counter some of the foreground displacement.
+const roomTravel = { x: 4, y: 2.7 };
+const workerTravel = { x: 2, y: 1.35 };
 
 const warmLight = `
   precision mediump float;
@@ -181,7 +182,7 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
   const art = `${baseUrl.replace(/\/?$/, '/')}art/`;
   const reducedMotion = view.matchMedia('(prefers-reduced-motion: reduce)');
   let requested = { npc: null, day: 0, phase: 'title' };
-  const targetLook = { x: 0, y: 0 };
+  const viewPose = { x: 0, y: 0 };
   let activeScene;
   let observer;
   let destroyed = false;
@@ -266,8 +267,8 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
 
     placeRoom() {
       this.room.setPosition(
-        Math.round(this.workerX - this.look.x * roomTravel.x),
-        Math.round(logicalHeight * 0.5 - this.look.y * roomTravel.y),
+        Math.round(this.workerX + this.look.x * roomTravel.x),
+        Math.round(logicalHeight * 0.5 + this.look.y * roomTravel.y),
       );
     }
 
@@ -276,8 +277,8 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
       const stageProgress = this.arrival.progress;
       const breath = reducedMotion.matches ? 0 : Math.sin(this.elapsed * 1.9) * 0.85;
       this.worker.setPosition(
-        Math.round(this.workerX - (1 - stageProgress) * 21 - this.look.x * workerTravel.x),
-        Math.round(this.workerY + (1 - stageProgress) * 5 + breath - this.look.y * workerTravel.y),
+        Math.round(this.workerX - (1 - stageProgress) * 21 + this.look.x * workerTravel.x),
+        Math.round(this.workerY + (1 - stageProgress) * 5 + breath + this.look.y * workerTravel.y),
       );
       this.worker.setAlpha(stageProgress);
     }
@@ -313,9 +314,8 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
       this.elapsed = (time / 1000) % 90;
       const still = reducedMotion.matches;
       const amount = still ? 1 : Math.min(1, delta / 345);
-      const easing = 1 - Math.exp(-Math.min(delta, 64) / 90);
-      this.look.x = still ? 0 : Phaser.Math.Linear(this.look.x, targetLook.x, easing);
-      this.look.y = still ? 0 : Phaser.Math.Linear(this.look.y, targetLook.y, easing);
+      this.look.x = still ? 0 : viewPose.x;
+      this.look.y = still ? 0 : viewPose.y;
       this.grade = Phaser.Math.Linear(this.grade, Phaser.Math.Clamp(this.frame.day / 4, 0, 1), amount);
       this.closing = Phaser.Math.Linear(this.closing, evening.has(this.frame.phase) ? 1 : 0, amount);
       if (this.pipeline) {
@@ -358,10 +358,10 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
       requested = { ...requested, ...frame };
       activeScene?.show(requested);
     },
-    setParallax(x, y) {
+    setViewPose(x, y) {
       if (destroyed) return;
-      targetLook.x = Number.isFinite(x) ? Phaser.Math.Clamp(x, -1, 1) : 0;
-      targetLook.y = Number.isFinite(y) ? Phaser.Math.Clamp(y, -1, 1) : 0;
+      viewPose.x = Number.isFinite(x) ? Phaser.Math.Clamp(x, -1, 1) : 0;
+      viewPose.y = Number.isFinite(y) ? Phaser.Math.Clamp(y, -1, 1) : 0;
     },
     destroy() {
       if (destroyed) return;

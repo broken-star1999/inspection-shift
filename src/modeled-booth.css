@@ -1,0 +1,449 @@
+/* The scene owns its geometry. These elements are the accessible controls above it. */
+#game[data-modeled='true'] .playfield {
+  display: block;
+  isolation: isolate;
+  background: #161b16;
+}
+
+#game .model-world {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .model-world { visibility: visible; }
+
+#game .model-world canvas {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+#game[data-modeled='true'] .booth-layout {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  isolation: isolate;
+  min-inline-size: 0;
+  min-block-size: 0;
+  background: none;
+  transform: none;
+  transform-style: flat;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .booth-layout :is(.booth-wing, #desk, .paper-work, .papers, .sample-work, .stamp-rail, .stamp-buttons) {
+  display: contents;
+  transform: none;
+}
+
+#game[data-modeled='true'] .booth-layout :is(.room, .booth-right, #desk)::before,
+#game[data-modeled='true'] .booth-layout :is(.room, .booth-right, #desk)::after,
+#game[data-modeled='true'] .booth-layout :is(.canvas-room, .glass-stripe, .section-label, .stamp-tip, .sample-caption, .sample-visual, .stamp-glyph),
+#game[data-modeled='true'] .booth-layout .wall-tool img,
+#game[data-modeled='true'] .booth-layout .paper-card > :not(h3) {
+  display: none;
+}
+
+#game[data-modeled='true'] .booth-layout [data-fixture] {
+  position: absolute;
+  inset: var(--fixture-y, 0px) auto auto var(--fixture-x, 0px);
+  inline-size: var(--fixture-w, 0px);
+  block-size: var(--fixture-h, 0px);
+  min-inline-size: 0;
+  min-block-size: 0;
+  max-inline-size: none;
+  max-block-size: none;
+  margin: 0;
+  translate: none;
+  rotate: none;
+  transform: none;
+}
+
+#game[data-modeled='true'] .booth-layout [data-fixture]:not([data-fixture-visible]),
+#game[data-modeled='true'] .booth-layout [data-fixture-visible='false'],
+#game[data-modeled='true'] .booth-layout :is(.room, .wall-tool, .wall-notice, .paper-card, .sample-preview, .stamp):not([data-fixture]) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .booth-layout .room {
+  z-index: 3;
+  border: none;
+  overflow: visible;
+  background: none;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .booth-layout .room-hud { z-index: auto; }
+
+#game[data-modeled='true'] .booth-layout :is(.speech, .training) {
+  --sill-gap: clamp(.22rem, .95cqh, .65rem);
+  inset-block-end: var(--sill-gap);
+  max-block-size: calc(100% - 2 * var(--sill-gap));
+  padding: clamp(.44rem, .78cqh, .6rem) clamp(.56rem, 1.02cqw, .94rem);
+  border: 1px solid #b4a67a39;
+  border-radius: .12rem;
+  background: linear-gradient(165deg, #202619ee, #141b13f7);
+  box-shadow: inset 0 1px #eee4c61a, 0 .16rem .58rem #11140c66;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .booth-layout .speech button { pointer-events: auto; }
+
+#game[data-modeled='true'] .booth-layout .speech { inline-size: min(72%, 37rem); }
+
+#game[data-modeled='true'] .booth-layout .speaker {
+  align-items: center;
+  gap: .52rem;
+  padding: 0;
+  margin-block-end: .24rem;
+  border: 0;
+}
+
+#game[data-modeled='true'] .booth-layout .speaker strong {
+  color: #f6d49c;
+  font-size: clamp(.8rem, 1.27cqw, 1rem);
+}
+
+#game[data-modeled='true'] .booth-layout .speaker small { color: #ddd4b1; }
+#game[data-modeled='true'] .booth-layout :is(.speech, .training) p { line-height: 1.43; }
+
+#game[data-modeled='true'] .booth-layout .training {
+  inset-inline-start: var(--sill-gap);
+  inline-size: calc(46% - var(--sill-gap));
+  border-inline-start: 2px solid #d8ad73;
+}
+
+#game[data-modeled='true'] .booth-layout .tutorial-index {
+  display: inline-block;
+  padding: .13rem .24rem;
+  margin-inline-end: .32rem;
+  background: #76624448;
+  color: #f3d59b;
+}
+
+#game[data-modeled='true'] .booth-layout .room-hud:has(.training) .speech {
+  inset-inline-end: var(--sill-gap);
+  inline-size: calc(51% - var(--sill-gap));
+}
+
+#game[data-modeled='true'] .booth-layout #wall-shift[data-fixture='shift'] {
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  color: #382c20;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .booth-layout .room-status {
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  width: auto;
+  gap: .15rem;
+  margin: 0;
+  padding: .2rem .1rem;
+  border: none;
+  rotate: none;
+  background: none;
+  box-shadow: none;
+}
+
+#game[data-modeled='true'] .booth-layout .room-status::before,
+#game[data-modeled='true'] .booth-layout .room-tag { display: none; }
+
+#game[data-modeled='true'] .booth-layout .room-status strong {
+  margin: 0;
+  color: #403629;
+  font: 850 clamp(.77rem, 1.68cqh, 1rem) / 1.1 var(--mono);
+  white-space: nowrap;
+}
+
+#game[data-modeled='true'] .booth-layout .room-status .batch-progress {
+  gap: clamp(.12rem, .31cqh, .22rem);
+  margin: 0;
+}
+
+#game[data-modeled='true'] .booth-layout .room-status .batch-progress span {
+  min-inline-size: clamp(.26rem, .69cqh, .47rem);
+  min-block-size: clamp(.19rem, .48cqh, .33rem);
+  background: #4f40292b;
+  border-color: #58483326;
+}
+
+#game[data-modeled='true'] .booth-layout .room-status .batch-progress .done {
+  background: #52644b;
+  border-color: #44543d;
+}
+
+#game[data-modeled='true'] .booth-layout button[data-fixture] {
+  --fixture-glow: #f3cb88;
+  z-index: 2;
+  display: block;
+  align-self: auto;
+  justify-self: auto;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  outline: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: none;
+  color: transparent;
+  opacity: 1;
+  filter: none;
+  animation: none;
+  transition: none;
+  text-shadow: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  pointer-events: auto;
+}
+
+#game[data-modeled='true'] .booth-layout button[data-fixture]:not([data-fixture-visible]),
+#game[data-modeled='true'] .booth-layout button[data-fixture-visible='false'],
+#game[data-modeled='true'] .booth-layout button[data-fixture]:disabled { pointer-events: none; }
+
+#game[data-modeled='true'] .booth-layout .paper-card[data-fixture] {
+  translate: none;
+  touch-action: none;
+}
+
+#game[data-modeled='true'] .booth-layout button[data-fixture]::before {
+  content: '';
+  position: absolute;
+  inset: -.19rem;
+  z-index: 0;
+  inline-size: auto;
+  block-size: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  translate: none;
+  transform: none;
+  background:
+    linear-gradient(var(--fixture-glow), var(--fixture-glow)) left top / .62rem 1px no-repeat,
+    linear-gradient(var(--fixture-glow), var(--fixture-glow)) left top / 1px .50rem no-repeat,
+    linear-gradient(var(--fixture-glow), var(--fixture-glow)) right top / .62rem 1px no-repeat,
+    linear-gradient(var(--fixture-glow), var(--fixture-glow)) right top / 1px .50rem no-repeat,
+    linear-gradient(var(--fixture-glow), var(--fixture-glow)) left bottom / .62rem 1px no-repeat,
+    linear-gradient(var(--fixture-glow), var(--fixture-glow)) left bottom / 1px .50rem no-repeat,
+    linear-gradient(var(--fixture-glow), var(--fixture-glow)) right bottom / .62rem 1px no-repeat,
+    linear-gradient(var(--fixture-glow), var(--fixture-glow)) right bottom / 1px .50rem no-repeat;
+  filter: drop-shadow(0 1px 2px #2f1c12);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease;
+}
+
+#game[data-modeled='true'] .booth-layout .paper-card[data-fixture]::after { display: none; }
+
+#game[data-modeled='true'] .booth-layout button[data-fixture]:is(:focus-visible, .instructed, .moving):not(:disabled) {
+  z-index: 4;
+}
+
+#game[data-modeled='true'] .booth-layout button[data-fixture]:is(:focus-visible, .instructed, .moving):not(:disabled)::before {
+  opacity: 1;
+}
+
+#game[data-modeled='true'] .booth-layout button[data-fixture]:focus-visible:not(:disabled) {
+  outline: 1px solid #ffdfa49c;
+  outline-offset: .16rem;
+}
+
+#game[data-modeled='true'] .booth-layout .paper-card[data-fixture] h3,
+#game[data-modeled='true'] .booth-layout .wall-tool[data-fixture] b,
+#game[data-modeled='true'] .booth-layout .stamp[data-fixture] b {
+  position: absolute;
+  inset: 100% auto auto 50%;
+  max-inline-size: none;
+  margin: 0;
+  padding: .12em .36em;
+  border-radius: 1px;
+  translate: -50% .10rem;
+  transform: none;
+  background: #171b14c7;
+  color: #f0dbad;
+  font: 750 clamp(.65rem, 1.64cqh, .82rem) / 1.25 var(--mono);
+  letter-spacing: .035em;
+  text-shadow: 0 1px #3f2b16;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .booth-layout .paper-card[data-fixture] h3 { opacity: 0; }
+#game[data-modeled='true'] .booth-layout .paper-card[data-fixture]:is(.instructed, :focus-visible) h3 { opacity: 1; }
+
+#game[data-modeled='true'] .booth-layout .stamp[data-fixture] b {
+  inset-block-start: auto;
+  inset-block-end: 0;
+  padding: .12em .28em;
+  translate: -50% 55%;
+}
+
+#game[data-modeled='true'] .booth-layout .stamp[data-fixture]:disabled b {
+  color: #dbcdab;
+  background: #262719d1;
+}
+
+#game[data-modeled='true'] .booth-layout [data-fixture='rules']::after {
+  content: '查验要求';
+  position: absolute;
+  inset: 19% auto auto 50%;
+  padding: .14em .33em;
+  translate: -50% 0;
+  background: #ebd9b2e8;
+  color: #3f3021;
+  font: 850 clamp(.64rem, 1.65cqh, .84rem) / 1.1 var(--mono);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .booth-layout [data-fixture='sample']::after {
+  content: attr(aria-label);
+  position: absolute;
+  inset: 100% auto auto 50%;
+  opacity: 0;
+  padding: .13em .4em;
+  translate: -50% .12rem;
+  background: #161d15e0;
+  color: #f0ddaf;
+  font: 720 clamp(.65rem, 1.58cqh, .82rem) / 1.25 var(--mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#game[data-modeled='true'] .booth-layout [data-fixture='sample']:is(.instructed, :focus-visible)::after { opacity: 1; }
+
+#game[data-modeled='true'] .booth-layout .desk-pencil[data-fixture] {
+  z-index: 5;
+  pointer-events: auto;
+}
+
+#game[data-modeled='true'] .desk-surface { transform: none; }
+
+#game[data-modeled='true'] :is(.documents-surface, .sample-surface) .desk-surface-content {
+  padding: .34rem .25rem max(.42rem, 1.2cqh);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#game[data-modeled='true'] :is(.documents-surface, .sample-surface) .desk-surface-bar h2 {
+  margin-inline-start: .15rem;
+  padding: .26rem .48rem;
+  border: 1px solid #bbae842c;
+  background: #202417e8;
+  box-shadow: 0 .12rem .28rem #1c1b13a3;
+  color: #f1d9a6;
+  font-weight: 760;
+}
+
+#game[data-modeled='true'] :is(.documents-surface, .sample-surface) .modal-guide {
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  padding: .30rem .47rem .31rem;
+  border-inline-start: 2px solid #d5ad72;
+  background: #262719ed;
+  color: #f2e2bf;
+  box-shadow: .09rem .16rem .30rem #18160eaa;
+}
+
+#game[data-modeled='true']:has(#modal :is(.documents-surface, .sample-surface) .modal-guide) .booth-layout .training {
+  visibility: hidden;
+}
+
+#game[data-modeled='true'] .documents-surface .doc-tabs .tab {
+  border-color: #a39169;
+  background: #3b3e2be8;
+  color: #f3e0b7;
+  box-shadow: 0 .11rem .24rem #161a11bf, inset 0 1px #ab9f714d;
+}
+
+#game[data-modeled='true'] .documents-surface .doc-tabs .tab[aria-pressed='true'] {
+  border-color: #bcab84;
+  background: #dcc49a;
+  color: #392a1a;
+}
+
+#game[data-modeled='true'] .documents-surface .doc-grid {
+  align-items: start;
+  gap: clamp(.42rem, 1.2cqw, 1rem);
+}
+
+#game[data-modeled='true'] .documents-surface .sheet {
+  border-block-end-color: #bda477;
+  background: repeating-linear-gradient(0deg, #8d70471e 0 1px, transparent 1px 1.55rem), linear-gradient(127deg, #f1e4c3, #ddc599);
+  box-shadow: .12rem .17rem #aa8a5b, .23rem .44rem .75rem #1c190fa3;
+}
+
+#game[data-modeled='true'] .documents-surface .doc-grid.pair .sheet:first-child { rotate: -.8deg; }
+#game[data-modeled='true'] .documents-surface .doc-grid.pair .sheet:last-child { rotate: .75deg; }
+
+#game[data-modeled='true'] .sample-surface .sample-inspector {
+  align-items: start;
+  grid-template-columns: minmax(0, 1.14fr) minmax(8rem, .66fr);
+}
+
+#game[data-modeled='true'] .sample-surface .sample-stage {
+  border: 1px solid #7a8667;
+  border-block-end: 4px solid #25382a;
+  border-radius: .4rem .30rem .39rem .23rem;
+  background:
+    radial-gradient(ellipse at 42% 34%, #7e8b6066, transparent 72%),
+    linear-gradient(142deg, #51614b, #324836);
+  box-shadow: inset 0 .13rem #bbc19a6e, inset 0 .24rem .49rem #19251a96, .19rem .38rem .65rem #221b12b8;
+}
+
+#game[data-modeled='true'] .sample-surface .sample-findings {
+  justify-self: start;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  padding: .48rem .65rem .55rem;
+  border: 1px solid #b59f73;
+  border-inline-start: 3px solid #ac8b59;
+  background: linear-gradient(126deg, #efe0bb, #ddc499);
+  box-shadow: inset 0 1px #f5e9c8, .17rem .26rem .49rem #241e14b5;
+  color: #392d1d;
+  rotate: 1deg;
+}
+
+#game[data-modeled='true'] .sample-surface .sample-findings > b { color: #705739; }
+#game[data-modeled='true'] .sample-surface .sample-findings .reading strong { color: #553b1f; }
+#game[data-modeled='true'] .sample-surface .sample-findings p { line-height: 1.4; }
+
+#game[data-modeled='true'] :is(.documents-surface, .sample-surface) .modal-actions {
+  margin-block-start: .63rem;
+  padding-inline: .05rem;
+}
+
+@media (hover: hover) {
+  #game[data-modeled='true'] .booth-layout button[data-fixture]:hover:not(:disabled) { z-index: 4; }
+  #game[data-modeled='true'] .booth-layout button[data-fixture]:hover:not(:disabled)::before,
+  #game[data-modeled='true'] .booth-layout [data-fixture='sample']:hover::after,
+  #game[data-modeled='true'] .booth-layout .paper-card[data-fixture]:hover h3 { opacity: 1; }
+}
+
+@container workstation (max-height: 440px) {
+  #game[data-modeled='true'] .booth-layout :is(.speech, .training) {
+    --sill-gap: .22rem;
+    inset-block-end: -.13rem;
+    padding: .31rem .42rem;
+  }
+  #game[data-modeled='true'] .booth-layout :is(.speech, .training) p { font-size: .81rem; line-height: 1.34; }
+  #game[data-modeled='true'] .booth-layout .speaker { padding-block-end: .11rem; margin-block-end: .13rem; }
+  #game[data-modeled='true'] .booth-layout .speaker small { font-size: .64rem; }
+  #game[data-modeled='true'] .booth-layout .room-status { gap: .08rem; padding: 0; }
+  #game[data-modeled='true'] .booth-layout .room-status strong { font-size: .71rem; }
+  #game[data-modeled='true'] .booth-layout .paper-card[data-fixture] h3 { font-size: clamp(.63rem, 1.3cqw, .73rem); }
+  #game[data-modeled='true'] .booth-layout .stamp[data-fixture] b { font-size: clamp(.66rem, 1.34cqw, .73rem); }
+  #game[data-modeled='true'] .sample-surface .sample-findings { padding: .36rem .47rem .43rem; }
+  #game[data-modeled='true'] :is(.documents-surface, .sample-surface) .modal-actions { margin-block-start: .44rem; }
+}

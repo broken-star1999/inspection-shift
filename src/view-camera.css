@@ -1,0 +1,55 @@
+/* The sightline projects the booth as a single room. The counter sits in front of the window wall. */
+[data-view-turned]:not([data-rotated='true']) .booth-layout {
+  --booth-slide: -1.05cqw;
+  --booth-scale: .048;
+  --bench-slide: -.46cqw;
+  --bench-depth: 16px;
+  --bench-scale: .016;
+  isolation: auto;
+  transform-style: preserve-3d;
+  transform-origin: 50% 46%;
+  transform:
+    perspective(max(760px, 135cqw))
+    translate3d(calc(var(--booth-slide) * var(--view-x)), calc(-1.1cqh * var(--view-y)), 0)
+    rotateX(calc(2.8deg * var(--view-y)))
+    rotateY(calc(-3.15deg * var(--view-x)))
+    scale(calc(1 + var(--booth-scale) * var(--view-distance)));
+}
+
+[data-view-turned]:not([data-rotated='true']) .booth-layout .console {
+  transform-origin: 50% 0;
+  transform:
+    translate3d(calc(var(--bench-slide) * var(--view-x)), 0, calc(var(--bench-depth) * var(--view-distance)))
+    rotateX(calc(1.6deg * var(--view-y)))
+    scaleX(calc(1 + var(--bench-scale) * var(--view-distance)));
+}
+
+/* The loose sheet is closer to the eye than the desk instead of pinned to the screen. */
+[data-view-turned]:not([data-rotated='true']) .desk-surface {
+  --sheet-slide: -1.8cqw;
+  transform:
+    perspective(max(580px, 120cqw))
+    translate3d(calc(var(--sheet-slide) * var(--view-x)), calc(-1.3cqh * var(--view-y)), 0)
+    rotateX(calc(3.4deg * var(--view-y)))
+    rotateY(calc(-4.4deg * var(--view-x)));
+}
+
+@container workstation (max-height: 540px) {
+  [data-view-turned]:not([data-rotated='true']) .booth-layout {
+    --booth-slide: -.78cqw;
+    --booth-scale: .024;
+    --bench-slide: -.32cqw;
+    --bench-depth: 9px;
+    --bench-scale: .011;
+  }
+}
+
+@container workstation (max-width: 720px) {
+  [data-view-turned]:not([data-rotated='true']) .desk-surface { --sheet-slide: -.85cqw; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-view-turned]:not([data-rotated='true']) :is(.booth-layout, .booth-layout .console, .desk-surface) { transform: none; }
+  .booth-layout :is(.wall-tool, .sample-preview):hover img,
+  .booth-layout .paper-card:hover { transform: none; }
+}

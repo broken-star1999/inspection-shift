@@ -1,11 +1,14 @@
 import { createRun, dispatch, getCase, getDay, getEnding, archive, TUTORIAL, EVIDENCE } from './engine.js';
 import { EASTER_EGGS } from './content.js';
-import { sampleObservation } from './samples.js';
+import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
+import { captureDeskProjection } from './desk-projection.js';
 import * as view from './view.js';
 import './style.css';
 import './booth.css';
 import './inspection.css';
+import './view-camera.css';
+import './modeled-booth.css';
 import './devices.css';
 
 const root = document.querySelector('#game');
@@ -57,28 +60,111 @@ const screenLayer = root.querySelector('#screen');
 const modalLayer = root.querySelector('#modal');
 const toastBox = root.querySelector('.game-toast');
 const roomHost = root.querySelector('.canvas-room');
+const modelHost = root.querySelector('.model-world');
 const soundToggle = root.querySelector('[data-act="sound"]');
 const fullscreenToggle = root.querySelector('[data-act="fullscreen"]');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const gaze = { x: 0, y: 0, targetX: 0, targetY: 0, frame: 0, time: 0 };
+let fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
+let fixtureLayout = {};
 
-bindViewport(root, ({ fullscreen, immersive }) => {
+bindViewport(root, ({ fullscreen, immersive, rotated }) => {
   const expanded = fullscreen || immersive;
   fullscreenToggle.setAttribute('aria-pressed', String(expanded));
   fullscreenToggle.setAttribute('aria-label', expanded ? '退出全屏' : '全屏');
+  if (rotated) resetGaze();
 });
 
-import('./scenery.js').then(({ mountScenery }) => {
-  scenery = mountScenery(roomHost, { baseUrl: import.meta.env.BASE_URL });
+function placeFixtures() {
+  for (const element of fixtureElements) {
+    const rect = fixtureLayout[element.dataset.fixture];
+    element.toggleAttribute('data-fixture-visible', Boolean(rect));
+    if (!rect) continue;
+    const { x, y, w, h } = rect;
+    element.style.setProperty('--fixture-x', `${x.toFixed(1)}px`);
+    element.style.setProperty('--fixture-y', `${y.toFixed(1)}px`);
+    element.style.setProperty('--fixture-w', `${w.toFixed(1)}px`);
+    element.style.setProperty('--fixture-h', `${h.toFixed(1)}px`);
+  }
+}
+
+async function startScene() {
+  const baseUrl = import.meta.env.BASE_URL;
+  try {
+    const { mountModeledBooth } = await import('./modeled-booth.js');
+    scenery = mountModeledBooth(modelHost, { baseUrl, onLayout: (layout) => { fixtureLayout = layout; placeFixtures(); } });
+    if (scenery) root.dataset.modeled = 'true';
+  } catch { /* The illustrated booth remains available when 3D is unavailable. */ }
+  if (!scenery) {
+    try {
+      const { mountScenery } = await import('./scenery.js');
+      scenery = mountScenery(roomHost, { baseUrl });
+    } catch { roomHost.dataset.renderer = 'static'; }
+  }
   setScene();
-}).catch(() => { roomHost.dataset.renderer = 'static'; });
+  scenery?.setViewPose(gaze.x, gaze.y);
+}
+
+void startScene();
+
+function drawGaze(x, y) {
+  gaze.x = x;
+  gaze.y = y;
+  const distance = Math.max(Math.abs(x), Math.abs(y));
+  root.toggleAttribute('data-view-turned', distance > 0);
+  root.style.setProperty('--view-x', x.toFixed(4));
+  root.style.setProperty('--view-y', y.toFixed(4));
+  root.style.setProperty('--view-distance', distance.toFixed(4));
+  scenery?.setViewPose(x, y);
+}
+
+function resetGaze() {
+  if (gaze.frame) cancelAnimationFrame(gaze.frame);
+  gaze.frame = 0;
+  gaze.time = 0;
+  gaze.targetX = 0;
+  gaze.targetY = 0;
+  if (gaze.x || gaze.y) drawGaze(0, 0);
+}
+
+function followGaze(time) {
+  gaze.frame = 0;
+  if (drag) { gaze.time = 0; return; }
+  if (reducedMotion.matches || root.dataset.rotated === 'true') { resetGaze(); return; }
+  const elapsed = gaze.time ? Math.min(time - gaze.time, 48) : 16;
+  const blend = 1 - Math.exp(-elapsed / 82);
+  const x = gaze.x + (gaze.targetX - gaze.x) * blend;
+  const y = gaze.y + (gaze.targetY - gaze.y) * blend;
+  if (Math.max(Math.abs(x - gaze.targetX), Math.abs(y - gaze.targetY)) < .002) {
+    drawGaze(gaze.targetX, gaze.targetY);
+    gaze.time = 0;
+    return;
+  }
+  drawGaze(x, y);
+  gaze.time = time;
+  gaze.frame = requestAnimationFrame(followGaze);
+}
+
+function setGazeTarget(x, y) {
+  gaze.targetX = Math.max(-1, Math.min(1, x));
+  gaze.targetY = Math.max(-1, Math.min(1, y));
+  if (!gaze.frame && !drag) gaze.frame = requestAnimationFrame(followGaze);
+}
+
+root.addEventListener('pointerdown', (event) => {
+  if (event.pointerType !== 'mouse' && !drag) resetGaze();
+}, { capture: true });
 
 root.addEventListener('pointermove', (event) => {
-  if (event.pointerType !== 'mouse' || root.dataset.rotated === 'true') return;
+  if (drag && drag.pointerId !== event.pointerId) return;
+  if (event.pointerType !== 'mouse') { if (!drag) resetGaze(); return; }
+  if (!run || root.dataset.rotated === 'true' || reducedMotion.matches) return;
   const bounds = root.getBoundingClientRect();
   if (!bounds.width || !bounds.height) return;
-  scenery?.setParallax?.((event.clientX - bounds.x) / bounds.width * 2 - 1, (event.clientY - bounds.y) / bounds.height * 2 - 1);
+  setGazeTarget((event.clientX - bounds.x) / bounds.width * 2 - 1, (event.clientY - bounds.y) / bounds.height * 2 - 1);
 });
-root.addEventListener('pointerleave', () => scenery?.setParallax?.(0, 0));
+root.addEventListener('pointerleave', () => setGazeTarget(0, 0));
+reducedMotion.addEventListener('change', resetGaze);
 
 function animateOnDesk(element, frames, duration) {
   if (!reducedMotion.matches) element?.animate?.(frames, { duration, easing: 'cubic-bezier(.2,.78,.27,1)' });
@@ -88,11 +174,20 @@ function tutorialStep() {
   return run?.phase === 'case' && getCase(run)?.id === 1 ? TUTORIAL[run.tutorial] : null;
 }
 
+function showPencil(item) {
+  return item?.id === 8 && run.flags.rollingPencil && !run.flags.pencil;
+}
+
 function setScene() {
   const event = run?.events?.[eventIndex];
   const phase = run?.phase ?? 'home';
-  const npc = event?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : run && getCase(run)?.npc);
-  scenery?.setFrame({ day: run?.day ?? 0, phase, npc: npc || null });
+  const item = run ? getCase(run) : null;
+  const npc = event?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
+  const appearance = item ? sampleAppearance(item.sample) : null;
+  scenery?.setFrame({ day: run?.day ?? 0, phase, npc: npc || null,
+    documents: item?.documents.map((doc) => ({ type: doc.type, title: doc.title, batch: doc.fields[0]?.[1] ?? item.batch })) ?? [],
+    sample: appearance ? { ...interaction.inspection, filename: `${appearance.stem}.webp`, kind: item.sample.kind } : null,
+    positions: interaction.positions, pencil: showPencil(item) });
 }
 
 function render() {
@@ -105,8 +200,9 @@ function render() {
   const step = tutorialStep();
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
   hud.innerHTML = run ? view.room(run, item, step, teaching, item?.pressureLine, eventIndex) : '';
-  desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction,
-    pencil: item.id === 8 && run.flags.rollingPencil && !run.flags.pencil }) : '';
+  desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item) }) : '';
+  fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
+  if (root.dataset.modeled === 'true') placeFixtures();
   const event = run?.events?.[eventIndex];
   screenLayer.innerHTML = run ? (event && !item ? view.visitOverlay(event) : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null)) : view.home(saved?.phase === 'ending' ? null : saved, endings);
   setScene();
@@ -268,6 +364,7 @@ function stamp(value) {
     panel = null;
     playSound('stamp');
     render();
+    scenery?.setPressed?.(value);
   } else toast('先跟老周把这箱查完');
 }
 
@@ -305,7 +402,7 @@ root.addEventListener('click', (event) => {
     case 'new': if (saved && saved.phase !== 'ending') openPanel('restart', target); else enter(false); break;
     case 'start': enter(false); break;
     case 'resume': enter(true); break;
-    case 'home': run = null; closePanel(); break;
+    case 'home': run = null; resetGaze(); closePanel(); break;
     case 'start-day': playSound('shutter'); update({ type: 'start-day' }); break;
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
     case 'next': {
@@ -356,6 +453,29 @@ root.addEventListener('click', (event) => {
   }
 });
 
+let stampTouch = null;
+root.addEventListener('touchstart', (event) => {
+  const button = event.target.closest('[data-act="stamp"]');
+  stampTouch = root.dataset.modeled === 'true' && button && !button.disabled && event.touches.length === 1
+    ? event.touches[0]
+    : null;
+}, { passive: true });
+
+root.addEventListener('touchend', (event) => {
+  const start = stampTouch;
+  stampTouch = null;
+  const end = event.changedTouches[0];
+  if (!start || !end || event.touches.length || start.identifier !== end.identifier) return;
+  if (Math.hypot(start.clientX - end.clientX, start.clientY - end.clientY) > 12) return;
+  const button = start.target.closest('[data-act="stamp"]');
+  if (!button || button.disabled || !button.contains(document.elementFromPoint(end.clientX, end.clientY))) return;
+  // Touch browsers can suppress the first synthesized click after a drag.
+  event.preventDefault();
+  stamp(button.dataset.key);
+}, { passive: false });
+
+root.addEventListener('touchcancel', () => { stampTouch = null; });
+
 root.addEventListener('submit', (event) => {
   if (event.target.dataset.form !== 'archive') return;
   event.preventDefault();
@@ -385,22 +505,26 @@ desktop.addEventListener('pointerdown', (event) => {
   const paper = event.target.closest('[data-drag="paper"]');
   if (!paper || event.button !== 0 || run?.phase !== 'case') return;
   const index = Number(paper.dataset.i);
-  drag = { paper, index, pointerId: event.pointerId, origin: stagePoint(root, event.clientX, event.clientY), offset: interaction.positions[index] ?? { x: 0, y: 0 }, moved: false };
+  const project = scenery?.captureDeskProjection?.() ?? captureDeskProjection(desktop) ?? ((x, y) => stagePoint(root, x, y));
+  drag = { paper, index, pointerId: event.pointerId, project, origin: project(event.clientX, event.clientY), offset: interaction.positions[index] ?? { x: 0, y: 0 }, moved: false };
 });
 
 window.addEventListener('pointermove', (event) => {
   if (!drag || event.pointerId !== drag.pointerId) return;
-  const point = stagePoint(root, event.clientX, event.clientY);
+  const point = drag.project(event.clientX, event.clientY);
   const x = point.x - drag.origin.x;
   const y = point.y - drag.origin.y;
   if (!drag.moved && Math.hypot(x, y) < 7) return;
-  if (!drag.moved) playSound('paper');
+  if (!drag.moved) {
+    drag.paper.classList.add('moving');
+    playSound('paper');
+  }
   drag.moved = true;
   const offset = { x: Math.max(-90, Math.min(90, drag.offset.x + x)), y: Math.max(-35, Math.min(40, drag.offset.y + y)) };
   interaction.positions[drag.index] = offset;
   drag.paper.style.setProperty('--paper-x', `${offset.x}px`);
   drag.paper.style.setProperty('--paper-y', `${offset.y}px`);
-  drag.paper.classList.add('moving');
+  scenery?.setPaperOffset?.(drag.index, offset);
 });
 
 function endDrag(event) {
@@ -411,8 +535,13 @@ function endDrag(event) {
     setTimeout(() => { suppressPaperClick = false; }, 0);
   }
   drag = null;
+  setGazeTarget(gaze.targetX, gaze.targetY);
 }
 
 window.addEventListener('pointerup', endDrag);
 window.addEventListener('pointercancel', endDrag);
+window.addEventListener('blur', () => {
+  if (drag) endDrag(drag);
+  resetGaze();
+});
 render();
