@@ -39,6 +39,7 @@ export function shell() {
         </aside>
         <div class="console" id="desk"></div>
       </div>
+      <p class="arrival-status" id="arrival-status" role="status"></p>
       <div class="screen-layer" id="screen"></div>
       <div class="modal-layer" id="modal"></div>
       <div class="game-toast" aria-live="polite"></div>

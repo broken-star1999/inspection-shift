@@ -278,6 +278,24 @@
   border-block-end-color: #b5a77a33;
 }
 
+.arrival-status {
+  position: absolute;
+  inset: 55% auto auto 50%;
+  z-index: 4;
+  margin: 0;
+  translate: -50% -50%;
+  pointer-events: none;
+  color: #e5d4ae;
+  font: 650 clamp(.75rem, 1.3cqw, .9rem) / 1.4 var(--mono);
+  white-space: nowrap;
+}
+
+.arrival-status:not(:empty) {
+  padding: .28rem .6rem;
+  border: 1px solid #b4a67a39;
+  background: #141b13df;
+}
+
 .booth-layout .speech p,
 .booth-layout .training p {
   line-height: 1.5;

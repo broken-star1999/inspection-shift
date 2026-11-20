@@ -275,17 +275,32 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
     placeWorker() {
       if (!this.worker.visible) return;
       const stageProgress = this.arrival.progress;
+      const slide = this.frame.phase === 'waiting' ? 37 : -21;
       const breath = reducedMotion.matches ? 0 : Math.sin(this.elapsed * 1.9) * 0.85;
       this.worker.setPosition(
-        Math.round(this.workerX - (1 - stageProgress) * 21 + this.look.x * workerTravel.x),
+        Math.round(this.workerX + (1 - stageProgress) * slide + this.look.x * workerTravel.x),
         Math.round(this.workerY + (1 - stageProgress) * 5 + breath + this.look.y * workerTravel.y),
       );
       this.worker.setAlpha(stageProgress);
     }
 
     show(next) {
-      const enters = next.npc !== this.frame.npc || (next.phase === 'case' && this.frame.phase === 'receipt');
+      const previous = this.frame;
+      const enters = next.npc !== previous.npc || (next.phase === 'case' && previous.phase === 'receipt');
       this.frame = next;
+      if (next.phase === 'waiting') {
+        if (previous.phase === 'waiting') return;
+        this.tweens.killTweensOf(this.arrival);
+        if (this.worker.visible && !reducedMotion.matches) {
+          this.tweens.add({ targets: this.arrival, progress: 0, duration: 280, ease: 'Quad.In',
+            onComplete: () => {
+              this.worker.setVisible(false);
+              delete host.dataset.npcArt;
+            },
+          });
+          return;
+        }
+      }
       if (!sprites.includes(next.npc)) {
         this.worker.setVisible(false);
         delete host.dataset.npcArt;

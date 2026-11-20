@@ -14,6 +14,7 @@ import './devices.css';
 const root = document.querySelector('#game');
 const SAVE_KEY = 'nandu-inspection-save-v1';
 const COLLECTION_KEY = 'nandu-inspection-endings-v1';
+const ARRIVAL_PAUSE_MS = 1150;
 
 function readStorage(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
@@ -39,6 +40,7 @@ let panel = null;
 let eventIndex = 0;
 let scenery;
 let toastTimer;
+let arrivalTimer = 0;
 let drag;
 let suppressPaperClick = false;
 let modalOpener = null;
@@ -55,6 +57,7 @@ const status = root.querySelector('#top-status');
 const booth = root.querySelector('.booth-layout');
 const wallShift = root.querySelector('#wall-shift');
 const hud = root.querySelector('#room-hud');
+const arrivalStatus = root.querySelector('#arrival-status');
 const desktop = root.querySelector('#desk');
 const screenLayer = root.querySelector('#screen');
 const modalLayer = root.querySelector('#modal');
@@ -178,10 +181,14 @@ function showPencil(item) {
   return item?.id === 8 && run.flags.rollingPencil && !run.flags.pencil;
 }
 
+function windowCase() {
+  return run && !arrivalTimer ? getCase(run) : null;
+}
+
 function setScene() {
-  const event = run?.events?.[eventIndex];
-  const phase = run?.phase ?? 'home';
-  const item = run ? getCase(run) : null;
+  const event = arrivalTimer ? null : run?.events?.[eventIndex];
+  const phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
+  const item = windowCase();
   const npc = event?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
   const appearance = item ? sampleAppearance(item.sample) : null;
   scenery?.setFrame({ day: run?.day ?? 0, phase, npc: npc || null,
@@ -191,25 +198,27 @@ function setScene() {
 }
 
 function render() {
-  root.dataset.phase = run?.phase ?? 'home';
+  root.dataset.phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
+  const waitMessage = arrivalTimer ? '等下一位…' : '';
+  if (arrivalStatus.textContent !== waitMessage) arrivalStatus.textContent = waitMessage;
   status.innerHTML = run ? `<span>${getDay(run).title}</span><span>第 ${run.day + 1} 天 / 5</span>` : '<span>质检员的一天</span>';
   wallShift.innerHTML = run ? view.wallShift(run) : '';
   soundToggle.setAttribute('aria-pressed', String(!isMuted()));
   soundToggle.setAttribute('aria-label', isMuted() ? '开启音效' : '关闭音效');
-  const item = run ? getCase(run) : null;
-  const step = tutorialStep();
+  const item = windowCase();
+  const step = item ? tutorialStep() : null;
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
-  hud.innerHTML = run ? view.room(run, item, step, teaching, item?.pressureLine, eventIndex) : '';
+  hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, eventIndex) : '';
   desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item) }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   if (root.dataset.modeled === 'true') placeFixtures();
-  const event = run?.events?.[eventIndex];
+  const event = arrivalTimer ? null : run?.events?.[eventIndex];
   screenLayer.innerHTML = run ? (event && !item ? view.visitOverlay(event) : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null)) : view.home(saved?.phase === 'ending' ? null : saved, endings);
   setScene();
   renderModal(item, step);
 }
 
-function renderModal(item = run ? getCase(run) : null, step = tutorialStep()) {
+function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const { doc, compare, inspection, archiveFocus, archiveQuery, archiveEditing, pinned, phoneNumber, egg } = interaction;
   let markup = '';
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
@@ -229,7 +238,7 @@ function renderModal(item = run ? getCase(run) : null, step = tutorialStep()) {
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
   const blockingDialog = Boolean(markup && !surface);
-  booth.inert = blockingDialog || !run || Boolean(screenLayer.firstElementChild);
+  booth.inert = blockingDialog || !run || Boolean(arrivalTimer || screenLayer.firstElementChild);
   screenLayer.inert = Boolean(markup);
   if (!markup) {
     if (hadModal && modalOpener) {
@@ -282,6 +291,7 @@ function openPanel(name, opener) {
 }
 
 function enter(restore) {
+  cancelArrivalPause();
   run = restore && saved ? saved : createRun();
   saved = run;
   writeStorage(SAVE_KEY, saved);
@@ -289,6 +299,25 @@ function enter(restore) {
   interaction = freshInteraction();
   eventIndex = 0;
   playSound('shutter');
+  render();
+}
+
+function cancelArrivalPause() {
+  clearTimeout(arrivalTimer);
+  arrivalTimer = 0;
+}
+
+function pauseBeforeArrival(restoreFocus) {
+  modalOpener = null;
+  arrivalTimer = setTimeout(() => {
+    arrivalTimer = 0;
+    playSound('bell');
+    render();
+    if (restoreFocus) requestAnimationFrame(() => {
+      if (document.activeElement !== document.body) return;
+      (hud.querySelector('[data-act="event-next"]') ?? desktop.querySelector('.paper-card'))?.focus({ preventScroll: true });
+    });
+  }, ARRIVAL_PAUSE_MS);
   render();
 }
 
@@ -359,7 +388,7 @@ function checkSample(act) {
 }
 
 function stamp(value) {
-  if ((panel && !['docs', 'sample', 'archive'].includes(panel)) || run?.events?.[eventIndex] || run?.phase !== 'case') return;
+  if (arrivalTimer || (panel && !['docs', 'sample', 'archive'].includes(panel)) || run?.events?.[eventIndex] || run?.phase !== 'case') return;
   if (update({ type: 'stamp', value, note: interaction.note }, false)) {
     panel = null;
     playSound('stamp');
@@ -402,18 +431,29 @@ root.addEventListener('click', (event) => {
     case 'new': if (saved && saved.phase !== 'ending') openPanel('restart', target); else enter(false); break;
     case 'start': enter(false); break;
     case 'resume': enter(true); break;
-    case 'home': run = null; resetGaze(); closePanel(); break;
+    case 'home': cancelArrivalPause(); run = null; resetGaze(); closePanel(); break;
     case 'start-day': playSound('shutter'); update({ type: 'start-day' }); break;
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
     case 'next': {
+      if (arrivalTimer || !update({ type: 'next' }, false)) break;
       const { pinned, phoneNumber } = interaction;
       interaction = { ...freshInteraction(), pinned, phoneNumber };
       panel = null;
-      playSound('bell');
-      update({ type: 'next' });
+      if (run.phase === 'case') pauseBeforeArrival(event.detail === 0);
+      else {
+        playSound('bell');
+        render();
+      }
       break;
     }
-    case 'event-next': eventIndex++; playSound('paper'); render(); break;
+    case 'event-next': {
+      if (arrivalTimer) break;
+      eventIndex++;
+      playSound('paper');
+      if (run.phase === 'case') pauseBeforeArrival(event.detail === 0);
+      else render();
+      break;
+    }
     case 'doc': if (run) chooseDoc(index, target); break;
     case 'basis': checkBasis(index, Number(target.dataset.field)); break;
     case 'compare': compareDocs(); break;

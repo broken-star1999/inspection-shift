@@ -216,7 +216,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let frame = initialFrame;
   let paperSet = [];
   let paperKey = null;
-  let enteredAt = -Infinity;
+  let portraitMotionAt = -Infinity;
   let pressed = null;
   let pressedAt = -Infinity;
   let poseX = 0;
@@ -357,9 +357,10 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     if (models.anchors?.pencil) models.anchors.pencil.visible = working && Boolean(frame.pencil);
     updatePaperSet(working ? frame.documents ?? [] : []);
     paperSet.forEach((paper, index) => setPaperOffset(index, frame.positions?.[index]));
-    if (frame.npc !== before.npc || (before.phase === 'receipt' && frame.phase === 'case')) {
+    if (frame.phase === 'waiting') {
+      if (before.phase !== 'waiting') portraitMotionAt = view.performance.now();
+    } else if (frame.npc !== before.npc || (before.phase === 'receipt' && frame.phase === 'case')) {
       portrait.visible = false;
-      enteredAt = view.performance.now();
       if (workerNames.has(frame.npc)) {
         const id = frame.npc;
         loadTexture(`${art}${id}.webp`, (texture) => {
@@ -370,7 +371,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
           portrait.material.map = texture;
           portrait.material.needsUpdate = true;
           portrait.visible = true;
-          enteredAt = view.performance.now();
+          portraitMotionAt = view.performance.now();
           invalidate();
         });
       }
@@ -472,10 +473,13 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     practical.intensity = closing ? 12.8 : 9.1 + day * 2;
     backdrop.material.color.setRGB(closing ? .72 : .9 + .04 * (1 - day), closing ? .74 : .92, closing ? .74 : .89 + .06 * day);
 
-    const arrival = reduced.matches ? 1 : THREE.MathUtils.clamp((now - enteredAt) / 340, 0, 1);
-    const settle = 1 - (1 - arrival) ** 2;
-    portrait.position.set(BOOTH_METRICS.window.x - .52 * (1 - settle), portraitFloor + portraitHeight / 2, -2.43);
-    portrait.material.opacity = settle;
+    const leaving = frame.phase === 'waiting';
+    const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - portraitMotionAt) / (leaving ? 280 : 340), 0, 1);
+    const presence = leaving ? 1 - progress : 1 - (1 - progress) ** 2;
+    const slide = (leaving ? .94 : -.52) * (1 - presence);
+    portrait.position.set(BOOTH_METRICS.window.x + slide, portraitFloor + portraitHeight / 2, -2.43);
+    portrait.material.opacity = presence;
+    if (leaving && progress === 1) portrait.visible = false;
     portrait.material.color.setScalar(closing ? .81 : .98 - day * .045);
 
     const pressAge = now - pressedAt;
@@ -487,7 +491,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       layoutDirty = false;
       refreshLayout();
     }
-    if ((portrait.visible && arrival < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
+    if ((portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 
   function captureDeskProjection() {
