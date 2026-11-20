@@ -4,6 +4,8 @@ const roomKey = 'shift-room';
 const sprites = ['luo', 'tang', 'xu', 'chen', 'zhou', 'sun'];
 const evening = new Set(['summary', 'handoff', 'ending']);
 const logicalHeight = 220;
+const roomTravel = { x: 7, y: 4 };
+const workerTravel = { x: 13, y: 7 };
 
 const warmLight = `
   precision mediump float;
@@ -11,6 +13,7 @@ const warmLight = `
   uniform float uTime;
   uniform float uDay;
   uniform float uClose;
+  uniform vec2 uLook;
   varying vec2 outTexCoord;
 
   void main () {
@@ -18,13 +21,18 @@ const warmLight = `
     vec4 source = texture2D(uMainSampler, uv);
     vec2 center = (uv - vec2(0.44, 0.53)) * vec2(1.0, 0.76);
     float edge = smoothstep(0.25, 0.69, length(center));
-    vec2 lamp = (uv - vec2(0.70, 0.80)) * vec2(1.17, 0.69);
+    vec2 look = vec2(uLook.x, -uLook.y);
+    vec2 lamp = (uv - vec2(0.70, 0.80) - look * vec2(0.064, 0.044)) * vec2(1.17, 0.69);
     float glow = exp(-8.0 * dot(lamp, lamp));
+    vec2 glass = uv - vec2(0.60, 0.53) - look * vec2(0.108, 0.064);
+    float slant = (glass.x + glass.y * 0.29) * 6.6;
+    float reflection = exp(-slant * slant - 11.0 * glass.y * glass.y);
     float pulse = (0.97 + 0.025 * sin(uTime * 1.3) + 0.005 * sin(uTime * 3.9));
     float film = fract(dot(mod(floor(gl_FragCoord.xy), 4.0), vec2(0.25, 0.625))) - 0.5;
     vec3 color = source.rgb * mix(vec3(1.0), vec3(0.94, 0.96, 1.04), uDay);
     color *= 1.0 - edge * 0.28 - uClose * 0.14;
     color += glow * pulse * (1.0 - uClose * 0.38) * vec3(0.091, 0.048, 0.015);
+    color += reflection * (1.0 - uClose * 0.5) * vec3(0.014, 0.029, 0.028);
     color += film * 0.012;
     gl_FragColor = vec4(color, source.a);
   }
@@ -36,12 +44,15 @@ class WarmLightPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
     this.daylight = 0;
     this.closed = 0;
     this.elapsed = 0;
+    this.lookX = 0;
+    this.lookY = 0;
   }
 
   onDraw(target) {
     this.set1f('uTime', this.elapsed);
     this.set1f('uDay', this.daylight);
     this.set1f('uClose', this.closed);
+    this.set2f('uLook', this.lookX, this.lookY);
     this.bindAndDraw(target);
     if (this.ready) return;
     const program = this.currentShader?.program?.webGLProgram;
@@ -170,6 +181,7 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
   const art = `${baseUrl.replace(/\/?$/, '/')}art/`;
   const reducedMotion = view.matchMedia('(prefers-reduced-motion: reduce)');
   let requested = { npc: null, day: 0, phase: 'title' };
+  const targetLook = { x: 0, y: 0 };
   let activeScene;
   let observer;
   let destroyed = false;
@@ -206,6 +218,7 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
       this.grade = 0;
       this.closing = 0;
       this.elapsed = 0;
+      this.look = { x: 0, y: 0 };
       this.frame = {};
       this.isWebGL = this.game.renderer.type === Phaser.WEBGL;
       if (this.isWebGL) {
@@ -241,12 +254,21 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
         this.game.canvas.style.height = '100%';
       }
       const room = this.room.texture.getSourceImage();
-      const scale = Math.max(width / room.width, logicalHeight / room.height);
-      this.room.setPosition(width * 0.5, logicalHeight * 0.5).setScale(scale);
+      const scale = Math.max((width + 2 * (roomTravel.x + 1)) / room.width,
+        (logicalHeight + 2 * (roomTravel.y + 1)) / room.height);
+      this.room.setScale(scale);
       this.roomShade.setSize(width, logicalHeight).setDisplaySize(width, logicalHeight);
-      this.workerX = width * 0.36;
+      this.workerX = width * 0.5;
       this.workerY = logicalHeight + 6;
+      this.placeRoom();
       this.placeWorker();
+    }
+
+    placeRoom() {
+      this.room.setPosition(
+        Math.round(this.workerX - this.look.x * roomTravel.x),
+        Math.round(logicalHeight * 0.5 - this.look.y * roomTravel.y),
+      );
     }
 
     placeWorker() {
@@ -254,8 +276,8 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
       const stageProgress = this.arrival.progress;
       const breath = reducedMotion.matches ? 0 : Math.sin(this.elapsed * 1.9) * 0.85;
       this.worker.setPosition(
-        Math.round(this.workerX - (1 - stageProgress) * 21),
-        Math.round(this.workerY + (1 - stageProgress) * 5 + breath),
+        Math.round(this.workerX - (1 - stageProgress) * 21 - this.look.x * workerTravel.x),
+        Math.round(this.workerY + (1 - stageProgress) * 5 + breath - this.look.y * workerTravel.y),
       );
       this.worker.setAlpha(stageProgress);
     }
@@ -289,16 +311,23 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
 
     update(time, delta) {
       this.elapsed = (time / 1000) % 90;
-      const amount = reducedMotion.matches ? 1 : Math.min(1, delta / 345);
+      const still = reducedMotion.matches;
+      const amount = still ? 1 : Math.min(1, delta / 345);
+      const easing = 1 - Math.exp(-Math.min(delta, 64) / 90);
+      this.look.x = still ? 0 : Phaser.Math.Linear(this.look.x, targetLook.x, easing);
+      this.look.y = still ? 0 : Phaser.Math.Linear(this.look.y, targetLook.y, easing);
       this.grade = Phaser.Math.Linear(this.grade, Phaser.Math.Clamp(this.frame.day / 4, 0, 1), amount);
       this.closing = Phaser.Math.Linear(this.closing, evening.has(this.frame.phase) ? 1 : 0, amount);
       if (this.pipeline) {
-        this.pipeline.elapsed = reducedMotion.matches ? 0 : this.elapsed;
+        this.pipeline.elapsed = still ? 0 : this.elapsed;
         this.pipeline.daylight = this.grade;
         this.pipeline.closed = this.closing;
+        this.pipeline.lookX = this.look.x;
+        this.pipeline.lookY = this.look.y;
       } else {
         this.roomShade.setAlpha(this.closing * 0.22 + this.grade * 0.07);
       }
+      this.placeRoom();
       this.placeWorker();
     }
   }
@@ -328,6 +357,11 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
       if (destroyed) return;
       requested = { ...requested, ...frame };
       activeScene?.show(requested);
+    },
+    setParallax(x, y) {
+      if (destroyed) return;
+      targetLook.x = Number.isFinite(x) ? Phaser.Math.Clamp(x, -1, 1) : 0;
+      targetLook.y = Number.isFinite(y) ? Phaser.Math.Clamp(y, -1, 1) : 0;
     },
     destroy() {
       if (destroyed) return;

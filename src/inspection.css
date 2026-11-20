@@ -1,0 +1,138 @@
+/* Loose paperwork and handled objects sit above the worktop while the room remains visible. */
+.visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.desk-surface {
+  position: absolute;
+  inset: auto auto clamp(.6rem, 2cqh, 1.35rem) clamp(2rem, 13.8cqw, 13rem);
+  inline-size: min(61cqw, 51rem);
+  max-block-size: 82cqh;
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+  transform-origin: 24% 100%;
+  color: #f5e6c5;
+}
+
+.desk-surface-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: .75rem;
+  min-inline-size: 0;
+  padding-inline: .25rem;
+}
+.desk-surface-bar h2 {
+  margin: 0;
+  padding: .29rem .62rem;
+  background: #202b22ee;
+  color: #f3dfb4;
+  box-shadow: 2px 2px #101a16a6;
+  font: 750 clamp(.73rem, 1.27cqw, 1.04rem) / 1.3 var(--mono);
+}
+.surface-close {
+  inline-size: auto;
+  min-block-size: 2.1rem;
+  padding: .27rem .62rem;
+  border: 1px solid #cfba8c;
+  background: #d4bd8d;
+  color: #3a3125;
+  box-shadow: 2px 2px #172319a2;
+  font: 770 .77rem / 1.2 var(--mono);
+  white-space: nowrap;
+}
+.surface-close:hover { background: #ead09a; color: #33281a; }
+
+.desk-surface-content {
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: .57rem .52rem .49rem;
+  background: linear-gradient(155deg, #344033 0%, #26322a 100%);
+  border-radius: 2px 2px 6px 6px;
+  box-shadow: 0 5px 0 #2a261f91, 5px 10px 18px #13160fb0, inset 0 1px #afad7a70;
+}
+.desk-surface .modal-guide { margin-block-end: .52rem; }
+.desk-surface .doc-tabs { gap: .32rem; margin-block-end: .4rem; }
+.desk-surface .doc-tabs .tab {
+  min-block-size: 2.1rem;
+  padding: .2rem .59rem;
+  border-color: #88785b;
+  background: #a9906540;
+  color: #f3dfb6;
+  box-shadow: 1px 2px #162117b3;
+  font-size: .78rem;
+}
+.desk-surface .doc-tabs .tab[aria-pressed='true'] { background: #d8c294; color: #3c301d; }
+.desk-surface .sheet {
+  padding: clamp(.57rem, 1.22cqw, 1.05rem);
+  background: repeating-linear-gradient(0deg, #826f4520 0 1px, transparent 1px 1.62rem), linear-gradient(125deg, #f0e2c0, #e3cca0);
+  box-shadow: 3px 4px 2px #161d17a1, 0 1px #f7e7bf inset;
+}
+.documents-surface .doc-grid > :first-child { border-radius: 1px 7px 2px 1px; }
+.documents-surface .doc-grid.pair > :last-child { border-radius: 5px 1px 3px 1px; }
+.documents-surface:not(:has(.doc-grid.pair)) { inline-size: min(42cqw, 35rem); }
+.desk-surface .field-value {
+  padding: .06rem .12rem;
+  border: 0;
+  border-block-end: 1px dotted #9c8255;
+  background: transparent;
+  color: #433425;
+}
+.desk-surface .field-value:is(:hover, :focus-visible) { background: #d5b66b59; }
+.desk-surface .modal-actions { flex-wrap: wrap; margin-block-start: .55rem; gap: .43rem; }
+.desk-surface .modal-actions .button { min-block-size: 2.2rem; font-size: .83rem; }
+
+.sample-surface .sample-stage { background: #43503f; border-color: #899278; border-radius: 3px; }
+.sample-surface .sample-stage img { transform-origin: 50% 52%; }
+.sample-surface .sample-findings { background: #222e25ab; border: 0; border-inline-start: 2px solid #9f9366; }
+.archive-surface { inset-inline-start: clamp(1rem, 8.3cqw, 7rem); inline-size: min(74cqw, 63rem); }
+.archive-surface .desk-surface-content { background: linear-gradient(130deg, #5b3d30, #3c2f27); box-shadow: 0 4px #302317, 4px 9px 15px #13160fad, inset 0 1px #aa866a; }
+.archive-surface .archive-detail { border-inline-start-color: #c4a5816b; }
+.archive-surface .record-button { background: #42362b; border-color: #7c624d; }
+.archive-surface .record-button[aria-pressed='true'] { background: #765441; border-color: #d9b77f; }
+
+.receipt-surface {
+  inset-inline-start: auto;
+  inset-inline-end: clamp(1rem, 5.4cqw, 5.75rem);
+  inline-size: min(35cqw, 23rem);
+  transform-origin: 85% 80%;
+}
+.receipt-surface .desk-surface-content { background: transparent; border-radius: 0; box-shadow: none; padding: .47rem; }
+.receipt-surface .receipt-slip {
+  min-block-size: auto;
+  border: 0;
+  border-block-end: 4px dotted #987a50a6;
+  border-inline-start: 2px solid #f5e5be;
+  background: linear-gradient(130deg, #f3e5c2, #e5cea0);
+  box-shadow: 3px 5px 9px #171912c4;
+  rotate: -1.15deg;
+}
+.receipt-surface .modal-actions { justify-content: flex-end; }
+
+@container workstation (max-height: 540px) {
+  .desk-surface { inset-block-end: .38rem; max-block-size: calc(100cqh - 3.5rem); }
+  .documents-surface:not(:has(.doc-grid.pair)) { inline-size: min(60cqw, 36rem); }
+  .desk-surface-content { padding: .4rem .42rem .46rem; }
+  .desk-surface-bar h2, .surface-close { font-size: .73rem; }
+  .surface-close { min-block-size: 1.77rem; }
+  .desk-surface .modal-actions { gap: .3rem; margin-block-start: .35rem; }
+  .desk-surface .modal-actions .button, .desk-surface .doc-tabs .tab { min-block-size: 1.92rem; padding: .25rem .47rem; font-size: .75rem; }
+  .desk-surface .doc-grid { gap: .43rem; }
+  .desk-surface .sample-inspector { gap: .45rem; }
+  .sample-surface .sample-stage { min-block-size: 5.1rem; }
+}
+
+@container workstation (max-width: 720px) {
+  .desk-surface { inset-inline-start: .66rem; inline-size: min(72cqw, 43rem); }
+  .documents-surface:not(:has(.doc-grid.pair)) { inline-size: min(72cqw, 36rem); }
+  .archive-surface { inline-size: min(88cqw, 59rem); }
+  .receipt-surface { inset-inline-start: auto; inset-inline-end: 1rem; inline-size: min(52cqw, 22rem); }
+}

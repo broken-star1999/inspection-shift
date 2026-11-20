@@ -1,8 +1,11 @@
 import { createRun, dispatch, getCase, getDay, getEnding, archive, TUTORIAL, EVIDENCE } from './engine.js';
 import { EASTER_EGGS } from './content.js';
+import { sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import * as view from './view.js';
 import './style.css';
+import './booth.css';
+import './inspection.css';
 import './devices.css';
 
 const root = document.querySelector('#game');
@@ -40,12 +43,14 @@ let interaction = freshInteraction();
 
 function freshInteraction() {
   return { note: '', positions: {}, doc: 0, compare: null, signed: false, orderSeen: false,
-    inspection: { back: false, film: false, clasp: false, tug: false, measured: false },
+    inspection: { back: false, film: false, clasp: false, tug: false, measured: false, unpacked: false },
     archiveFocus: null, archiveQuery: '', archiveEditing: false, pinned: [], phoneNumber: '', egg: null };
 }
 
 root.innerHTML = view.shell();
 const status = root.querySelector('#top-status');
+const booth = root.querySelector('.booth-layout');
+const wallShift = root.querySelector('#wall-shift');
 const hud = root.querySelector('#room-hud');
 const desktop = root.querySelector('#desk');
 const screenLayer = root.querySelector('#screen');
@@ -54,6 +59,7 @@ const toastBox = root.querySelector('.game-toast');
 const roomHost = root.querySelector('.canvas-room');
 const soundToggle = root.querySelector('[data-act="sound"]');
 const fullscreenToggle = root.querySelector('[data-act="fullscreen"]');
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 bindViewport(root, ({ fullscreen, immersive }) => {
   const expanded = fullscreen || immersive;
@@ -65,6 +71,18 @@ import('./scenery.js').then(({ mountScenery }) => {
   scenery = mountScenery(roomHost, { baseUrl: import.meta.env.BASE_URL });
   setScene();
 }).catch(() => { roomHost.dataset.renderer = 'static'; });
+
+root.addEventListener('pointermove', (event) => {
+  if (event.pointerType !== 'mouse' || root.dataset.rotated === 'true') return;
+  const bounds = root.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  scenery?.setParallax?.((event.clientX - bounds.x) / bounds.width * 2 - 1, (event.clientY - bounds.y) / bounds.height * 2 - 1);
+});
+root.addEventListener('pointerleave', () => scenery?.setParallax?.(0, 0));
+
+function animateOnDesk(element, frames, duration) {
+  if (!reducedMotion.matches) element?.animate?.(frames, { duration, easing: 'cubic-bezier(.2,.78,.27,1)' });
+}
 
 function tutorialStep() {
   return run?.phase === 'case' && getCase(run)?.id === 1 ? TUTORIAL[run.tutorial] : null;
@@ -80,6 +98,7 @@ function setScene() {
 function render() {
   root.dataset.phase = run?.phase ?? 'home';
   status.innerHTML = run ? `<span>${getDay(run).title}</span><span>第 ${run.day + 1} 天 / 5</span>` : '<span>质检员的一天</span>';
+  wallShift.innerHTML = run ? view.wallShift(run) : '';
   soundToggle.setAttribute('aria-pressed', String(!isMuted()));
   soundToggle.setAttribute('aria-label', isMuted() ? '开启音效' : '关闭音效');
   const item = run ? getCase(run) : null;
@@ -110,8 +129,12 @@ function renderModal(item = run ? getCase(run) : null, step = tutorialStep()) {
   const focused = document.activeElement;
   const hadModal = Boolean(modalLayer.firstElementChild);
   const focusedData = focused instanceof HTMLElement && modalLayer.contains(focused) ? { ...focused.dataset } : null;
+  const previousSurface = modalLayer.querySelector('[data-desk-surface]')?.dataset;
   modalLayer.innerHTML = markup;
-  for (const background of [hud, desktop, screenLayer]) background.inert = Boolean(markup);
+  const surface = modalLayer.querySelector('[data-desk-surface]');
+  const blockingDialog = Boolean(markup && !surface);
+  booth.inert = blockingDialog || !run || Boolean(screenLayer.firstElementChild);
+  screenLayer.inert = Boolean(markup);
   if (!markup) {
     if (hadModal && modalOpener) {
       const matching = [...root.querySelectorAll('button:not([disabled])')].find((element) =>
@@ -124,6 +147,12 @@ function renderModal(item = run ? getCase(run) : null, step = tutorialStep()) {
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
   (restored || focusables.find((element) => element instanceof HTMLButtonElement && element.dataset.act && element.dataset.act !== 'close') || focusables[0])?.focus({ preventScroll: true });
+  if (surface && surface.dataset.deskSurface !== previousSurface?.deskSurface) {
+    const object = surface.querySelector('.sheet, .sample-stage img, .receipt-slip');
+    animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
+  } else if (surface?.dataset.surfacePage !== previousSurface?.surfacePage) {
+    animateOnDesk(surface?.querySelector('.sheet'), [{ translate: '.85rem .3rem', opacity: .65 }, { translate: '0 0', opacity: 1 }], 180);
+  }
 }
 
 function toast(message) {
@@ -207,15 +236,17 @@ function compareDocs() {
 
 function checkSample(act) {
   const sample = interaction.inspection;
+  const spec = getCase(run)?.sample;
+  if (!spec) return;
   switch (act) {
     case 'sample-flip': sample.back = !sample.back; break;
     case 'sample-film': sample.film = !sample.film; break;
     case 'sample-clasp': sample.clasp = true; break;
     case 'sample-tug': sample.tug = true; update({ type: 'tutorial', key: 'sample' }, false); break;
-    case 'sample-measure': sample.measured = true; break;
+    case 'sample-measure': sample.measured = !sample.measured; break;
+    case 'sample-unpack': sample.unpacked = true; break;
     case 'sample-basis': {
-      const spec = getCase(run)?.sample;
-      interaction.note = sample.measured ? `量规读数 · ${spec?.reading}` : `检样 · ${sample.back ? spec?.back : spec?.front}`;
+      interaction.note = sample.measured ? `量规读数 · ${spec.reading}` : `检样 · ${sampleObservation(spec, sample)}`;
       panel = null;
       toast('已记下检样结果');
       break;
@@ -223,12 +254,21 @@ function checkSample(act) {
   }
   playSound(act === 'sample-clasp' || act === 'sample-tug' ? 'click' : 'slide');
   render();
+  const graphic = modalLayer.querySelector('.sample-stage img');
+  if (act === 'sample-flip') {
+    animateOnDesk(graphic, [{ transform: 'perspective(600px) rotateY(-57deg)', opacity: .8 }, { transform: 'perspective(600px) rotateY(0deg)', opacity: 1 }], 220);
+  } else if (act === 'sample-unpack' || act === 'sample-film') {
+    animateOnDesk(graphic, [{ translate: '0 .38rem', opacity: .7 }, { translate: '0 0', opacity: 1 }], 210);
+  }
 }
 
 function stamp(value) {
-  if (panel || run?.events?.[eventIndex] || run?.phase !== 'case') return;
-  if (update({ type: 'stamp', value, note: interaction.note })) playSound('stamp');
-  else toast('先跟老周把这箱查完');
+  if ((panel && !['docs', 'sample', 'archive'].includes(panel)) || run?.events?.[eventIndex] || run?.phase !== 'case') return;
+  if (update({ type: 'stamp', value, note: interaction.note }, false)) {
+    panel = null;
+    playSound('stamp');
+    render();
+  } else toast('先跟老周把这箱查完');
 }
 
 function dial() {
@@ -239,11 +279,11 @@ function dial() {
   if (run.phase === 'handoff' && run.events?.[eventIndex]) toast('有人到窗口递留底');
 }
 
-function openArchive() {
+function openArchive(opener) {
   interaction.archiveFocus ??= archive(run).at(-1)?.id ?? null;
   interaction.archiveEditing = false;
   playSound('paper');
-  openPanel('archive');
+  openPanel('archive', opener);
 }
 
 function closePanel() {
@@ -282,7 +322,7 @@ root.addEventListener('click', (event) => {
     case 'compare': compareDocs(); break;
     case 'sample': playSound('slide'); openPanel('sample', target); break;
     case 'stamp': stamp(key); break;
-    case 'archive': if (run) openArchive(); break;
+    case 'archive': if (run) openArchive(target); break;
     case 'archive-focus': interaction.archiveFocus = index; interaction.archiveEditing = false; playSound('paper'); render(); break;
     case 'archive-pin': {
       const pinned = interaction.pinned;
@@ -326,7 +366,7 @@ root.addEventListener('submit', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Tab' && modalLayer.firstElementChild) {
+  if (event.key === 'Tab' && modalLayer.querySelector('[aria-modal="true"]')) {
     const controls = [...modalLayer.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
     const first = controls[0];
     const last = controls.at(-1);
@@ -338,7 +378,7 @@ document.addEventListener('keydown', (event) => {
   if (panel === 'phone' && /^\d$/.test(event.key) && interaction.phoneNumber.length < 5) {
     interaction.phoneNumber += event.key;
     renderModal();
-  } else if (!panel && ['1', '2', '3'].includes(event.key)) stamp(['pass', 'fail', 'review'][Number(event.key) - 1]);
+  } else if (['1', '2', '3'].includes(event.key)) stamp(['pass', 'fail', 'review'][Number(event.key) - 1]);
 });
 
 desktop.addEventListener('pointerdown', (event) => {
