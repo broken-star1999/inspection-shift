@@ -9,7 +9,8 @@ function act(state, type, details) {
 function untilHandoff(seed, { decisions = {}, inspect = (state) => state } = {}) {
   let state = createRun(seed);
   while (state.phase !== 'handoff') {
-    if (state.phase === 'brief') state = act(state, 'start-day');
+    if (state.phase !== 'case' && state.event) state = act(state, 'ack-visit');
+    else if (state.phase === 'brief') state = act(state, 'start-day');
     else if (state.phase === 'summary') state = act(state, 'advance-day');
     else if (state.phase === 'case') {
       const item = getCase(state);
@@ -17,6 +18,7 @@ function untilHandoff(seed, { decisions = {}, inspect = (state) => state } = {})
         for (const { key } of TUTORIAL.slice(0, -1)) state = act(state, 'tutorial', { key });
       }
       state = inspect(state, item);
+      while (state.event) state = act(state, 'ack-visit');
       state = act(state, 'stamp', { value: decisions[item.id] ?? item.answer });
     } else state = act(state, 'next');
   }
@@ -109,7 +111,8 @@ test('trace needs both archived records, the lab visit and submission at handoff
     }
     if (state.records.at(-1)?.id === 14) {
       assert.equal(state.event.npc, 'chen');
-      assert.equal(state.flags.traceDocument, true);
+      assert.equal(state.flags.traceDocument, false);
+      assert.equal(act(state, 'stamp', { value: item.answer }), state);
     }
     return state;
   } });
@@ -126,11 +129,54 @@ test('report filed during handoff can still lead to an on-site hold', () => {
   let state = untilHandoff(4, { decisions: { 7: 'review' } });
   state = act(state, 'dial', { number: '204', caseIds: [7, 14] });
   assert.equal(state.event.npc, 'chen');
+  state = act(state, 'ack-visit');
   state = act(state, 'attach', { key: 'trace' });
   state = act(state, 'finish');
   assert.equal(getEnding(state).id, 'trace');
   assert.match(getEnding(state).traceDisposition, /已封存/);
   assert.deepEqual(getEnding(state).delayed, { count: 0, batches: [] });
+});
+
+test('two late calls survive reload and grant one document per receipt', () => {
+  let state = untilHandoff(9);
+  state = act(state, 'dial', { number: '204', caseIds: [7, 14] });
+  state = act(state, 'dial', { number: '107', caseIds: [11] });
+  state = act(state, 'dial', { number: '204', caseIds: [7, 14] });
+  state = act(state, 'dial', { number: '107', caseIds: [11] });
+  assert.deepEqual(state.pending, []);
+  assert.deepEqual(state.events.map(({ key }) => key), ['trace', 'night']);
+  assert.equal(state.event.key, 'trace');
+  assert.equal(state.flags.traceDocument, false);
+  assert.equal(state.flags.nightDocument, false);
+  assert.equal(act(state, 'attach', { key: 'trace' }), state);
+  assert.equal(act(state, 'finish'), state);
+
+  state = act(JSON.parse(JSON.stringify(state)), 'ack-visit');
+  assert.equal(state.flags.traceDocument, true);
+  assert.equal(state.flags.nightDocument, false);
+  assert.equal(state.event.key, 'night');
+  assert.equal(act(state, 'attach', { key: 'night' }), state);
+  assert.equal(act(state, 'finish'), state);
+  state = act(state, 'attach', { key: 'trace' });
+  assert.equal(state.flags.traceAttached, true);
+
+  state = act(JSON.parse(JSON.stringify(state)), 'ack-visit');
+  assert.equal(state.flags.nightDocument, true);
+  assert.equal(state.event, null);
+  assert.deepEqual(state.events, []);
+  assert.equal(act(state, 'ack-visit'), state);
+  state = act(state, 'attach', { key: 'night' });
+  assert.equal(state.flags.nightAttached, true);
+  assert.equal(getEnding(act(state, 'finish')).id, 'trace');
+});
+
+test('a v1 save with previously granted evidence can still acknowledge the listed visit', () => {
+  let state = act(untilHandoff(9), 'dial', { number: '107', caseIds: [11] });
+  const legacy = { ...state, flags: { ...state.flags, nightDocument: true } };
+  state = act(JSON.parse(JSON.stringify(legacy)), 'ack-visit');
+  assert.equal(state.flags.nightDocument, true);
+  assert.equal(state.event, null);
+  assert.deepEqual(state.events, []);
 });
 
 test('sending every batch to review reports the release-ready batches that remain held', () => {
@@ -166,7 +212,7 @@ test('night receipt and self-call stay independent of the three endings', () => 
   let state = untilHandoff(6, { inspect: (state, item) => {
     if (item.id === 11) return act(state, 'dial', { number: '107', caseIds: [11] });
     if (state.records.at(-1)?.id === 11) {
-      assert.equal(state.flags.nightDocument, true);
+      assert.equal(state.flags.nightDocument, false);
       assert.equal(state.event.npc, 'sun');
     }
     if (item.id === 13) assert.match(item.line, /孙姐/);

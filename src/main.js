@@ -37,7 +37,6 @@ const collection = readStorage(COLLECTION_KEY);
 let endings = Array.isArray(collection) ? collection.filter((key) => ['routine', 'trace', 'issue'].includes(key)) : [];
 let run = null;
 let panel = null;
-let eventIndex = 0;
 let scenery;
 let toastTimer;
 let arrivalTimer = 0;
@@ -181,8 +180,20 @@ function showPencil(item) {
   return item?.id === 8 && run.flags.rollingPencil && !run.flags.pencil;
 }
 
+function activeVisit() {
+  return run?.events ? (run.events[0] ?? null) : (run?.event ?? null);
+}
+
 function windowCase() {
-  return run && !arrivalTimer ? getCase(run) : null;
+  return run && !arrivalTimer && !activeVisit() ? getCase(run) : null;
+}
+
+function filedVisitPapers(query) {
+  const term = query.trim().toLowerCase();
+  return Object.entries(EVIDENCE).filter(([key, doc]) => {
+    if (!run.flags[`${key}Document`]) return false;
+    return !term || [doc.title, ...doc.fields.flat(), doc.note].some((text) => text?.toLowerCase().includes(term));
+  });
 }
 
 function heldObjects() {
@@ -193,10 +204,10 @@ function heldObjects() {
 }
 
 function setScene() {
-  const event = arrivalTimer ? null : run?.events?.[eventIndex];
+  const visit = arrivalTimer ? null : activeVisit();
   const phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
   const item = windowCase();
-  const npc = event?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
+  const npc = visit?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
   const appearance = item ? sampleAppearance(item.sample) : null;
   const side = interaction.inspection.back ? '-back' : '';
   scenery?.setFrame({ day: run?.day ?? 0, phase, npc: npc || null,
@@ -215,13 +226,15 @@ function render() {
   soundToggle.setAttribute('aria-label', isMuted() ? '开启音效' : '关闭音效');
   const item = windowCase();
   const step = item ? tutorialStep() : null;
+  const visit = arrivalTimer ? null : activeVisit();
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
-  hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, eventIndex) : '';
+  hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, visit) : '';
   desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item), ...heldObjects() }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   if (root.dataset.modeled === 'true') placeFixtures();
-  const event = arrivalTimer ? null : run?.events?.[eventIndex];
-  screenLayer.innerHTML = run ? (event && !item ? view.visitOverlay(event) : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null)) : view.home(saved?.phase === 'ending' ? null : saved, endings);
+  screenLayer.innerHTML = run
+    ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null))
+    : view.home(saved?.phase === 'ending' ? null : saved, endings);
   setScene();
   renderModal(item, step);
 }
@@ -232,12 +245,12 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
   if (panel === 'docs' && item) markup = view.documents(item, doc, compare, step, interaction);
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step);
-  if (panel === 'archive' && run) markup = view.archivePanel(archive(run, archiveQuery), archiveFocus, pinned, archiveQuery, archiveEditing, run.phase === 'handoff');
+  if (panel === 'archive' && run) markup = view.archivePanel(archive(run, archiveQuery), filedVisitPapers(archiveQuery), archiveFocus, pinned, archiveQuery, archiveEditing, run.phase === 'handoff');
   if (panel === 'phone' && run) markup = view.phone(phoneNumber, run.phone, archive(run).filter(({ id }) => pinned.includes(id)), run.day >= 1, run.flags.phoneBack);
   if (panel === 'handoff' && run?.phase === 'handoff') markup = view.handoffPanel(run, EVIDENCE);
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
-  if (!markup && run?.phase === 'receipt' && !run.events?.[eventIndex]) markup = view.receipt(run.records.at(-1));
+  if (!markup && run?.phase === 'receipt' && !activeVisit()) markup = view.receipt(run.records.at(-1));
 
   const focused = document.activeElement;
   const hadModal = Boolean(modalLayer.firstElementChild);
@@ -245,6 +258,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const previousSurface = modalLayer.querySelector('[data-desk-surface]');
   const previousContent = previousSurface?.querySelector('.desk-surface-content');
   const scroll = previousContent ? [previousContent.scrollLeft, previousContent.scrollTop] : null;
+  const archiveIndexScroll = previousSurface?.querySelector('.drawer-list')?.scrollTop;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
   const blockingDialog = Boolean(markup && !surface);
@@ -271,6 +285,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   } else if (surface && scroll) {
     const content = surface.querySelector('.desk-surface-content');
     [content.scrollLeft, content.scrollTop] = scroll;
+    if (archiveIndexScroll !== undefined) surface.querySelector('.drawer-list').scrollTop = archiveIndexScroll;
   }
 }
 
@@ -285,7 +300,6 @@ function update(action, redraw = true) {
   const before = run;
   run = dispatch(run, action);
   if (run !== before) {
-    if (run.events !== before.events) eventIndex = 0;
     saved = run;
     writeStorage(SAVE_KEY, saved);
     if (run.phase === 'ending') {
@@ -311,7 +325,6 @@ function enter(restore) {
   writeStorage(SAVE_KEY, saved);
   panel = null;
   interaction = freshInteraction();
-  eventIndex = 0;
   playSound('shutter');
   render();
 }
@@ -321,16 +334,23 @@ function cancelArrivalPause() {
   arrivalTimer = 0;
 }
 
+function focusNextWindowAction() {
+  requestAnimationFrame(() => {
+    if (document.activeElement !== document.body) return;
+    const target = hud.querySelector('[data-act="event-next"]')
+      ?? screenLayer.querySelector('.primary')
+      ?? desktop.querySelector('.paper-card');
+    target?.focus({ preventScroll: true });
+  });
+}
+
 function pauseBeforeArrival(restoreFocus) {
   modalOpener = null;
   arrivalTimer = setTimeout(() => {
     arrivalTimer = 0;
     playSound('bell');
     render();
-    if (restoreFocus) requestAnimationFrame(() => {
-      if (document.activeElement !== document.body) return;
-      (hud.querySelector('[data-act="event-next"]') ?? desktop.querySelector('.paper-card'))?.focus({ preventScroll: true });
-    });
+    if (restoreFocus) focusNextWindowAction();
   }, ARRIVAL_PAUSE_MS);
   render();
 }
@@ -417,7 +437,7 @@ function checkSample(act) {
 }
 
 function stamp(value) {
-  if (arrivalTimer || (panel && !['docs', 'sample', 'archive'].includes(panel)) || run?.events?.[eventIndex] || run?.phase !== 'case') return;
+  if (arrivalTimer || (panel && !['docs', 'sample', 'archive'].includes(panel)) || activeVisit() || run?.phase !== 'case') return;
   if (update({ type: 'stamp', value, note: interaction.note }, false)) {
     panel = null;
     playSound('stamp');
@@ -431,7 +451,7 @@ function dial() {
   playSound('ring');
   const number = interaction.phoneNumber;
   update({ type: 'dial', number, caseIds: interaction.pinned });
-  if (run.phase === 'handoff' && run.events?.[eventIndex]) toast('有人到窗口递留底');
+  if (run.phase === 'handoff' && activeVisit()) toast('有人到窗口递留底');
 }
 
 function openArchive(opener) {
@@ -468,19 +488,28 @@ root.addEventListener('click', (event) => {
       const { pinned, phoneNumber } = interaction;
       interaction = { ...freshInteraction(), pinned, phoneNumber };
       panel = null;
-      if (run.phase === 'case') pauseBeforeArrival(event.detail === 0);
+      if (run.phase === 'case' || activeVisit()) pauseBeforeArrival(event.detail === 0);
       else {
         playSound('bell');
         render();
+        if (event.detail === 0) focusNextWindowAction();
       }
       break;
     }
     case 'event-next': {
-      if (arrivalTimer) break;
-      eventIndex++;
+      const visit = activeVisit();
+      if (arrivalTimer || !visit || !update({ type: 'ack-visit' }, false)) break;
+      interaction.archiveFocus = visit.key;
+      interaction.archiveQuery = '';
+      interaction.archiveEditing = false;
+      panel = null;
       playSound('paper');
-      if (run.phase === 'case') pauseBeforeArrival(event.detail === 0);
-      else render();
+      toast('留底已收入交接簿');
+      if (run.phase === 'case' || activeVisit()) pauseBeforeArrival(event.detail === 0);
+      else {
+        render();
+        if (event.detail === 0) focusNextWindowAction();
+      }
       break;
     }
     case 'doc': if (run) chooseDoc(index, target); break;
@@ -489,7 +518,12 @@ root.addEventListener('click', (event) => {
     case 'sample': playSound('slide'); openPanel('sample', target); break;
     case 'stamp': stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
-    case 'archive-focus': interaction.archiveFocus = index; interaction.archiveEditing = false; playSound('paper'); render(); break;
+    case 'archive-focus': case 'archive-evidence':
+      interaction.archiveFocus = act === 'archive-focus' ? index : key;
+      interaction.archiveEditing = false;
+      playSound('paper');
+      render();
+      break;
     case 'archive-pin': {
       const pinned = interaction.pinned;
       interaction.pinned = pinned.includes(index) ? pinned.filter((id) => id !== index) : [...pinned.slice(-1), index];
@@ -502,6 +536,7 @@ root.addEventListener('click', (event) => {
     case 'recheck': {
       interaction.archiveEditing = false;
       if (update({ type: 'recheck', id: interaction.archiveFocus, value: key })) {
+        modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, 0);
         playSound('stamp');
         toast('更正已留底');
       }
@@ -549,7 +584,7 @@ root.addEventListener('submit', (event) => {
   if (event.target.dataset.form !== 'archive') return;
   event.preventDefault();
   interaction.archiveQuery = String(new FormData(event.target).get('query') ?? '').slice(0, 60);
-  interaction.archiveFocus = archive(run, interaction.archiveQuery).at(-1)?.id ?? null;
+  interaction.archiveFocus = archive(run, interaction.archiveQuery).at(-1)?.id ?? filedVisitPapers(interaction.archiveQuery).at(-1)?.[0] ?? null;
   interaction.archiveEditing = false;
   render();
 });

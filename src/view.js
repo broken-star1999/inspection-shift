@@ -62,10 +62,8 @@ export function wallShift(run) {
     <div class="batch-progress" aria-label="当班来件 ${run.index + 1} / 4">${day.cases.map((_, index) => `<span class="${index <= run.index ? 'done' : ''}"></span>`).join('')}</div></div>`;
 }
 
-export function room(run, item, tutorial, firstIssue, pressure, eventIndex) {
+export function room(run, item, tutorial, firstIssue, pressure, sceneEvent) {
   const day = DAYS[run.day];
-  const events = run.events ?? [];
-  const sceneEvent = item ? events[eventIndex] : null;
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
   const record = run.phase === 'receipt' ? run.records.at(-1) : null;
   const line = sceneEvent?.line ?? record?.response ?? item?.line ?? day.intro;
@@ -123,17 +121,12 @@ export function overlay(run, ending) {
   return '';
 }
 
-export function visitOverlay(event) {
-  const character = CHARACTERS[event.npc];
-  return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">窗口回访 · ${esc(character.name)}</div><h2>${esc(event.title)}</h2><p>${esc(event.line)}</p>${button('收下留底', 'event-next', 'primary')}</section></div>`;
-}
-
 export function dialog(title, body, type = '') {
   return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close" data-act="close" aria-label="关闭面板">×</button></header><div class="modal-body">${body}</div></section></div>`;
 }
 
 function deskSurface(title, body, type, closeText, page) {
-  return `<section class="desk-surface ${type}" data-desk-surface="${type}"${page === undefined ? '' : ` data-surface-page="${page}"`} role="region" aria-labelledby="panel-title">
+  return `<section class="desk-surface ${type}" data-desk-surface="${type}"${page === undefined ? '' : ` data-surface-page="${esc(page)}"`} role="region" aria-labelledby="panel-title">
     ${closeText ? `<header class="desk-surface-bar"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close surface-close" data-act="close" aria-label="关闭面板">${closeText}</button></header>` : `<h2 class="visually-hidden" id="panel-title">${esc(title)}</h2>`}
     <div class="desk-surface-content">${body}</div></section>`;
 }
@@ -190,16 +183,40 @@ export function sample(item, inspection, tutorial) {
     ${spec.reading ? button(measured ? '取出量规' : '放进量规', 'sample-measure') : ''}${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div>`, 'sample-surface', '放下检样');
 }
 
-export function receipt(record) {
-  return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span><p>${esc(record.note || `去向 · ${statuses[record.status]}`)}</p></div><div class="modal-actions">${button('接着值班', 'next', 'primary')}</div>`, 'receipt-surface');
+function receiptFacts(record, archived = false) {
+  return `<dl class="receipt-facts"><div><dt>${archived ? '现去向' : '去向'}</dt><dd>${esc(statuses[record.status] ?? '待登记')}</dd></div>
+    ${record.note || archived ? `<div><dt>开单依据</dt><dd>${esc(record.note || '未另记')}</dd></div>` : ''}</dl>`;
 }
 
-export function archivePanel(rows, focus, selected, query, editing, handoff) {
+function archivedReceipt(record) {
+  if (!record) return '';
+  const changed = record.amendments?.length > 0;
+  return `<article class="archive-receipt receipt-${record.decision}" aria-label="出票留底">
+    <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
+      <span class="receipt-result">${esc(labels[record.decision])}</span></div>
+    ${receiptFacts(record, true)}
+    ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}更正</b>
+      <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(statuses[entry.previousStatus] ?? '待登记')} → ${esc(statuses[entry.status] ?? '待登记')}</small></li>`).join('')}</ol>` : ''}</article>`;
+}
+
+export function receipt(record) {
+  return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${receiptFacts(record)}</div><div class="modal-actions">${button('接着值班', 'next', 'primary')}</div>`, 'receipt-surface');
+}
+
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff) {
   const row = rows.find(({ id }) => id === focus);
+  const visit = visits.find(([key]) => key === focus)?.[1];
+  const visitIndex = visits.length ? `<h3 class="archive-group-title">回访留底</h3>${visits.map(([key, doc]) =>
+    `<button class="record-button archive-visit-row" data-act="archive-evidence" data-key="${esc(key)}"${active(key === focus)}><b>${esc(doc.title)}</b></button>`).join('')}` : '';
+  const records = rows.slice().reverse().map(({ id, batch, title, record }) => `<button class="record-button" data-act="archive-focus" data-i="${id}"${active(id === focus)}><b>${esc(batch)}</b><span>${esc(title)}</span><small>${record ? statuses[record.status] : '本班来件'}</small></button>`).join('');
+  const index = `${visitIndex}${visits.length && rows.length ? '<h3 class="archive-group-title">批次单据</h3>' : ''}${records}`;
+  let details = '<p class="archive-empty">选一张留底，可以翻看原来的单据。</p>';
+  if (visit) details = sheet(visit);
+  if (row) details = `${archivedReceipt(row.record)}<div class="doc-grid">${row.documents.map((doc) => sheet(doc)).join('')}</div><div class="modal-actions">${button(selected.includes(row.id) ? '从电话旁拿回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
+    ${handoff && row.record ? button(editing ? '取消更正' : '更正开单', 'edit-record') : ''}</div>${editing && row.record ? `<div class="stamp-buttons">${stampButtons(false, false, 'recheck')}</div>` : ''}`;
   return deskSurface('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
-    <div class="drawer-list" aria-label="留档单据">${rows.length ? rows.slice().reverse().map(({ id, batch, title, record }) => `<button class="record-button" data-act="archive-focus" data-i="${id}"${active(id === focus)}><b>${esc(batch)}</b><span>${esc(title)}</span><small>${record ? statuses[record.status] : '本班来件'}</small></button>`).join('') : '<p>这页暂时没有单据。</p>'}</div></div>
-    <div class="archive-detail">${row ? `<div class="doc-grid">${row.documents.map((doc) => sheet(doc)).join('')}</div><div class="modal-actions">${button(selected.includes(row.id) ? '从电话旁拿回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
-      ${handoff && row.record ? button(editing ? '取消更正' : '更正开单', 'edit-record') : ''}</div>${editing && row.record ? `<div class="stamp-buttons">${stampButtons(false, false, 'recheck')}</div>` : ''}` : '<p class="archive-empty">选一张留底，可以翻看原来的单据。</p>'}</div></div>`, 'archive-surface', '合上簿子');
+    <div class="drawer-list" aria-label="留档单据">${index || '<p>没有找到匹配的单据。</p>'}</div></div>
+    <div class="archive-detail">${details}</div></div>`, 'archive-surface', '合上簿子', query);
 }
 
 export function phone(number, call, pinned, numberGuide, phoneBack) {

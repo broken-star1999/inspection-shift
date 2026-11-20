@@ -141,18 +141,36 @@ const VISITS = {
   },
 };
 
+function activeVisits(state) {
+  return state.events ?? (state.event ? [state.event] : []);
+}
+
+function isVisitQueued(state, key) {
+  return state.pending.includes(key) || activeVisits(state).some((visit) => visit.key === key);
+}
+
 function deliverVisits(state) {
-  if (!state.pending.length) return { ...state, event: null, events: [] };
-  const events = state.pending.map((key) => VISITS[key]);
-  const flags = { ...state.flags };
-  for (const { key } of events) flags[`${key}Document`] = true;
-  return { ...state, flags, event: events[0], events, pending: [] };
+  if (!state.pending.length) return state;
+  const events = [...activeVisits(state)];
+  for (const key of state.pending) {
+    if (VISITS[key] && !state.flags[`${key}Document`] && !events.some((visit) => visit.key === key)) {
+      events.push(VISITS[key]);
+    }
+  }
+  return { ...state, event: events[0] ?? null, events, pending: [] };
 }
 
 function queueVisit(state, key) {
-  if (state.flags[`${key}Document`] || state.pending.includes(key)) return state;
+  if (state.flags[`${key}Document`] || isVisitQueued(state, key)) return state;
   const queued = { ...state, pending: [...state.pending, key] };
   return state.phase === 'handoff' ? deliverVisits(queued) : queued;
+}
+
+function acknowledgeVisit(state) {
+  const [visit, ...events] = activeVisits(state);
+  if (!visit) return state;
+  const accepted = setFlags(state, { [`${visit.key}Document`]: true });
+  return { ...accepted, event: events[0] ?? null, events };
 }
 
 function startCase(state, index) {
@@ -242,7 +260,7 @@ function dialLab(state, action, number) {
   if (state.flags.traceDocument) {
     return callResult(state, number, 'chen', ['原件我留在交接板边上了。你核对一下试样来源。']);
   }
-  if (state.pending.includes('trace')) return callResult(state, number, 'chen', ['我把原件拿过去。你先接手里那一批。']);
+  if (isVisitQueued(state, 'trace')) return callResult(state, number, 'chen', ['原件已经留出来了。我们在窗口交接一下。']);
   const ids = selectedRecords(state, action);
   if (ids.has(7) && ids.has(14)) {
     const called = callResult(state, number, script.npc, [script.inquiry, script.found], 'trace');
@@ -260,7 +278,7 @@ function dialLab(state, action, number) {
 function dialNight(state, action, number) {
   const script = PHONE[number];
   if (state.flags.nightDocument) return callResult(state, number, 'sun', ['存根已经拿来了。接下来照交接板上那张办。']);
-  if (state.pending.includes('night')) return callResult(state, number, 'sun', ['我刚把退回联找出来。下一趟就给你带去。']);
+  if (isVisitQueued(state, 'night')) return callResult(state, number, 'sun', ['退回联已经找出来了。到窗口我给你。']);
   if (!selectedRecords(state, action).has(11)) {
     return callResult(state, number, script.npc, [script.greeting]);
   }
@@ -322,9 +340,10 @@ function finish(state) {
 
 export function dispatch(state, action) {
   if (!action?.type || state.phase === 'ending') return state;
+  const waitingForVisit = activeVisits(state).length > 0;
   switch (action.type) {
     case 'start-day':
-      return state.phase === 'brief' ? startCase(deliverVisits(state), 0) : state;
+      return state.phase === 'brief' && !waitingForVisit ? startCase(deliverVisits(state), 0) : state;
     case 'tutorial': {
       const step = TUTORIAL[state.tutorial];
       const key = action.key ?? action.step ?? action.value;
@@ -332,11 +351,13 @@ export function dispatch(state, action) {
       return key === step.key ? { ...state, tutorial: state.tutorial + 1 } : state;
     }
     case 'stamp':
-      return state.phase === 'case' ? stamp(state, action) : state;
+      return state.phase === 'case' && !waitingForVisit ? stamp(state, action) : state;
     case 'next':
-      return state.phase === 'receipt' ? nextCase(state) : state;
+      return state.phase === 'receipt' && !waitingForVisit ? nextCase(state) : state;
     case 'advance-day':
-      return state.phase === 'summary' ? { ...state, phase: 'brief', day: state.day + 1, index: 0, event: null, events: [] } : state;
+      return state.phase === 'summary' && !waitingForVisit ? { ...state, phase: 'brief', day: state.day + 1, index: 0 } : state;
+    case 'ack-visit':
+      return acknowledgeVisit(state);
     case 'dial':
       return dial(state, action);
     case 'explore':
@@ -346,7 +367,7 @@ export function dispatch(state, action) {
     case 'attach':
       return state.phase === 'handoff' ? attach(state, action) : state;
     case 'finish':
-      return state.phase === 'handoff' ? finish(state) : state;
+      return state.phase === 'handoff' && !waitingForVisit ? finish(state) : state;
     default:
       return state;
   }
