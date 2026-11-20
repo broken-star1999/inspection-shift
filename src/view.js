@@ -1,4 +1,5 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL } from './content.js';
+import { intakeComparison, projectComparison } from './document-comparison.js';
 import { receiptDisposition, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
@@ -277,7 +278,7 @@ export function instructions(how) {
     ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。可以先记下查验依据。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
-function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false } = {}) {
+function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, fieldActions } = {}) {
   const action = inspection?.action ?? 'basis';
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
@@ -287,10 +288,45 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const chosen = inspection?.selected.has(`doc:${index}:${field}`);
     const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${signatureTarget ? ' data-tutorial-signature' : ''}${active(chosen)}>${text}</button>` : text;
     const lookup = reportLookup && (key === '报告编号' || key === '原报告编号') && value;
-    return `<div><dt>${esc(key)}</dt><dd${lookup ? ' class="report-number-value"' : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}</dd></div>`;
+    const extraAction = fieldActions?.get(key);
+    const layout = lookup ? 'report-number-value' : extraAction ? 'document-action-value' : '';
+    return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${extraAction ?? ''}</dd></div>`;
   }).join('');
   return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}"><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small><h3>${esc(doc.title)}</h3>${clipboardFront ? clipboardFlip(false) : ''}<dl class="fields">
     ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
+}
+
+function orderFieldActions(item, orderIndex, visible, selected) {
+  const order = item.documents[orderIndex];
+  const actions = new Map();
+  const intakeField = order.fields.find(([key]) => key === '随货材料' || key === '随货要求')?.[0];
+  if (intakeField && intakeComparison(item, orderIndex)) {
+    actions.set(intakeField, button('点收', 'delivery-check', 'secondary document-field-action delivery-check-action', `data-i="${orderIndex}"`));
+  }
+  const projectField = order.fields.find(([key]) => key === '检验项目' || key === '必查项目')?.[0];
+  if (!projectField) return actions;
+  const reports = item.documents.flatMap((doc, index) => {
+    const comparison = doc.type === 'report' && projectComparison(item, orderIndex, index);
+    return comparison ? [{ index, comparison }] : [];
+  });
+  const paired = reports.find(({ index }) => visible.includes(index));
+  const report = paired ?? reports[0];
+  if (report) {
+    const attributes = `data-i="${orderIndex}" data-key="${report.index}"`;
+    const recorded = selected.has(report.comparison.finding.key);
+    const action = paired
+      ? button(recorded ? '取回对照' : '记下对照', 'project-evidence', 'secondary document-field-action project-field-action', attributes + active(recorded))
+      : button('对照报告', 'project-pair', 'secondary document-field-action project-field-action', attributes);
+    actions.set(projectField, action);
+  }
+  return actions;
+}
+
+function intakeSlip(comparison, orderIndex, selected) {
+  const checked = selected.has(comparison.finding.key);
+  return `<article class="sheet intake-slip"><small>质检窗口 · 本批收件</small><h3>实收点数条</h3>
+    <ul class="intake-received" aria-label="实际收到的单据">${comparison.received.map((title) => `<li>${esc(title)}</li>`).join('')}</ul>
+    <div class="modal-actions intake-actions">${button(checked ? '取回依据' : '记下点收', 'delivery-evidence', 'secondary intake-evidence', `data-i="${orderIndex}"${active(checked)}`)}</div></article>`;
 }
 
 function tutorialGuide(line, extraClass = '') {
@@ -360,7 +396,6 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     projects: sampleReady && reportVisible && visibleTypes.includes('order'),
     selected: new Set(findings.map(({ key }) => key)),
   };
-  const activeSheet = (page, position) => sheet(page, position, inspection, { clipboardFront: position === clipboardIndex, reportLookup: !tutorial });
   const draft = findingsDraft(findings, progress.showFindings);
   let guide = tutorial?.line;
   if (signature && progress.signed) guide = tutorial.orderLine;
@@ -384,6 +419,20 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const spreading = canSpread && progress.spreadAll === true;
   const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
   const headerActions = guidedCompare + previousAction + spreadAction + sampleAction + phoneAction + draft.header;
+  const visible = spreading ? item.documents.map((_, position) => position) : [index, compare];
+  const activeSheet = (page, position) => sheet(page, position, inspection, {
+    clipboardFront: position === clipboardIndex,
+    reportLookup: !tutorial,
+    fieldActions: !tutorial && !comparing && page.type === 'order' ? orderFieldActions(item, position, visible, inspection.selected) : undefined,
+  });
+  const intakeIndex = progress.deliveryCheck;
+  const intake = !tutorial && intakeComparison(item, intakeIndex);
+  if (intake) {
+    const closeIntake = button('收起点收条', 'delivery-check', 'secondary intake-close', `data-i="${intakeIndex}"${active(true)}`);
+    return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair intake-comparison">${sheet(item.documents[intakeIndex], intakeIndex, inspection)}
+      ${intakeSlip(intake, intakeIndex, inspection.selected)}</div>`, 'documents-surface', '放回台面', `intake:${intakeIndex}`,
+    { headerActions: closeIntake + phoneAction + draft.header });
+  }
   if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, activeSheet)}`,
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
   if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread">${item.documents.map(activeSheet).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
@@ -394,8 +443,11 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   }).join('');
   const compareAction = !guidedCompare && item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : '';
   const footerActions = compareAction + extras;
+  const orderIndex = doc.type === 'order' ? index : other?.type === 'order' ? compare : null;
+  const reportIndex = doc.type === 'report' ? index : other?.type === 'report' ? compare : null;
+  const projectPair = !tutorial && projectComparison(item, orderIndex, reportIndex);
   return deskSurface('桌面单据', `${guide ? tutorialGuide(guide) : ''}${draft.list}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
-    <div class="doc-grid${cls('pair', other)}">${activeSheet(doc, index)}${other ? activeSheet(other, compare) : ''}</div>
+    <div class="doc-grid${cls('pair', other)}${cls('project-comparison', projectPair)}">${activeSheet(doc, index)}${other ? activeSheet(other, compare) : ''}</div>
     ${footerActions ? `<div class="modal-actions">${footerActions}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions });
 }
 
@@ -436,7 +488,7 @@ export function sample(item, inspection, tutorial, progress) {
     ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查', null, practicing)
     : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件', null, practicing);
   if (spec.reading) control = sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '放入', measured ? '取出量规' : '放进量规', measured);
-  const basis = packaged ? button('记下包装', 'sample-basis') : tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : '';
+  const basis = packaged ? button('记下包装', 'sample-basis') : !tutorial || tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : '';
   const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : 'secondary sample-flip-control');
   return deskSurface(`${item.batch} · ${appearance.name}`, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(spec.reading, measured) : ''}</div><div class="sample-findings"><b>${inGauge ? '已放入量规' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
@@ -510,14 +562,14 @@ export function receipt(record, previous) {
 }
 
 function correctionPanel(record, findings, selected, reworkBasis) {
-  const originals = readFindings(record).filter(({ key }) => key.startsWith('sample:'));
+  const originals = readFindings(record).filter(({ key }) => key.startsWith('sample:') || key.startsWith('compare:'));
   const option = ({ key, source, text }) =>
     button(`<small>${esc(source)}</small><span>${esc(text)}</span>`, 'correction-original', 'secondary correction-original', `data-key="${esc(key)}"${active(selected.has(key))}`);
   return `<section class="correction-panel" aria-label="本次更正依据">
     ${findings.length ? `<div class="correction-draft"><b>更正依据 ${findings.length}</b>${findingLines(findings, 'correction-remove')}</div>`
       : reworkBasis ? '' : '<p class="correction-help">可点单据字段，留下本次更正依据。</p>'}
     ${reworkBasis ? `<div class="correction-originals"><b>引用复核联</b><div class="correction-original-options">${option(reworkBasis)}</div></div>` : ''}
-    ${originals.length ? `<div class="correction-originals"><b>沿用原检样观察</b><div class="correction-original-options">${originals.map(option).join('')}</div></div>` : ''}
+    ${originals.length ? `<div class="correction-originals"><b>沿用原查验记录</b><div class="correction-original-options">${originals.map(option).join('')}</div></div>` : ''}
   </section>`;
 }
 

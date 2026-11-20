@@ -61,7 +61,9 @@ function report(batch, number, fields = [visual, clasp, seal], title = '检验�
 }
 
 function order(batch, fields = [['检验项目', '外观、扣合']]) {
-  return { type: 'order', title: '送检联', fields: [['批号', batch], ...fields] };
+  const hasMaterialRequirement = fields.some(([name]) => name === '随货要求' || name === '随货材料');
+  const materials = hasMaterialRequirement ? [] : [['随货材料', '随货附本批检验报告']];
+  return { type: 'order', title: '送检联', fields: [['批号', batch], ...fields, ...materials] };
 }
 
 function archive(title, fields, note) {
@@ -246,12 +248,12 @@ export const DAYS = [
     ],
   },
   {
-    title: '周二', subtitle: '少了一份报告',
+    title: '周二', subtitle: '装货台在等回单',
     intro: '小罗在窗下压了一张内线表。「缺报告找 204，小陈。」',
     cases: [
       {
         id: 5, batch: 'G-205', npc: 'luo', title: '少来了一张报告',
-        line: '二零五的箱签和送检联我都带了。实验室那份还没送下来。',
+        line: '二零五，先看这摞。装货台还等着回单。',
         answer: 'review', reason: '未随货提供本批检验报告', receiptAside: '拿到报告我再来一趟。',
         documents: [label('G-205', [], '防噪耳罩'), order('G-205', earmuffChecks)], sample: earmuff,
       },
@@ -294,7 +296,7 @@ export const DAYS = [
       },
       {
         id: 10, batch: 'G-248', npc: 'zhou', title: '等着上车的二四八',
-        line: '装车那边在等二四八。我能多留一会儿，你告诉我缺的是哪张。',
+        line: '二四八这张签过了。装车那边在等。',
         answer: 'review', reason: '缺少本批耐冲击结果', receiptAside: '实验室那份，我明早去问。',
         documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-079', [visual, seal], '外观抽检报告'), order('G-248', [['必查项目', '外观、耐冲击'], ['随货要求', '附本批实验室耐冲击结果']])], sample: shield,
       },

@@ -5,6 +5,7 @@ import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMute
 import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
+import { intakeComparison, projectComparison } from './document-comparison.js';
 import * as view from './view.js';
 import './style.css';
 import './booth.css';
@@ -341,14 +342,15 @@ function previousInspection(item = windowCase()) {
 }
 
 function viewedDocument() {
-  return interaction.previousCurrentDoc ?? interaction.doc;
+  return interaction.deliveryCheck ?? interaction.previousCurrentDoc ?? interaction.doc;
 }
 
 function heldObjects(item) {
   const sampleHeld = panel === 'sample';
   let heldDocuments = [];
   if (panel === 'docs') {
-    if (interaction.previousDoc !== null) heldDocuments = [viewedDocument()];
+    if (interaction.deliveryCheck !== null) heldDocuments = [interaction.deliveryCheck];
+    else if (interaction.previousDoc !== null) heldDocuments = [viewedDocument()];
     else if (interaction.spreadAll && item?.documents.length === 3) heldDocuments = [0, 1, 2];
     else heldDocuments = [interaction.doc, interaction.compare];
   }
@@ -994,6 +996,7 @@ function chooseDoc(index, opener) {
     return;
   }
   interaction.clipboardBack = false;
+  interaction.deliveryCheck = null;
   if (tutorialStep()?.key === 'signature' && doc.type === 'order') {
     pairTutorialOrder(item, index);
   } else if (panel === 'docs' && interaction.previousDoc !== null) {
@@ -1021,6 +1024,12 @@ function updateFindings(findings) {
   }
 }
 
+function toggleFinding(finding) {
+  const selected = interaction.findings.some(({ key }) => key === finding.key);
+  updateFindings(selected ? interaction.findings.filter(({ key }) => key !== finding.key) : [...interaction.findings, finding]);
+  return !selected;
+}
+
 function checkBasis(index, field) {
   if (run?.phase !== 'case' || (panel !== 'docs' && panel !== 'sample')) return;
   const doc = windowCase()?.documents[index];
@@ -1028,17 +1037,13 @@ function checkBasis(index, field) {
   if (!datum) return;
   const [label] = datum;
   const finding = paperFieldFinding(doc, index, field);
-  const { key } = finding;
-  const selected = interaction.findings.some((finding) => finding.key === key);
-  updateFindings(selected
-    ? interaction.findings.filter((finding) => finding.key !== key)
-    : [...interaction.findings, finding]);
+  const recorded = toggleFinding(finding);
   if (label === '签发' && doc.type === 'report' && tutorialStep()) {
     interaction.signed = true;
     advanceTutorial();
   }
   playSound('click');
-  toast(`${selected ? '已移除' : '已记下'} · ${label}`);
+  toast(`${recorded ? '已记下' : '已移除'} · ${label}`);
   render();
 }
 
@@ -1072,7 +1077,7 @@ function selectedCorrectionFindings(row, keys = []) {
   if (!row) return [];
   const available = [
     ...row.documents.flatMap((doc, index) => doc.fields.map((_, field) => paperFieldFinding(doc, index, field))),
-    ...readFindings(row.record).filter(({ key }) => key.startsWith('sample:')),
+    ...readFindings(row.record).filter(({ key }) => key.startsWith('sample:') || key.startsWith('compare:')),
   ];
   const rework = reworkFinding(row);
   if (rework) available.push(rework);
@@ -1141,7 +1146,8 @@ function compareDocs(hint) {
   if (hint === 'order' && guide?.key === 'signature') {
     pairTutorialOrder(item, item.documents.findIndex(({ type }) => type === 'order'));
   } else {
-    const preferredType = type === 'report' ? (guide?.key === 'signature' ? 'order' : 'label') : 'report';
+    const hasOrder = item.documents.some(({ type }) => type === 'order');
+    const preferredType = type === 'report' ? (hasOrder && (!guide || guide.key === 'signature') ? 'order' : 'label') : 'report';
     const preferred = item.documents.findIndex((doc, id) => id !== index && doc.type === preferredType);
     interaction.compare = interaction.compare === null ? (preferred >= 0 ? preferred : (index + 1) % item.documents.length) : null;
   }
@@ -1158,11 +1164,53 @@ function spreadDocuments() {
   render(0);
 }
 
+function documentCheckItem() {
+  return panel === 'docs' && run?.phase === 'case' && !tutorialStep() ? windowCase() : null;
+}
+
+function toggleDeliveryCheck(index) {
+  if (!intakeComparison(documentCheckItem(), index)) return;
+  interaction.deliveryCheck = interaction.deliveryCheck === index ? null : index;
+  playSound('paper');
+  render(0);
+  focusControl(modalLayer, { act: 'delivery-check', i: String(index) });
+}
+
+function openProjectComparison(orderIndex, reportIndex) {
+  if (!projectComparison(documentCheckItem(), orderIndex, reportIndex)) return;
+  Object.assign(interaction, { doc: orderIndex, compare: reportIndex, deliveryCheck: null,
+    spreadAll: false, previousDoc: null, previousCurrentDoc: null, clipboardBack: false });
+  playSound('slide');
+  render(0);
+  focusControl(modalLayer, { act: 'project-evidence', i: String(orderIndex), key: String(reportIndex) });
+}
+
+function recordDocumentComparison(kind, orderIndex, reportIndex) {
+  const item = documentCheckItem();
+  if (!item) return;
+  let comparison;
+  if (kind === 'delivery-evidence') {
+    if (interaction.deliveryCheck !== orderIndex) return;
+    comparison = intakeComparison(item, orderIndex);
+  } else {
+    if (interaction.deliveryCheck !== null || interaction.previousDoc !== null) return;
+    const { heldDocuments } = heldObjects(item);
+    if (!heldDocuments.includes(orderIndex) || !heldDocuments.includes(reportIndex)) return;
+    comparison = projectComparison(item, orderIndex, reportIndex);
+  }
+  if (!comparison) return;
+  const recorded = toggleFinding(comparison.finding);
+  playSound('paper');
+  toast(recorded ? '已记下纸面记录' : '已取回纸面记录');
+  render();
+}
+
 function comparePrevious(opener) {
   const item = windowCase();
   const previous = previousInspection(item);
   if (!previous?.documents.length) return;
   if (panel !== 'docs' && (panel !== 'archive' || archiveReturn || interaction.archiveFocus !== previous.record.id)) return;
+  interaction.deliveryCheck = null;
   if (panel === 'docs' && interaction.previousDoc !== null) {
     interaction.previousDoc = null;
     interaction.previousCurrentDoc = null;
@@ -1497,6 +1545,9 @@ root.addEventListener('click', (event) => {
     }
     case 'compare': compareDocs(key); break;
     case 'compare-all': spreadDocuments(); break;
+    case 'delivery-check': toggleDeliveryCheck(index); break;
+    case 'project-pair': openProjectComparison(index, Number(key)); break;
+    case 'delivery-evidence': case 'project-evidence': recordDocumentComparison(act, index, Number(key)); break;
     case 'previous-compare': comparePrevious(target); break;
     case 'previous-doc': {
       const previous = previousInspection();
