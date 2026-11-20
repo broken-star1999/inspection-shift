@@ -43,3 +43,88 @@ html[data-shift-immersive] body {
   transform-origin: top left;
   touch-action: pinch-zoom;
 }
+
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  #game[data-modeled='true'] .booth-layout .room {
+    --dialogue-top: calc(.45rem - var(--fixture-y, 0px));
+    --dialogue-width: min(80cqw, 34rem);
+    --guide-position: calc(100% + .32rem) auto;
+    --guide-width: min(82cqw, 32rem);
+  }
+
+  #game[data-phase='case'] .booth-layout .room-hud :is(.speech:not(.dispatch-event), .training) {
+    inset-inline: 50% auto;
+    inline-size: max-content;
+    max-block-size: none;
+    padding: .3rem .53rem;
+    overflow: visible;
+    translate: -50% 0;
+    pointer-events: none;
+  }
+
+  #game[data-phase='case'] .booth-layout .room-hud .speech:not(.dispatch-event) {
+    inset-block: var(--dialogue-top, .3rem) auto;
+    max-inline-size: var(--dialogue-width, calc(100% - .6rem));
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: start;
+    column-gap: .62rem;
+    row-gap: .2rem;
+  }
+
+  #game[data-phase='case'] .room-hud .speech:not(.dispatch-event) .speaker {
+    display: grid;
+    gap: .08rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    line-height: 1.19;
+  }
+
+  #game[data-phase='case'] .room-hud .speech:not(.dispatch-event) > :is(p, .prior-receipt) {
+    grid-column: 2;
+    margin-block-start: 0;
+  }
+
+  #game[data-phase='case'] .booth-layout .room-hud .speech:has(> .prior-receipt) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+    box-shadow: inset 0 1px #eee4c61a;
+  }
+
+  #game[data-modeled='true'][data-phase='case'] .room-hud .speech:has(> .prior-receipt) {
+    max-inline-size: min(90cqw, 42rem);
+  }
+
+  #game[data-phase='case'] .room-hud .speech:has(> .prior-receipt) .speaker {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .12rem .38rem;
+  }
+
+  #game[data-phase='case'] .room-hud .speech:not(.dispatch-event):has(> .prior-receipt) > p { grid-column: 1; }
+  #game[data-phase='case'] .room-hud .speech:has(> .prior-receipt) > p:first-of-type { grid-row: 2; }
+
+  #game[data-phase='case'] .room-hud .speech > .prior-receipt {
+    grid-row: 1 / span 2;
+    justify-self: start;
+    align-self: center;
+    max-inline-size: clamp(7rem, 29cqw, 12rem);
+    min-block-size: 2.75rem;
+    pointer-events: auto;
+  }
+
+  #game[data-phase='case'] .room-hud .prior-receipt small { flex-basis: auto; }
+
+  #game[data-phase='case'] .booth-layout .room-hud .training {
+    inset-block: var(--guide-position, auto .26rem);
+    max-inline-size: var(--guide-width, calc(100% - .6rem));
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: .12rem .44rem;
+  }
+
+  #game[data-phase='case'] .room-hud .training .tutorial-index { margin: 0; }
+  #game[data-phase='case'] .room-hud .training small { padding-block-end: 0; }
+}
