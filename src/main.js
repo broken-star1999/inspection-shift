@@ -3,7 +3,7 @@ import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
-import { freshInteraction, captureInspectionProgress, restoreInspectionProgress } from './inspection-progress.js';
+import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
 import * as view from './view.js';
 import './style.css';
@@ -439,17 +439,19 @@ function render(resumeScroll) {
   soundToggle.setAttribute('aria-label', isMuted() ? '开启音效' : '关闭音效');
   const item = windowCase();
   const step = item ? tutorialStep() : null;
+  const deskGuide = step?.key === 'signature' && interaction.signed
+    ? { ...step, target: 'order', line: step.orderLine }
+    : step;
   const visit = arrivalTimer ? null : activeVisit();
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
-  const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
   hud.innerHTML = run && !arrivalTimer && !closingShot && (run.phase !== 'summary' || visit)
-    ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous)
+    ? view.room(run, item, deskGuide, item?.pressureLine, visit, previous)
     : '';
   const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
   const previewVisit = preview ? activeVisit(preview) : null;
   const previewItem = preview && !previewVisit ? getCase(preview) : null;
   const delivered = visit ? visitDocument(visit) : visitDocument(previewVisit, preview);
-  desktop.innerHTML = delivered ? view.visitSlip(delivered) : item ? view.desk(run, item, step, {
+  desktop.innerHTML = delivered ? view.visitSlip(delivered) : item ? view.desk(run, item, deskGuide, {
     ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(item),
   }) : previewItem ? view.desk(preview, previewItem, null, { ...freshInteraction(), stampBlocked: true }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
@@ -533,6 +535,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const scroll = previousContent ? [previousContent.scrollLeft, previousContent.scrollTop] : null;
   const previousReference = previousSurface?.querySelector('.sample-reference');
   const previousPaper = previousSurface?.querySelector('.return-previous');
+  const wasShowingSignature = previousSurface?.querySelector('[data-tutorial-signature]');
   const archiveIndexScroll = previousSurface?.querySelector('.drawer-list')?.scrollTop;
   const phoneScroll = modalLayer.querySelector('.phone-modal .modal-body')?.scrollTop;
   const handoffIndexScroll = modalLayer.querySelector('.handoff-board')?.scrollTop;
@@ -579,6 +582,9 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     if (reference && reference.dataset.referenceDoc !== previousReference?.dataset.referenceDoc) {
       animateOnDesk(reference.querySelector('.sheet'), [{ translate: '.85rem .3rem', opacity: .65 }, { translate: '0 0', opacity: 1 }], 180);
     }
+  }
+  if (!wasShowingSignature) {
+    surface?.querySelector('[data-tutorial-signature]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }
 
@@ -709,6 +715,12 @@ function enter(restore) {
     interaction = freshInteraction();
   }
   panel = workspace?.panel ?? null;
+  if (tutorialStep() && (panel === 'docs' || workspace?.returnTo?.panel === 'docs')) {
+    const documents = getCase(run)?.documents;
+    readDocument(documents?.[viewedDocument()]);
+    readDocument(documents?.[interaction.compare]);
+  }
+  advanceTutorial();
   phoneReturn = workspace?.returnTo ? { ...workspace.returnTo, opener: { act: 'phone' } } : null;
   if (panel !== 'phone') run = dispatch(run, { type: 'hang-up' });
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
@@ -870,20 +882,30 @@ function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
   render();
 }
 
-function advanceSignature() {
-  if (!interaction.orderSeen || !interaction.signed) return;
-  const advanced = update({ type: 'tutorial', key: 'signature' }, false);
-  if (advanced && interaction.inspection.tug) update({ type: 'tutorial', key: 'sample' }, false);
+function advanceTutorial() {
+  let step = tutorialStep();
+  while (step && tutorialActionComplete(step.key, interaction)) {
+    if (!update({ type: 'tutorial', key: step.key }, false)) break;
+    step = tutorialStep();
+  }
 }
 
 function readDocument(doc) {
-  if (doc?.type === 'label' || doc?.type === 'report') update({ type: 'tutorial', key: doc.type }, false);
-  if (doc?.type === 'order' && tutorialStep()?.key === 'signature') interaction.orderSeen = true;
-  advanceSignature();
+  if (!tutorialStep()) return;
+  if (doc?.type === 'label') interaction.labelSeen = true;
+  if (doc?.type === 'report') interaction.reportSeen = true;
+  if (doc?.type === 'order') interaction.orderSeen = true;
+  advanceTutorial();
+}
+
+function pairTutorialOrder(item, index) {
+  interaction.doc = item.documents.findIndex(({ type }) => type === 'report');
+  interaction.compare = index;
 }
 
 function chooseDoc(index, opener) {
-  const doc = run?.phase === 'case' && windowCase()?.documents[index];
+  const item = run?.phase === 'case' ? windowCase() : null;
+  const doc = item?.documents[index];
   if (!doc) return;
   if (panel === 'sample' && !tutorialStep()) {
     interaction.referenceDoc = index;
@@ -892,7 +914,9 @@ function chooseDoc(index, opener) {
     return;
   }
   interaction.clipboardBack = false;
-  if (panel === 'docs' && interaction.previousDoc !== null) {
+  if (tutorialStep()?.key === 'signature' && doc.type === 'order') {
+    pairTutorialOrder(item, index);
+  } else if (panel === 'docs' && interaction.previousDoc !== null) {
     interaction.previousCurrentDoc = index;
   } else if (panel === 'docs' && interaction.compare !== null && !interaction.spreadAll) {
     if (index !== interaction.doc) interaction.compare = index;
@@ -929,9 +953,9 @@ function checkBasis(index, field) {
   updateFindings(selected
     ? interaction.findings.filter((finding) => finding.key !== key)
     : [...interaction.findings, finding]);
-  if (label.includes('签发') && tutorialStep()?.key === 'signature') {
+  if (label === '签发' && doc.type === 'report' && tutorialStep()) {
     interaction.signed = true;
-    advanceSignature();
+    advanceTutorial();
   }
   playSound('click');
   toast(`${selected ? '已移除' : '已记下'} · ${label}`);
@@ -1027,14 +1051,19 @@ function editCorrectionFinding(key, { remove = false, field } = {}) {
   }
 }
 
-function compareDocs() {
+function compareDocs(hint) {
   const item = getCase(run);
-  if (!item || item.documents.length < 2) return;
+  if (panel !== 'docs' || !item || item.documents.length < 2) return;
   const index = interaction.doc;
   const type = item.documents[index].type;
-  const preferredType = type === 'report' ? (tutorialStep()?.key === 'signature' ? 'order' : 'label') : 'report';
-  const preferred = item.documents.findIndex((doc, id) => id !== index && doc.type === preferredType);
-  interaction.compare = interaction.compare === null ? (preferred >= 0 ? preferred : (index + 1) % item.documents.length) : null;
+  const guide = tutorialStep();
+  if (hint === 'order' && guide?.key === 'signature') {
+    pairTutorialOrder(item, item.documents.findIndex(({ type }) => type === 'order'));
+  } else {
+    const preferredType = type === 'report' ? (guide?.key === 'signature' ? 'order' : 'label') : 'report';
+    const preferred = item.documents.findIndex((doc, id) => id !== index && doc.type === preferredType);
+    interaction.compare = interaction.compare === null ? (preferred >= 0 ? preferred : (index + 1) % item.documents.length) : null;
+  }
   readDocument(item.documents[interaction.compare]);
   playSound('slide');
   render();
@@ -1111,7 +1140,8 @@ function sampleFinding(spec, inspection) {
 function checkSample(act) {
   if (panel !== 'sample' || run?.phase !== 'case') return;
   const sample = interaction.inspection;
-  const spec = windowCase()?.sample;
+  const item = windowCase();
+  const spec = item?.sample;
   if (!spec) return;
   const packed = spec.kind === 'yellow' && !sample.unpacked;
   const previousFilm = act === 'sample-film' && modalLayer.querySelector('.sample-film-sheet');
@@ -1122,7 +1152,10 @@ function checkSample(act) {
       if (packed || (spec.reading && sample.measured)) return;
       sample.back = !sample.back;
       break;
-    case 'sample-film': sample.film = !sample.film; break;
+    case 'sample-film':
+      sample.film = !sample.film;
+      if (item.id === 2 && sample.film) interaction.filmChecked = true;
+      break;
     case 'sample-clasp':
       if (!sample.back || sample.clasp || !sampleAppearance(spec).clasp) return;
       sample.clasp = true;
@@ -1132,7 +1165,7 @@ function checkSample(act) {
       if (!sample.back || !sample.clasp || sample.tug || !sampleAppearance(spec).clasp) return;
       sample.tug = true;
       sound = ['loose', 'broken'].includes(spec.kind) ? 'claspRelease' : 'tug';
-      update({ type: 'tutorial', key: 'sample' }, false);
+      advanceTutorial();
       break;
     case 'sample-measure':
       if (!spec.reading) return;
@@ -1353,7 +1386,7 @@ root.addEventListener('click', (event) => {
       }
       break;
     }
-    case 'compare': compareDocs(); break;
+    case 'compare': compareDocs(key); break;
     case 'compare-all': spreadDocuments(); break;
     case 'previous-compare': comparePrevious(target); break;
     case 'previous-doc': {

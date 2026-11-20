@@ -111,12 +111,23 @@ const glove = { kind: 'clear', appearance: 'glove', front: '掌面覆层平整�
 const earmuff = { kind: 'clear', appearance: 'earmuff', front: '双侧耳罩壳体完整，头带可以顺畅调节。', back: '两圈软垫都贴着壳沿，没有明显凹陷或脱开。' };
 
 export const TUTORIAL = [
-  { target: 'label', title: '先认箱', line: '先看箱子是谁。这儿写二零一。你点开看看。' },
-  { target: 'report', title: '对批号', line: '拿起检验报告，看看批号是不是二零一。' },
-  { target: 'order', title: '核对签发与项目', line: '号对了，再找报告的签发栏。拿送检联挨着它放，外观和扣合两项都得有结果。' },
-  { target: 'sample', title: '动手检查', line: '拿起这副。正面看镜片，再翻到背面。扣上以后轻拉一下。' },
-  { target: 'pass', title: '把单交出去', line: '镜片好，扣件也牢。你自己盖个通过，把这张交给小罗。' },
+  { target: 'label', title: '先认箱', line: '点开箱签，找批号。' },
+  { target: 'report', title: '对批号', line: '把报告放在箱签旁，对一对两边的批号。' },
+  {
+    target: 'order', title: '核对签发和项目', line: '点报告上的「已签发」。',
+    reportLine: '翻到检验报告，找签发栏。',
+    orderLine: '把送检联放在报告旁，对照外观和扣合两项。',
+  },
+  {
+    target: 'sample', title: '动手检查', line: '对照外观和扣合两项，再拿起检样。',
+    frontLine: '看看镜片有没有裂痕，然后翻面。',
+    claspLine: '按合背面的扣件。',
+    tugLine: '轻拉一下，看看扣件会不会松。',
+  },
+  { target: 'pass', title: '把单交出去', line: '盖「通过」，把单交给小罗。', sampleLine: '镜片没有裂痕，扣件也没松。' },
 ];
+
+export const FILM_TUTORIAL = '掀开这角再看白痕。';
 
 export const PRESSURE = [
   { slots: [5, 16], line: '这车要是赶得上，周五收尾我帮你找人顶。' },

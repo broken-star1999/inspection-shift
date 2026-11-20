@@ -1,4 +1,4 @@
-import { CHARACTERS, DAYS, EASTER_EGGS } from './content.js';
+import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL } from './content.js';
 import { isSupplementOnly, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
@@ -98,7 +98,7 @@ function priorReceipt({ record, sameLot }) {
   </button>`;
 }
 
-export function room(run, item, tutorial, firstIssue, pressure, sceneEvent, previous) {
+export function room(run, item, tutorial, pressure, sceneEvent, previous) {
   const day = DAYS[run.day];
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
   const record = run.phase === 'receipt' ? run.records.at(-1) : null;
@@ -107,11 +107,11 @@ export function room(run, item, tutorial, firstIssue, pressure, sceneEvent, prev
   return `<div class="speech${cls('dispatch-event', sceneEvent)}"${sceneEvent?.kind ? ` data-visit-kind="${esc(sceneEvent.kind)}"` : ''} aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
       <p>${esc(line)}</p>${pressure && !sceneEvent && !record ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
       ${earlier}</div>
-    ${tutorial && !sceneEvent ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>` : firstIssue ? `<div class="training"><span class="tutorial-index">查验卡</span><small>老周</small><p>${esc(firstIssue)}</p></div>` : ''}`;
+    ${tutorial && !sceneEvent ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>` : ''}`;
 }
 
-function paperCard(doc, index, tutorial, offset, lifted, disabled = false) {
-  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', tutorial?.target === doc.type)}" data-act="doc" data-i="${index}" data-drag="paper" data-fixture="doc${index}"${lifted ? ' data-lifted' : ''}${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}"${disabled ? ' disabled' : ''}>
+function paperCard(doc, index, target, offset, lifted, disabled = false) {
+  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', target === doc.type)}" data-act="doc" data-i="${index}" data-drag="paper" data-fixture="doc${index}"${lifted ? ' data-lifted' : ''}${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}"${disabled ? ' disabled' : ''}>
     <small>${types[doc.type] ?? '归档'}</small><h3>${esc(doc.title)}</h3><b class="paper-num">${esc(doc.fields[0]?.[1])}</b><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">${doc.type === 'label' ? '批' : doc.type === 'report' ? '检' : '联'}</span></button>`;
 }
 
@@ -157,9 +157,9 @@ function gaugeArt(reading, measured) {
   return `<span class="sample-gauge" aria-hidden="true"><span class="gauge-slot" data-gauge-target></span><span class="gauge-rail"></span><span class="gauge-jaw"></span><span class="gauge-display">${measured ? esc(reading) : '—'}</span></span>`;
 }
 
-function sampleHotspot(action, className, text, label, pressed = null) {
+function sampleHotspot(action, className, text, label, pressed = null, instructed = false) {
   const gesture = { tug: 'clasp', measure: 'gauge', unpack: 'wrapper' }[action];
-  return `<button type="button" class="sample-hotspot ${className}" data-act="sample-${action}"${gesture ? ` data-drag="${gesture}"` : ''} aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
+  return `<button type="button" class="sample-hotspot ${className}${cls('instructed', instructed)}" data-act="sample-${action}"${gesture ? ` data-drag="${gesture}"` : ''} aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
 }
 
 export function desk(run, item, tutorial, interaction) {
@@ -168,12 +168,13 @@ export function desk(run, item, tutorial, interaction) {
   const appearance = sampleAppearance(item.sample);
   const sampleBack = inspection.back && (item.sample.kind !== 'yellow' || inspection.unpacked);
   const issued = run.phase === 'receipt';
+  const target = tutorial?.key === 'signature' && !interaction.signed ? 'report' : tutorial?.target;
   const findings = readFindings(interaction);
   const benchDraft = run.phase === 'case' && !stampBlocked && findings.length ? `<aside class="bench-draft" data-fixture="findings">
     ${button(`查验依据 ${findings.length}`, 'bench-findings', 'bench-draft-toggle', `aria-expanded="${Boolean(benchFindingsOpen)}" aria-controls="bench-findings"`)}
     <div class="bench-draft-body" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, 'remove-finding') : ''}</div>
   </aside>` : '';
-  return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, tutorial, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
+  return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, target, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
     <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="检查${appearance.name}"${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
     <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
@@ -253,8 +254,8 @@ export function dialog(title, body, type = '', footer = '', { closeText = '×', 
   return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close${cls(closeClass, closeClass)}" data-act="close" aria-label="${esc(closeLabel)}">${esc(closeText)}</button></header><div class="modal-body">${body}</div>${footer}</section></div>`;
 }
 
-function deskSurface(title, body, type, closeText, page, { headerActions = '', footer = '', closeLabel = '关闭面板' } = {}) {
-  const close = closeText ? `<button class="modal-close surface-close" data-act="close" aria-label="${esc(closeLabel)}">${closeText}</button>` : '';
+function deskSurface(title, body, type, closeText, page, { headerActions = '', footer = '', closeLabel = '关闭面板', closeClass = '' } = {}) {
+  const close = closeText ? `<button class="modal-close surface-close${cls(closeClass, closeClass)}" data-act="close" aria-label="${esc(closeLabel)}">${closeText}</button>` : '';
   return `<section class="desk-surface ${type}" data-desk-surface="${type}"${page === undefined ? '' : ` data-surface-page="${esc(page)}"`} role="region" aria-labelledby="panel-title">
     ${closeText ? `<header class="desk-surface-bar"><h2 id="panel-title">${esc(title)}</h2>${headerActions ? `<div class="desk-surface-tools">${headerActions}${close}</div>` : close}</header>` : `<h2 class="visually-hidden" id="panel-title">${esc(title)}</h2>`}
     <div class="desk-surface-content">${body}</div>${footer ? `<div class="desk-surface-footer">${footer}</div>` : ''}</section>`;
@@ -271,13 +272,19 @@ function sheet(doc, index, inspection, clipboardFront = false) {
   const action = inspection?.action ?? 'basis';
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
-    const highlight = inspection?.signature && key.includes('签发');
+    const signatureTarget = doc.type === 'report' && inspection?.signature && key === '签发';
+    const highlight = signatureTarget ||
+      (inspection?.projects && ((doc.type === 'report' && ['外观', '扣合'].includes(key)) || (doc.type === 'order' && key === '检验项目')));
     const chosen = inspection?.selected.has(`doc:${index}:${field}`);
-    const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
+    const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${signatureTarget ? ' data-tutorial-signature' : ''}${active(chosen)}>${text}</button>` : text;
     return `<div><dt>${esc(key)}</dt><dd>${fieldValue}</dd></div>`;
   }).join('');
   return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}"><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small><h3>${esc(doc.title)}</h3>${clipboardFront ? clipboardFlip(false) : ''}<dl class="fields">
     ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
+}
+
+function tutorialGuide(line, extraClass = '') {
+  return `<p class="modal-guide tutorial-guide${cls(extraClass, extraClass)}" aria-live="polite"><b>老周</b> ${esc(line)}</p>`;
 }
 
 function clipboardFlip(back) {
@@ -333,12 +340,29 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const extras = item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
   const other = item.documents[compare];
   const signature = tutorial?.key === 'signature';
+  const sampleReady = tutorial?.key === 'sample';
+  const visibleTypes = [doc.type, other?.type];
+  const reportVisible = visibleTypes.includes('report');
+  const target = signature && !progress.signed ? 'report' : tutorial?.target;
   const findings = readFindings(progress);
-  const inspection = { signature, selected: new Set(findings.map(({ key }) => key)) };
+  const inspection = {
+    signature: signature && !progress.signed,
+    projects: sampleReady && reportVisible && visibleTypes.includes('order'),
+    selected: new Set(findings.map(({ key }) => key)),
+  };
   const activeSheet = (page, position) => sheet(page, position, inspection, position === clipboardIndex);
   const draft = findingsDraft(findings, progress.showFindings);
-  const guide = signature ? `${progress.signed ? '签发已核对。' : '点报告上的「已签发」。'}${progress.orderSeen ? '送检联已核对。' : '再并排翻看送检联的检验项目。'}` : tutorial?.line;
-  const sampleAction = tutorial ? '' : button('拿起检样', 'sample', 'reference-control');
+  let guide = tutorial?.line;
+  if (signature && progress.signed) guide = tutorial.orderLine;
+  else if (signature && !reportVisible) guide = tutorial.reportLine;
+  let guidedCompare = '';
+  if (tutorial?.key === 'report' && doc.type === 'label' && !other) {
+    guidedCompare = button('并排报告', 'compare', 'primary tutorial-next');
+  } else if (signature && progress.signed && !progress.orderSeen) {
+    guidedCompare = button('并排送检联', 'compare', 'primary tutorial-next', 'data-key="order"');
+  }
+  const sampleAction = sampleReady ? button('拿起检样', 'sample', 'primary tutorial-next')
+    : tutorial ? '' : button('拿起检样', 'sample', 'reference-control');
   const phoneAction = tutorial ? '' : button(progress.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
   const canCompare = !tutorial && previous?.documents?.length;
   const previousIndex = progress.previousDoc;
@@ -349,18 +373,20 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const canSpread = !tutorial && !comparing && item.documents.length === 3;
   const spreading = canSpread && progress.spreadAll === true;
   const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
-  const headerActions = previousAction + spreadAction + sampleAction + phoneAction + draft.header;
+  const headerActions = guidedCompare + previousAction + spreadAction + sampleAction + phoneAction + draft.header;
   if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, activeSheet)}`,
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
   if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread">${item.documents.map(activeSheet).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
     'documents-surface', '放回台面', 'spread', { headerActions });
   const tabs = item.documents.map(({ title, type }, position) => {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
-    return `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
+    return `<button class="button tab${cls('instructed', target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
   }).join('');
-  return deskSurface('桌面单据', `${draft.list}${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
+  const compareAction = !guidedCompare && item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : '';
+  const footerActions = compareAction + extras;
+  return deskSurface('桌面单据', `${guide ? tutorialGuide(guide) : ''}${draft.list}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
     <div class="doc-grid${cls('pair', other)}">${activeSheet(doc, index)}${other ? activeSheet(other, compare) : ''}</div>
-    <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions });
+    ${footerActions ? `<div class="modal-actions">${footerActions}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions });
 }
 
 export function sample(item, inspection, tutorial, progress) {
@@ -371,6 +397,15 @@ export function sample(item, inspection, tutorial, progress) {
   const packaged = kind === 'yellow' && !unpacked;
   const back = !packaged && inspection.back;
   const inGauge = measured && Boolean(spec.reading);
+  const practicing = tutorial?.key === 'sample';
+  const stampReady = tutorial?.key === 'stamp';
+  const filmHint = item.id === 2 && !back && !film && !progress?.filmChecked;
+  const guidedFlip = practicing && !back;
+  let guide = '';
+  if (stampReady) guide = tutorial.sampleLine;
+  else if (practicing) guide = back ? (clasp ? tutorial.tugLine : tutorial.claspLine) : tutorial.frontLine;
+  else if (tutorial) guide = '先放下检样，接着核对单据。';
+  else if (filmHint) guide = FILM_TUTORIAL;
   const visual = inGauge ? '量爪贴住了插片的平面。' : sampleObservation(spec, { ...inspection, back });
   const findings = readFindings(progress);
   const draft = findingsDraft(findings, progress?.showFindings);
@@ -386,18 +421,21 @@ export function sample(item, inspection, tutorial, progress) {
   const phoneAction = tutorial ? '' : button(progress?.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
   let control = '';
   if (packaged) control = sampleHotspot('unpack', 'pack-handle', '拆袋', '拆开包装');
-  if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜', film ? '放回保护膜' : '揭开膜角', film);
+  if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜', film ? '放回保护膜' : '揭开膜角', film, filmHint);
   if (appearance.clasp && back && !tug) control = clasp
-    ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查')
-    : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件');
+    ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查', null, practicing)
+    : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件', null, practicing);
   if (spec.reading) control = sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '放入', measured ? '取出量规' : '放进量规', measured);
   const basis = packaged ? button('记下包装', 'sample-basis') : tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : '';
-  return deskSurface(`${item.batch} · ${appearance.name}`, `${draft.list}${tutorial ? `<p class="modal-guide"><b>老周</b> ${esc(tutorial.line)}</p>` : ''}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
+  const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : 'secondary sample-flip-control');
+  return deskSurface(`${item.batch} · ${appearance.name}`, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(spec.reading, measured) : ''}</div><div class="sample-findings"><b>${inGauge ? '已放入量规' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
-    ${back && appearance.clasp && clasp && !tug ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}
+    ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}
     ${inGauge ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
-    <div class="modal-actions">${packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
-    ${basis}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div></div>${referencePicker}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: referenceActions + phoneAction + draft.header });
+    <div class="modal-actions">${guidedFlip ? '' : flipAction}${basis}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
+    headerActions: (guidedFlip ? flipAction : '') + referenceActions + phoneAction + draft.header,
+    closeLabel: stampReady ? '回台面开单' : '关闭面板', closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
+  });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {

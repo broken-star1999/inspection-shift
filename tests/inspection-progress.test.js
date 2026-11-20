@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { captureInspectionProgress, freshInteraction, restoreInspectionProgress } from '../src/inspection-progress.js';
+import { captureInspectionProgress, freshInteraction, restoreInspectionProgress, tutorialActionComplete } from '../src/inspection-progress.js';
 
 const item = { id: 7, documents: [{ type: 'label' }, { type: 'report' }] };
 
@@ -91,6 +91,55 @@ test('loads legacy saves and accepts only usable values from a stored inspection
     inspection: { ...freshInteraction().inspection, film: true },
     orderSeen: true,
   });
+});
+
+test('keeps early first-batch actions across reload without completing uninspected steps', () => {
+  const first = { ...item, id: 1, documents: [...item.documents, { type: 'order' }], sample: { kind: 'clear' } };
+  const work = {
+    ...freshInteraction(), doc: 1, compare: 2, reportSeen: true, orderSeen: true, signed: true,
+    inspection: { ...freshInteraction().inspection, back: true, clasp: true, tug: true },
+  };
+  const saved = captureInspectionProgress(first, work, { panel: 'docs', guided: true });
+  const restored = restoreInspectionProgress(JSON.parse(JSON.stringify(saved)), first, [1], { guided: true });
+  assert.equal(restored.doc, 1);
+  assert.equal(restored.compare, 2);
+  assert.deepEqual(['label', 'report', 'signature', 'sample', 'stamp'].map((key) => tutorialActionComplete(key, restored)),
+    [false, true, true, true, false]);
+  assert.equal(tutorialActionComplete('signature', { ...restored, signed: false }), false);
+  assert.equal(tutorialActionComplete('signature', { ...restored, orderSeen: false }), false);
+  assert.equal(tutorialActionComplete('label', { ...restored, labelSeen: true }), true);
+  assert.equal(tutorialActionComplete('report', { ...restored, reportSeen: 1 }), false);
+
+  const legacy = restoreInspectionProgress({ caseId: 1, inspection: { clasp: true, tug: true } }, first, [1]);
+  assert.equal(tutorialActionComplete('sample', legacy), true);
+  assert.equal(tutorialActionComplete('report', legacy), false);
+  const signedReport = { ...first, documents: [
+    { type: 'label' }, { type: 'report', fields: [['批号', 'G-201'], ['签发', '已签发']] }, { type: 'order' },
+  ] };
+  const legacySignature = restoreInspectionProgress({ caseId: 1, orderSeen: true, findings: [
+    { key: 'doc:1:1', text: '签发 · 已签发' },
+  ] }, signedReport, [1]);
+  assert.equal(tutorialActionComplete('report', legacySignature), true);
+  assert.equal(tutorialActionComplete('signature', legacySignature), true);
+  assert.equal(tutorialActionComplete('sample', restoreInspectionProgress(saved, item, [1, 7])), false);
+  assert.equal(captureInspectionProgress(item, { ...work, labelSeen: true }).labelSeen, false);
+  assert.equal(captureInspectionProgress(item, work).reportSeen, false);
+});
+
+test('remembers the second batch was peeled even after putting its film back', () => {
+  const second = { ...item, id: 2, sample: { kind: 'film' } };
+  const work = { ...freshInteraction(), filmChecked: true };
+  const saved = captureInspectionProgress(second, work, { panel: 'sample' });
+  const restored = restoreInspectionProgress(JSON.parse(JSON.stringify(saved)), second, [2], {});
+  assert.equal(restored.filmChecked, true);
+  assert.equal(restored.inspection.film, false);
+  assert.equal(restored.workspace.panel, 'sample');
+
+  const legacy = restoreInspectionProgress({ caseId: 2, inspection: { film: true } }, second, [2]);
+  assert.equal(legacy.filmChecked, true);
+  assert.equal(restoreInspectionProgress({ caseId: 2 }, second, [2]).filmChecked, false);
+  assert.equal(restoreInspectionProgress(saved, item, [2, 7]).filmChecked, false);
+  assert.equal(captureInspectionProgress(item, { ...work, inspection: { film: true } }).filmChecked, false);
 });
 
 test('restores a turned clipboard only for its current inspection and keeps the front comparison', () => {

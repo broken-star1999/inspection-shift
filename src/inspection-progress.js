@@ -34,14 +34,36 @@ function caseProgress(item, progress) {
       measured: inspection?.measured === true,
       unpacked: inspection?.unpacked === true,
     },
+    labelSeen: item?.id === 1 && progress?.labelSeen === true,
+    reportSeen: item?.id === 1 && progress?.reportSeen === true,
     signed: progress?.signed === true,
     orderSeen: progress?.orderSeen === true,
+    filmChecked: item?.id === 2 && (progress?.filmChecked === true || inspection?.film === true),
     benchFindingsOpen: progress?.benchFindingsOpen === true,
   };
 }
 
+export function tutorialActionComplete(key, interaction) {
+  switch (key) {
+    case 'label': return interaction?.labelSeen === true;
+    case 'report': return interaction?.reportSeen === true;
+    case 'signature': return interaction?.signed === true && interaction?.orderSeen === true;
+    case 'sample': return interaction?.inspection?.tug === true;
+    default: return false;
+  }
+}
+
 function documentIndex(value, count) {
   return Number.isInteger(value) && Number.isInteger(count) && value >= 0 && value < count ? value : null;
+}
+
+function hasRecordedSignature(item, findings) {
+  const report = item.documents?.findIndex(({ type }) => type === 'report') ?? -1;
+  const fields = item.documents?.[report]?.fields;
+  const signature = fields?.findIndex(([label]) => label === '签发') ?? -1;
+  if (signature < 0) return false;
+  const value = fields[signature].join(' · ');
+  return findings.some(({ key, text }) => key === `doc:${report}:${signature}` && text === value);
 }
 
 function workspaceProgress(item, work, context = {}) {
@@ -129,6 +151,10 @@ export function restoreInspectionProgress(progress, item, seen = [], context) {
   const caseId = progress?.caseId;
   if (!Number.isInteger(caseId) || caseId < 1 || item?.id !== caseId) return interaction;
   const restored = { ...interaction, ...caseProgress(item, progress) };
+  if (item.id === 1 && !restored.signed && hasRecordedSignature(item, restored.findings)) {
+    restored.signed = true;
+    restored.reportSeen = true;
+  }
   const workspace = context ? workspaceProgress(item, progress.workspace, context) : null;
   if (!workspace) return restored;
   const { panel, scrollTop, priorId: _priorId, returnTo, ...fields } = workspace;
