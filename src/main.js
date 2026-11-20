@@ -1,6 +1,6 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, receiptDisposition, TUTORIAL, EVIDENCE } from './engine.js';
 import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE } from './content.js';
-import { cuffSplitVisible, sampleAppearance, sampleObservation } from './samples.js';
+import { cuffSplitVisible, sampleAppearance, sampleFinding } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
@@ -1317,22 +1317,6 @@ function toggleReference() {
   render();
 }
 
-function sampleFinding(spec, inspection) {
-  if (inspection.measured && spec.reading) {
-    return { key: 'sample:measure', source: '量规实测', text: spec.reading };
-  }
-  const { back, tug, film, unpacked } = inspection;
-  if (spec.kind === 'yellow' && !unpacked) {
-    return { key: 'sample:package', source: '外包装', text: sampleObservation(spec, inspection) };
-  }
-  const operation = back ? (tug ? '轻拉检查' : '背面') : film ? '揭膜后' : unpacked ? '拆袋后' : '正面';
-  return {
-    key: `sample:${operation}`,
-    source: `${sampleAppearance(spec).name} · ${operation}`,
-    text: sampleObservation(spec, inspection),
-  };
-}
-
 function checkSample(act) {
   if (panel !== 'sample' || run?.phase !== 'case') return;
   const sample = interaction.inspection;
@@ -1375,10 +1359,9 @@ function checkSample(act) {
       sound = 'paper';
       break;
     case 'sample-basis': {
-      const finding = sampleFinding(spec, sample);
-      updateFindings([...interaction.findings.filter(({ key }) => key !== finding.key), finding]);
-      if (!packed && interaction.referenceDoc === null && !interaction.returnToDocs) panel = null;
-      toast('已记下检样结果');
+      const recorded = toggleFinding(sampleFinding(spec, sample));
+      sound = 'paper';
+      toast(recorded ? '已记下检样结果' : '已取回这条查验依据');
       break;
     }
   }

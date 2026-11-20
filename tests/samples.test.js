@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { DAYS } from '../src/content.js';
-import { cuffSplitVisible, sampleAppearance, sampleObservation } from '../src/samples.js';
+import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleObservation } from '../src/samples.js';
 
 const items = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
 
@@ -93,6 +93,22 @@ test('G-216 conceals a split cuff until the glove is unpacked and turned over', 
   assert.equal(cuffSplitVisible(split, inspection), true);
   assert.match(sampleObservation(sample, inspection), /缝线连续/);
   assert.match(sampleObservation(split, inspection), /脱线.*张开/);
+});
+
+test('sample notes identify the operation so one can be removed without losing the others', () => {
+  const { sample } = items.get(2);
+  const peeled = sampleFinding(sample, { film: true });
+  const rear = sampleFinding(sample, { film: true, back: true });
+  assert.equal(peeled.key, 'sample:揭膜后');
+  assert.equal(rear.key, 'sample:背面');
+  assert.match(peeled.text, /白痕随薄膜掀起/);
+  assert.match(rear.text, /扣件/);
+  assert.deepEqual(sampleFinding(sample, { film: true, back: false }), peeled);
+  assert.equal(sampleFinding(items.get(16).sample, {}).key, 'sample:package');
+  assert.equal(sampleFinding(items.get(16).sample, { unpacked: true }).key, 'sample:拆袋后');
+  assert.deepEqual(sampleFinding(items.get(18).sample, { measured: true }), {
+    key: 'sample:measure', source: '量规实测', text: '1.80 mm',
+  });
 });
 
 test('peeling film and pulling a rear clasp report only their respective observations', () => {

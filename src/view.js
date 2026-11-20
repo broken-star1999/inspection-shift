@@ -2,7 +2,7 @@ import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE } from './content.j
 import { intakeComparison, projectComparison } from './document-comparison.js';
 import { receiptDisposition, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
-import { CUFF_SPLIT_PATCHES, cuffSplitVisible, sampleAppearance, sampleObservation } from './samples.js';
+import { CUFF_SPLIT_PATCHES, cuffSplitVisible, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
 
 export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
 export const labels = { pass: '通过', fail: '不通过', review: '要求审查' };
@@ -511,7 +511,10 @@ export function sample(item, inspection, tutorial, progress) {
     ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查', null, practicing)
     : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件', null, practicing);
   if (spec.reading) control = sampleHotspot('measure', 'gauge-handle', measured ? '取出' : '放入', measured ? '取出量规' : '放进量规', measured);
-  const basis = packaged ? button('记下包装', 'sample-basis') : !tutorial || tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : '';
+  const observation = sampleFinding(spec, inspection);
+  const recorded = findings.some(({ key }) => key === observation.key);
+  const basis = packaged || !tutorial || tug || film || measured || back || unpacked
+    ? button(packaged ? '记下包装' : '记为查验依据', 'sample-basis', 'secondary sample-basis-control', active(recorded)) : '';
   const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : 'secondary sample-flip-control');
   return deskSurface(`${item.batch} · ${appearance.name}`, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(spec.reading, measured) : ''}</div><div class="sample-findings"><b>${inGauge ? '已放入量规' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
@@ -519,7 +522,7 @@ export function sample(item, inspection, tutorial, progress) {
     ${inGauge ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
     <div class="modal-actions">${guidedFlip ? '' : flipAction}${basis}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
     headerActions: (guidedFlip ? flipAction : '') + referenceActions + phoneAction + draft.header,
-    closeLabel: stampReady ? '回台面开单' : '关闭面板', closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
+    closeLabel: stampReady ? '回台面开单' : '放下检样', closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
   });
 }
 

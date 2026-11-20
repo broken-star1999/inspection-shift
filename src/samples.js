@@ -39,3 +39,19 @@ export function sampleObservation(spec, inspection) {
   if (film && spec.afterFilm) return spec.afterFilm;
   return spec.front;
 }
+
+export function sampleFinding(spec, inspection) {
+  if (inspection.measured && spec.reading) {
+    return { key: 'sample:measure', source: '量规实测', text: spec.reading };
+  }
+  const { back, tug, film, unpacked } = inspection;
+  if (spec.kind === 'yellow' && !unpacked) {
+    return { key: 'sample:package', source: '外包装', text: sampleObservation(spec, inspection) };
+  }
+  const operation = back ? (tug ? '轻拉检查' : '背面') : film ? '揭膜后' : unpacked ? '拆袋后' : '正面';
+  return {
+    key: `sample:${operation}`,
+    source: `${sampleAppearance(spec).name} · ${operation}`,
+    text: sampleObservation(spec, inspection),
+  };
+}
