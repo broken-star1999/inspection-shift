@@ -182,6 +182,27 @@ test('phone saves only its surface and cannot open during a receipt, visitor or 
   assert.equal(captureInspectionProgress(null, work, { panel: 'phone', scrollTop: 53 }).workspace, undefined);
 });
 
+test('restores the exact sample and document comparison behind the phone after reload', () => {
+  const sampleItem = { ...item, documents: [...item.documents, { type: 'order' }], sample: { kind: 'clip' } };
+  const work = {
+    ...freshInteraction({ phoneNumber: '880', pinned: [7] }),
+    doc: 2, compare: 1, spreadAll: true, referenceDoc: 0, returnToDocs: true,
+    inspection: { ...freshInteraction().inspection, measured: true },
+  };
+  const saved = captureInspectionProgress(sampleItem, work, {
+    panel: 'phone', scrollTop: 12, returnTo: { panel: 'sample', scrollTop: 32 },
+  });
+  const reloaded = JSON.parse(JSON.stringify(saved));
+  assert.deepEqual(restoreInspectionProgress(reloaded, sampleItem, [7], {}), {
+    ...work, workspace: { panel: 'phone', scrollTop: 12, returnTo: { panel: 'sample', scrollTop: 32 } },
+  });
+  reloaded.workspace.returnTo.panel = 'phone';
+  const invalid = restoreInspectionProgress(reloaded, sampleItem, [7], {});
+  assert.deepEqual(invalid.workspace, { panel: 'phone', scrollTop: 12 });
+  assert.equal(invalid.spreadAll, false);
+  assert.equal(invalid.inspection.measured, true);
+});
+
 test('rejects unsupported workspaces and invalid document values while preserving case progress', () => {
   const work = { ...freshInteraction(), note: '可恢复' };
   const progress = captureInspectionProgress(item, work);

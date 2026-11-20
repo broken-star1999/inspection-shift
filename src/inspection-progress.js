@@ -43,12 +43,19 @@ function documentIndex(value, count) {
   return Number.isInteger(value) && Number.isInteger(count) && value >= 0 && value < count ? value : null;
 }
 
-function workspaceProgress(item, work, { prior, guided } = {}) {
+function workspaceProgress(item, work, context = {}) {
+  const { prior, guided } = context;
   const panel = work?.panel;
   if (!['docs', 'sample', 'phone'].includes(panel)) return null;
   const scrollTop = Number.isFinite(work.scrollTop) ? Math.max(0, work.scrollTop) : 0;
   const workspace = { panel, scrollTop };
-  if (panel === 'phone') return workspace;
+  if (panel === 'phone') {
+    if (['docs', 'sample'].includes(work.returnTo?.panel)) {
+      const origin = workspaceProgress(item, work.returnTo, context);
+      if (origin) workspace.returnTo = origin;
+    }
+    return workspace;
+  }
   if (panel === 'sample' && !item.sample) return null;
 
   const count = Array.isArray(item.documents) ? item.documents.length : 0;
@@ -106,6 +113,7 @@ export function captureInspectionProgress(item, interaction, context = {}) {
       panel: context.panel,
       scrollTop: context.scrollTop,
       priorId: context.prior?.id,
+      returnTo: context.returnTo && { ...interaction, ...context.returnTo, priorId: context.prior?.id },
     }, context);
     if (workspace) progress.workspace = workspace;
   }
@@ -119,6 +127,8 @@ export function restoreInspectionProgress(progress, item, seen = [], context) {
   const restored = { ...interaction, ...caseProgress(item, progress) };
   const workspace = context ? workspaceProgress(item, progress.workspace, context) : null;
   if (!workspace) return restored;
-  const { panel, scrollTop, priorId: _priorId, ...fields } = workspace;
-  return { ...restored, ...fields, workspace: { panel, scrollTop } };
+  const { panel, scrollTop, priorId: _priorId, returnTo, ...fields } = workspace;
+  if (!returnTo) return { ...restored, ...fields, workspace: { panel, scrollTop } };
+  const { panel: origin, scrollTop: originScroll, priorId: _originPrior, ...originFields } = returnTo;
+  return { ...restored, ...originFields, ...fields, workspace: { panel, scrollTop, returnTo: { panel: origin, scrollTop: originScroll } } };
 }

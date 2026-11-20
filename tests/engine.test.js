@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getPreviousReceipt, restoreRun, TUTORIAL } from '../src/engine.js';
+import { archive, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, restoreRun, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -23,6 +23,15 @@ function untilHandoff(seed, { decisions = {}, inspect = (state) => state, initia
     } else state = act(state, 'next');
   }
   return state;
+}
+
+function tuesdayClosingReceipt() {
+  let receipt;
+  untilHandoff(21, { inspect: (state, item) => {
+    if (state.day === 1 && state.index === 3) receipt = act(state, 'stamp', { value: item.answer });
+    return state;
+  } });
+  return receipt;
 }
 
 test('first stamp stays at the desk until all four guided checks are done', () => {
@@ -516,7 +525,106 @@ test('night receipt and self-call stay independent of the three endings', () => 
   } });
   state = act(state, 'attach', { key: 'night' });
   state = act(state, 'dial', { number: '880' });
-  assert.equal(state.phone.kind, 'ringback');
+  assert.equal(state.phone.kind, 'ringback-test');
+  assert.equal(state.flags.ringback, false);
+  assert.equal(getIncomingCall(state), null);
+  state = act(state, 'hang-up');
+  assert.equal(getIncomingCall(state), 'ringback');
+  assert.equal(getEnding(act(state, 'finish')).id, 'routine');
+  state = act(state, 'answer-call');
+  assert.equal(state.phone.incomingKey, 'ringback');
+  assert.equal(state.flags.ringback, true);
   assert.equal(state.flags.nightAttached, true);
   assert.equal(getEnding(act(state, 'finish')).id, 'routine');
+});
+
+test('Tuesday close rings once and can be answered or left without changing the shift', () => {
+  const receipt = tuesdayClosingReceipt();
+  assert.equal(getIncomingCall(receipt), null);
+  const summary = act(receipt, 'next');
+  assert.equal(summary.phase, 'summary');
+  assert.equal(getIncomingCall(summary), 'lab-close');
+  assert.equal(summary.phone, null);
+  assert.deepEqual(summary.phoneLog, []);
+  assert.deepEqual(summary.pending, []);
+  assert.deepEqual(summary.events, []);
+  assert.equal(act(summary, 'next'), summary);
+
+  const missed = act(JSON.parse(JSON.stringify(summary)), 'advance-day');
+  assert.equal(missed.day, 2);
+  assert.equal(missed.phase, 'brief');
+  assert.equal(getIncomingCall(missed), null);
+  assert.deepEqual(missed.phoneLog, []);
+
+  const answered = act(JSON.parse(JSON.stringify(summary)), 'answer-call');
+  assert.equal(getIncomingCall(answered), null);
+  assert.equal(answered.phone, answered.phoneLog.at(-1));
+  assert.equal(answered.phone.kind, 'incoming');
+  assert.equal(answered.phone.incomingKey, 'lab-close');
+  assert.equal(answered.phone.day, 1);
+  assert.equal(answered.phone.number, '204');
+  assert.equal(answered.phone.npc, 'chen');
+  assert.match(answered.phone.line, /明早一起送/);
+  assert.doesNotMatch(answered.phone.line, /R-071|G-241|G-248/);
+  assert.deepEqual(answered.records, summary.records);
+  assert.deepEqual(answered.flags, summary.flags);
+  assert.deepEqual(answered.pending, []);
+  assert.equal(act(answered, 'answer-call'), answered);
+  assert.equal(act(answered, 'advance-day').day, 2);
+});
+
+test('the 880 recording waits for hang-up and pickup, and answered calls survive later outgoing calls', () => {
+  let state = act(tuesdayClosingReceipt(), 'next');
+  state = act(state, 'dial', { number: '880' });
+  assert.equal(state.phone.kind, 'ringback-test');
+  assert.equal(state.phone.npc, null);
+  assert.equal(state.phone.lines.length, 1);
+  assert.match(state.phone.line, /短音/);
+  assert.doesNotMatch(state.phone.line, /听见响就合格/);
+  assert.equal(state.flags.ringback, false);
+  assert.equal(getIncomingCall(state), 'lab-close');
+  assert.equal(state.ringbackArmed, true);
+  state = act(JSON.parse(JSON.stringify(state)), 'hang-up');
+  assert.deepEqual(state.incomingCalls, ['lab-close', 'ringback']);
+  assert.equal(state.ringbackArmed, false);
+
+  state = act(act(state, 'dial', { number: '880' }), 'hang-up');
+  assert.deepEqual(state.incomingCalls, ['lab-close', 'ringback']);
+  assert.equal(act(state, 'hang-up'), state);
+  state = act(state, 'answer-call');
+  assert.equal(state.phone.incomingKey, 'lab-close');
+  assert.equal(getIncomingCall(state), 'ringback');
+  assert.equal(state.flags.ringback, false);
+  state = act(JSON.parse(JSON.stringify(state)), 'answer-call');
+  assert.equal(state.phone.incomingKey, 'ringback');
+  assert.equal(state.phone.npc, 'zhou');
+  assert.match(state.phone.line, /听见响就合格/);
+  assert.equal(state.flags.ringback, true);
+  assert.equal(getIncomingCall(state), null);
+  assert.deepEqual(state.pending, []);
+
+  const earlierRecording = state.phone;
+  state = act(act(act(state, 'dial', { number: '880' }), 'hang-up'), 'answer-call');
+  assert.notEqual(state.phone, earlierRecording);
+  assert.equal(state.phoneLog.includes(earlierRecording), false);
+  for (let index = 0; index < 25; index++) state = act(state, 'dial', { number: '204' });
+  assert.equal(state.phoneLog.length, 20);
+  assert.equal(state.phoneLog.at(-1), state.phone);
+  assert.deepEqual(state.phoneLog.filter(({ kind }) => kind === 'incoming').map(({ incomingKey }) => incomingKey),
+    ['lab-close', 'ringback']);
+});
+
+test('a save from before ringing calls has no active line and can still request a new ringback', () => {
+  const legacy = untilHandoff(21);
+  delete legacy.incomingCalls;
+  delete legacy.ringbackArmed;
+  assert.equal(getIncomingCall(legacy), null);
+  assert.equal(act(legacy, 'hang-up'), legacy);
+  assert.equal(act(legacy, 'answer-call'), legacy);
+  const callback = act(act(legacy, 'dial', { number: '880' }), 'hang-up');
+  assert.equal(getIncomingCall(callback), 'ringback');
+  const finished = act(callback, 'finish');
+  assert.equal(finished.phase, 'ending');
+  assert.equal(getIncomingCall(finished), null);
+  assert.deepEqual(finished.incomingCalls, []);
 });

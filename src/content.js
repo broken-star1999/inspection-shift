@@ -75,9 +75,17 @@ export const PHONE = {
   },
   '880': {
     npc: 'zhou',
-    greeting: '一声短音过去，挂断后桌上的电话自己响了起来。',
+    greeting: '听筒里响了一声短音。',
     found: '听见响就合格。别拍话筒，拍坏了也得开单。',
   },
+};
+
+export const INCOMING_CALLS = {
+  'lab-close': {
+    number: '204', npc: PHONE['204'].npc,
+    lines: ['今天晚交的那几份，明早一起送。', '你要问哪一份，把号留在回执上就好。'],
+  },
+  ringback: { number: '880', npc: PHONE['880'].npc, lines: [PHONE['880'].found] },
 };
 
 export const HANDOFF = {
@@ -151,7 +159,7 @@ export const DAYS = [
   {
     title: '周二', subtitle: '少了一份报告',
     intro: '小罗在窗下压了一张内线表。「缺报告找 204，小陈。」',
-    outro: '204 响过一声。小陈说今天晚交的几份报告，明早一起送。',
+    outro: '你把今天的回执收齐，压在交班板边。',
     cases: [
       {
         id: 5, batch: 'G-205', npc: 'luo', title: '少来了一张报告',

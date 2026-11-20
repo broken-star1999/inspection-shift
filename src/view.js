@@ -30,7 +30,7 @@ export function shell() {
       <div class="model-world" aria-hidden="true"></div>
       <div class="booth-layout">
         <aside class="booth-wing booth-left" aria-label="值班工具">
-          <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b></button>
+          <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b><span class="phone-ring-indicator" aria-hidden="true"></span></button>
           <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" fetchpriority="low" draggable="false"><b>交接簿</b></button>
         </aside>
         <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
@@ -179,7 +179,7 @@ function endingView(ending, reviewingHistory) {
   </section></div>`;
 }
 
-export function overlay(run, ending, reviewingHistory = false) {
+export function overlay(run, ending, reviewingHistory = false, incomingCall = null) {
   const day = DAYS[run.day];
   if (run.phase === 'brief') return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(day.subtitle)}</h3><p>${esc(day.intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
   if (run.phase === 'summary') {
@@ -192,16 +192,16 @@ export function overlay(run, ending, reviewingHistory = false) {
         const destination = esc(statuses[record.status]);
         return `<li><button type="button" class="summary-record" data-act="archive-receipt" data-i="${esc(record.id)}" aria-label="查看 ${batch} 回执，${decision}，${destination}"><b>${batch}</b><span>${decision} · ${destination}</span></button></li>`;
       }).join('')}</ul><p>${esc(day.outro)}</p></div>
-      <footer class="summary-footer">${button('下一班', 'advance-day', 'primary')}</footer>
+      <footer class="summary-footer">${incomingCall ? button('接电话', 'phone', 'secondary summary-phone') : ''}${button('下一班', 'advance-day', 'primary')}</footer>
     </section></div>`;
   }
-  if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button('打电话', 'phone')}${button('打开交接板', 'handoff', 'primary')}</div></section></div>`;
+  if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button(incomingCall ? '接电话' : '打电话', 'phone')}${button('打开交接板', 'handoff', 'primary')}</div></section></div>`;
   if (run.phase === 'ending') return endingView(ending, reviewingHistory);
   return '';
 }
 
-export function dialog(title, body, type = '', footer = '') {
-  return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close" data-act="close" aria-label="关闭面板">×</button></header><div class="modal-body">${body}</div>${footer}</section></div>`;
+export function dialog(title, body, type = '', footer = '', { closeText = '×', closeLabel = '关闭面板', closeClass = '' } = {}) {
+  return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close${cls(closeClass, closeClass)}" data-act="close" aria-label="${esc(closeLabel)}">${esc(closeText)}</button></header><div class="modal-body">${body}</div>${footer}</section></div>`;
 }
 
 function deskSurface(title, body, type, closeText, page, { headerActions = '', footer = '', closeLabel = '关闭面板' } = {}) {
@@ -271,6 +271,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const draft = findingsDraft(findings, progress.showFindings);
   const guide = signature ? `${progress.signed ? '签发已核对。' : '点报告上的「已签发」。'}${progress.orderSeen ? '送检联已核对。' : '再并排翻看送检联的检验项目。'}` : tutorial?.line;
   const sampleAction = tutorial ? '' : button('拿起检样', 'sample', 'reference-control');
+  const phoneAction = tutorial ? '' : button(progress.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
   const canCompare = !tutorial && previous?.documents?.length;
   const previousIndex = progress.previousDoc;
   const comparing = Boolean(canCompare && Number.isInteger(previousIndex) && previous.documents[previousIndex]);
@@ -280,7 +281,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const canSpread = !tutorial && !comparing && item.documents.length === 3;
   const spreading = canSpread && progress.spreadAll === true;
   const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
-  const headerActions = previousAction + spreadAction + sampleAction + draft.header;
+  const headerActions = previousAction + spreadAction + sampleAction + phoneAction + draft.header;
   if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, inspection)}`,
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
   if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread">${item.documents.map((page, index) => sheet(page, index, inspection)).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
@@ -312,6 +313,7 @@ export function sample(item, inspection, tutorial, progress) {
   const referenceActions = canCompare
     ? `${progress?.returnToDocs ? button('回到单据', 'reference-back', 'reference-control') : ''}${button(reference ? '收起单据' : '对照单据', 'reference', 'reference-control', active(Boolean(reference)))}`
     : '';
+  const phoneAction = tutorial ? '' : button(progress?.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
   let control = '';
   if (packaged) control = sampleHotspot('unpack', 'pack-handle', '拆袋', '拆开包装');
   if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜', film ? '放回保护膜' : '揭开膜角', film);
@@ -323,7 +325,7 @@ export function sample(item, inspection, tutorial, progress) {
     ${back && appearance.clasp && clasp && !tug ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}
     ${measured && spec.reading ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
     <div class="modal-actions">${packaged ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', !back && tutorial ? 'primary' : 'secondary')}
-    ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div></div>${referencePicker}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: referenceActions + draft.header });
+    ${tug || film || measured || back || unpacked ? button('记为查验依据', 'sample-basis') : ''}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div></div>${referencePicker}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: referenceActions + phoneAction + draft.header });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false) {
@@ -359,13 +361,16 @@ export function receipt(record) {
 export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious } = {}) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
-  const visitIndex = visits.length ? `<h3 class="archive-group-title">回访留底</h3>${visits.map(([key, doc]) =>
+  const isCall = ([key]) => key.startsWith('call:');
+  const evidenceIndex = (entries, title) => entries.length ? `<h3 class="archive-group-title">${title}</h3>${entries.map(([key, doc]) =>
     `<button class="record-button archive-visit-row" data-act="archive-evidence" data-key="${esc(key)}"${active(key === focus)}><b>${esc(doc.title)}</b></button>`).join('')}` : '';
+  const visitIndex = evidenceIndex(visits.filter((entry) => !isCall(entry)), '回访留底');
+  const callIndex = evidenceIndex(visits.filter(isCall), '电话留底');
   const records = rows.slice().reverse().map(({ id, batch, title, record, latestReceipt }) => {
     const status = latestReceipt ? '前次回执' : record ? statuses[record.status] : '本班来件';
     return `<button class="record-button" data-act="archive-focus" data-i="${id}"${active(id === focus)}><b>${esc(batch)}</b><span>${esc(title)}</span><small>${esc(status)}</small></button>`;
   }).join('');
-  const index = `${visitIndex}${visits.length && rows.length ? '<h3 class="archive-group-title">批次单据</h3>' : ''}${records}`;
+  const index = `${visitIndex}${callIndex}${visits.length && rows.length ? '<h3 class="archive-group-title">批次单据</h3>' : ''}${records}`;
   let details = '<p class="archive-empty">选一张留底，可以翻看原来的单据。</p>';
   if (visit) details = sheet(visit);
   if (row) {
@@ -389,17 +394,21 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
     { closeLabel: navigation || '关闭面板' });
 }
 
-export function phone(number, call, pinned, numberGuide, phoneBack, current) {
+export function phone(number, call, pinned, numberGuide, phoneBack, current, { returnTo, incomingCall } = {}) {
   const canBring = current && !pinned.some(({ id }) => id === current.id);
   const papers = pinned.length ? `<div class="phone-pinned phone-papers" aria-label="电话旁的单据"><b>电话旁</b><ul>
     ${pinned.map(({ id, batch, title }) => `<li><button type="button" class="phone-paper" data-act="archive-receipt" data-i="${esc(id)}" aria-label="查看 ${esc(batch)} ${esc(title)}"><b>${esc(batch)}</b><span>${esc(title)}</span></button></li>`).join('')}
   </ul></div>` : '';
-  const actions = `<footer class="modal-actions phone-actions">${canBring ? button('带本批单据', 'archive-pin', 'secondary', `data-i="${esc(current.id)}"`) : ''}${button('交接簿', 'archive')}${button(phoneBack ? '机底贴纸 · 880' : '翻看机底', 'phone-back')}</footer>`;
+  const actions = `<footer class="modal-actions phone-actions">${incomingCall ? button('接电话', 'phone-answer', 'secondary phone-answer') : ''}${canBring ? button('带本批单据', 'archive-pin', 'secondary', `data-i="${esc(current.id)}"`) : ''}${button('交接簿', 'archive')}${button(phoneBack ? '机底贴纸 · 880' : '翻看机底', 'phone-back')}</footer>`;
+  const returnLabel = { docs: '回到单据', sample: '回到检样' }[returnTo];
+  const closeText = returnLabel || '放下听筒';
+  const closeLabel = returnLabel ? `放下听筒，${returnLabel}` : closeText;
+  const caller = call ? [call.kind === 'incoming' ? '来电' : '', CHARACTERS[call.npc]?.name ?? '内线', call.number].filter(Boolean).map(esc).join(' · ') : '';
   return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine"><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>
     <div class="phone-side">${numberGuide ? '<div class="phone-directory"><button class="button secondary" data-act="phone-select" data-key="204">实验室 204</button></div>' : ''}
     ${papers}
-    <div class="phone-log" aria-live="polite">${call ? `<b>${esc(CHARACTERS[call.npc]?.name ?? '内线')} · ${esc(call.number)}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : '<p>拨出内线，或从交接簿拿一张单来问。</p>'}</div>
-    </div></div>`, 'phone-modal', actions);
+    <div class="phone-log" aria-live="polite">${call ? `<b>${caller}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : '<p>拨出内线，或从交接簿拿一张单来问。</p>'}</div>
+    </div></div>`, 'phone-modal', actions, { closeText, closeLabel, closeClass: 'phone-hangup' });
 }
 
 export function handoffPanel(run, evidence, records = []) {

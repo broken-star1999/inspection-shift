@@ -1,5 +1,5 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getPreviousReceipt, archive, TUTORIAL, EVIDENCE } from './engine.js';
-import { EASTER_EGGS } from './content.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, archive, TUTORIAL, EVIDENCE } from './engine.js';
+import { DAYS, EASTER_EGGS } from './content.js';
 import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
@@ -82,6 +82,8 @@ let stampTouch = null;
 let suppressPaperClick = false;
 let modalOpener = null;
 let archiveReturn = null;
+let phoneReturn = null;
+let ringing = null;
 let interaction = freshInteraction();
 
 root.innerHTML = view.shell();
@@ -99,6 +101,8 @@ const illustratedWorker = roomHost.querySelector('.static-worker');
 const modelHost = root.querySelector('.model-world');
 const soundToggle = root.querySelector('[data-act="sound"]');
 const fullscreenToggle = root.querySelector('[data-act="fullscreen"]');
+const phoneFixture = booth.querySelector('.wall-phone');
+const phoneFixtureLabel = phoneFixture.querySelector('b');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const gaze = { x: 0, y: 0, targetX: 0, targetY: 0, frame: 0, time: 0 };
 let fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
@@ -253,12 +257,33 @@ function windowCase() {
   return run && !arrivalTimer && !activeVisit() ? getCase(run) : null;
 }
 
-function filedVisitPapers(query) {
+function filedSupportingPapers(query) {
   const term = query.trim().toLowerCase();
-  return Object.entries(EVIDENCE).filter(([key, doc]) => {
-    if (!run.flags[`${key}Document`]) return false;
-    return !term || [doc.title, ...doc.fields.flat(), doc.note].some((text) => text?.toLowerCase().includes(term));
-  });
+  const visits = Object.entries(EVIDENCE).filter(([key]) => run.flags[`${key}Document`]);
+  const calls = run.phoneLog.filter((call) => call?.kind === 'incoming').map((call) => [
+    `call:${call.incomingKey}`,
+    {
+      type: 'archive',
+      title: call.incomingKey === 'ringback' ? '回铃录音' : '实验室收班来电',
+      fields: [['内线', call.number], ['接听', DAYS[call.day]?.title ?? '已登记'], ['通话内容', call.lines.join(' ')]],
+    },
+  ]);
+  return [...visits, ...calls].filter(([, doc]) =>
+    !term || [doc.title, ...doc.fields.flat(), doc.note].some((text) => text?.toLowerCase().includes(term)));
+}
+
+function incomingAtWindow() {
+  return run && !arrivalTimer && !activeVisit() && ['case', 'receipt', 'summary', 'handoff'].includes(run.phase)
+    ? getIncomingCall(run) : null;
+}
+
+function showRinging(call) {
+  if (call) root.dataset.ringing = 'true';
+  else delete root.dataset.ringing;
+  const label = call ? '接电话' : '内线电话';
+  if (phoneFixtureLabel.textContent !== label) phoneFixtureLabel.textContent = label;
+  if (call && call !== ringing) playSound('ring');
+  ringing = call;
 }
 
 function previousInspection(item = windowCase()) {
@@ -310,6 +335,8 @@ function setScene() {
 
 function render(resumeScroll) {
   root.dataset.phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
+  const incomingCall = incomingAtWindow();
+  showRinging(incomingCall);
   const waitMessage = arrivalTimer ? '等下一位…' : '';
   if (arrivalStatus.textContent !== waitMessage) arrivalStatus.textContent = waitMessage;
   status.innerHTML = run ? `<span>${getDay(run).title}</span><span>第 ${run.day + 1} 天 / 5</span>` : '<span>质检员的一天</span>';
@@ -331,7 +358,7 @@ function render(resumeScroll) {
   const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
   const delayOpen = screenLayer.querySelector('details.ending-delay')?.open;
   screenLayer.innerHTML = run
-    ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory))
+    ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory, incomingCall))
     : view.home(saved, endings, completedShifts.size);
   const delayDetails = screenLayer.querySelector('details.ending-delay');
   if (delayDetails && delayOpen) delayDetails.open = true;
@@ -344,12 +371,14 @@ function render(resumeScroll) {
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const { compare, inspection, archiveFocus, archiveQuery, archiveEditing, pinned, phoneNumber, egg } = interaction;
+  const incomingCall = incomingAtWindow();
+  const work = { ...interaction, incomingCall };
   let markup = '';
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
-  if (panel === 'docs' && item) markup = view.documents(item, viewedDocument(), compare, step, interaction, previousInspection(item));
-  if (panel === 'sample' && item) markup = view.sample(item, inspection, step, interaction);
+  if (panel === 'docs' && item) markup = view.documents(item, viewedDocument(), compare, step, work, previousInspection(item));
+  if (panel === 'sample' && item) markup = view.sample(item, inspection, step, work);
   if (panel === 'archive' && run) markup = view.archivePanel(
-    archive(run, archiveQuery), filedVisitPapers(archiveQuery), archiveFocus, pinned,
+    archive(run, archiveQuery), filedSupportingPapers(archiveQuery), archiveFocus, pinned,
     archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending', {
       returnTo: archiveReturn?.panel,
       canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
@@ -358,7 +387,10 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'phone' && run) {
     const filed = archive(run);
     const papers = pinned.map((id) => filed.find((row) => row.id === id)).filter(Boolean);
-    markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, run.flags.phoneBack, item);
+    markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, run.flags.phoneBack, item, {
+      returnTo: phoneReturn?.panel,
+      incomingCall,
+    });
   }
   if (panel === 'handoff' && run?.phase === 'handoff') {
     const records = archive(run).filter(({ record, latestReceipt }) => record && !latestReceipt).map(({ record }) => record);
@@ -462,8 +494,13 @@ function workspaceBody() {
 function persistRun() {
   if (!run || reviewingHistory) return;
   const body = workspaceBody();
-  const context = body ? workspaceContext() : undefined;
-  const workspace = context ? { ...context, panel, scrollTop: body.scrollTop } : undefined;
+  const archivedPhone = panel === 'archive' && archiveReturn?.panel === 'phone';
+  const context = body || archivedPhone ? workspaceContext() : undefined;
+  const workspacePanel = archivedPhone ? 'phone' : panel;
+  const workspace = context ? {
+    ...context, panel: workspacePanel, scrollTop: body?.scrollTop ?? archiveReturn?.scrollTop ?? 0,
+    returnTo: workspacePanel === 'phone' ? phoneReturn : undefined,
+  } : undefined;
   saved = { ...run, inspectionProgress: captureInspectionProgress(getCase(run), interaction, workspace) };
   writeStorage(SAVE_KEY, saved);
 }
@@ -501,6 +538,13 @@ function update(action, redraw = true) {
 
 function openPanel(name, opener) {
   if (!panel && opener instanceof HTMLElement) modalOpener = { ...opener.dataset };
+  if (name === 'phone' && (panel === 'docs' || panel === 'sample')) {
+    const body = workspaceBody();
+    phoneReturn = { panel, opener: { ...opener.dataset }, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0 };
+  } else if (panel === 'phone' && name !== 'archive' && name !== 'phone') {
+    update({ type: 'hang-up' }, false);
+    phoneReturn = null;
+  }
   if (name === 'archive' && (panel === 'phone' || panel === 'handoff')) {
     archiveReturn = { panel, opener: { ...opener.dataset }, scrollTop: modalLayer.querySelector('.modal-body')?.scrollTop ?? 0 };
   } else if (name !== 'archive' || panel !== 'archive') {
@@ -525,6 +569,8 @@ function enter(restore) {
     interaction = freshInteraction();
   }
   panel = workspace?.panel ?? null;
+  phoneReturn = workspace?.returnTo ? { ...workspace.returnTo, opener: { act: 'phone' } } : null;
+  if (panel !== 'phone') run = dispatch(run, { type: 'hang-up' });
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
   archiveReturn = null;
@@ -543,6 +589,7 @@ function reviewCompletedShift(id) {
   panel = null;
   modalOpener = null;
   archiveReturn = null;
+  phoneReturn = null;
   playSound('paper');
   render();
   focusControl(screenLayer, { act: 'archive' });
@@ -780,11 +827,18 @@ function stamp(value) {
 
 function dial() {
   if (!interaction.phoneNumber) return;
-  playSound('ring');
   const number = interaction.phoneNumber;
+  playSound(number === '880' ? 'dialTone' : 'click');
   update({ type: 'dial', number, caseIds: interaction.pinned });
   modalLayer.querySelector('.phone-log')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (run.phase === 'handoff' && activeVisit()) toast('有人到窗口递留底');
+}
+
+function openPhone(opener) {
+  if (!run || reviewingHistory) return;
+  if (incomingAtWindow()) update({ type: 'answer-call' }, false);
+  playSound('click');
+  openPanel('phone', opener);
 }
 
 function setPhoneNumber(value) {
@@ -808,15 +862,22 @@ function revealArchiveReceipt(revealIndex) {
 }
 
 function closePanel() {
-  const previousPanel = run && panel === 'archive' ? archiveReturn : null;
+  let previousPanel = run && panel === 'archive' ? archiveReturn : null;
+  if (panel === 'phone') {
+    update({ type: 'hang-up' }, false);
+    previousPanel = phoneReturn;
+    phoneReturn = null;
+  }
   panel = previousPanel?.panel ?? null;
   archiveReturn = null;
-  render();
+  render(previousPanel?.scrollTop);
   if (previousPanel) {
-    modalLayer.querySelector('.modal-body')?.scrollTo(0, previousPanel.scrollTop);
+    const body = workspaceBody();
+    if (body) body.scrollLeft = previousPanel.scrollLeft ?? 0;
+    else modalLayer.querySelector('.modal-body')?.scrollTo(0, previousPanel.scrollTop);
     const opener = focusControl(modalLayer, previousPanel.opener);
     if (previousPanel.panel === 'handoff') opener?.scrollIntoView({ block: 'nearest' });
-  }
+  } else if (run?.phase === 'summary' && document.activeElement === document.body) focusControl(screenLayer, { act: 'advance-day' });
 }
 
 root.addEventListener('click', (event) => {
@@ -840,6 +901,7 @@ root.addEventListener('click', (event) => {
       cancelArrivalPause();
       run = null;
       reviewingHistory = false;
+      phoneReturn = null;
       resetGaze();
       closePanel();
       if (fromHistory) focusControl(screenLayer, { act: 'completed-shifts' });
@@ -852,7 +914,7 @@ root.addEventListener('click', (event) => {
       panel = null;
       if (run.phase === 'case' || activeVisit()) pauseBeforeArrival(event.detail === 0);
       else {
-        playSound('bell');
+        if (!incomingAtWindow()) playSound('bell');
         render();
         if (event.detail === 0) focusNextWindowAction();
       }
@@ -962,7 +1024,10 @@ root.addEventListener('click', (event) => {
       }
       break;
     }
-    case 'phone': playSound('click'); openPanel('phone', target); break;
+    case 'phone': openPhone(target); break;
+    case 'phone-answer':
+      if (panel === 'phone' && incomingAtWindow()) { playSound('click'); update({ type: 'answer-call' }); }
+      break;
     case 'phone-digit':
       if (interaction.phoneNumber.length < 5) setPhoneNumber(interaction.phoneNumber + key);
       playSound('click');
@@ -1015,7 +1080,7 @@ root.addEventListener('submit', (event) => {
   if (event.target.dataset.form !== 'archive') return;
   event.preventDefault();
   interaction.archiveQuery = String(new FormData(event.target).get('query') ?? '').slice(0, 60);
-  interaction.archiveFocus = archive(run, interaction.archiveQuery).at(-1)?.id ?? filedVisitPapers(interaction.archiveQuery).at(-1)?.[0] ?? null;
+  interaction.archiveFocus = archive(run, interaction.archiveQuery).at(-1)?.id ?? filedSupportingPapers(interaction.archiveQuery).at(-1)?.[0] ?? null;
   interaction.archiveEditing = false;
   render();
 });

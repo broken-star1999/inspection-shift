@@ -357,6 +357,9 @@ const effects = {
     deskBell(ctx, time + 0.56, 0.7);
     deskBell(ctx, time + 0.7, 0.64);
   },
+  dialTone(ctx, time) {
+    tone(ctx, time, { from: 425, duration: .125, level: .22, attack: .012 });
+  },
   click(ctx, time) {
     rustle(ctx, time, { from: 1450, to: 510, duration: 0.035, level: 0.3 });
     tone(ctx, time, { from: 185, to: 96, duration: 0.044, level: 0.21 });

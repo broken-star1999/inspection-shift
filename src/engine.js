@@ -1,4 +1,4 @@
-import { DAYS, HANDOFF, PHONE, PRESSURE, TUTORIAL as tutorialContent } from './content.js';
+import { DAYS, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, TUTORIAL as tutorialContent } from './content.js';
 import { normalizeFindings } from './inspection-findings.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
@@ -55,6 +55,8 @@ export function createRun(seed) {
     pending: [],
     phone: null,
     phoneLog: [],
+    incomingCalls: [],
+    ringbackArmed: false,
     event: null,
     events: [],
     flags: {
@@ -318,9 +320,51 @@ function recheck(state, action) {
   return { ...state, records: confirmFollowup(updateRecord(state.records, record.id, revised), revised) };
 }
 
-function callResult(state, number, npc, lines, kind = 'call') {
+function isIncomingKey(key) {
+  return typeof key === 'string' && Object.hasOwn(INCOMING_CALLS, key);
+}
+
+function phoneLogWithCall(phoneLog, phone) {
+  const log = [...phoneLog, phone];
+  const isIncoming = (call) => call?.kind === 'incoming' && isIncomingKey(call.incomingKey);
+  const incoming = new Map(log.filter(isIncoming).map((call) => [call.incomingKey, call]));
+  const outgoing = log.filter((call) => !isIncoming(call)).slice(-(20 - incoming.size));
+  const retained = new Set([...outgoing, ...incoming.values()]);
+  return log.filter((call) => retained.has(call));
+}
+
+function callResult(state, number, npc, lines, kind = 'call', incomingKey) {
   const phone = { number, npc, lines, line: lines.join('\n'), kind };
-  return { ...state, phone, phoneLog: [...state.phoneLog.slice(-19), phone] };
+  if (incomingKey) Object.assign(phone, { incomingKey, day: state.day });
+  return { ...state, phone, phoneLog: phoneLogWithCall(state.phoneLog, phone) };
+}
+
+function incomingQueue(state) {
+  return Array.isArray(state?.incomingCalls) ? state.incomingCalls : [];
+}
+
+export function getIncomingCall(state) {
+  if (state?.phase === 'ending') return null;
+  return incomingQueue(state).find(isIncomingKey) ?? null;
+}
+
+function queueIncomingCall(state, key) {
+  const pending = incomingQueue(state);
+  return pending.includes(key) ? state : { ...state, incomingCalls: [...pending, key] };
+}
+
+function hangUp(state) {
+  return state.ringbackArmed === true
+    ? queueIncomingCall({ ...state, ringbackArmed: false }, 'ringback') : state;
+}
+
+function answerCall(state) {
+  const key = getIncomingCall(state);
+  if (!key) return state;
+  const { number, npc, lines } = INCOMING_CALLS[key];
+  let answered = { ...state, incomingCalls: incomingQueue(state).filter((call) => call !== key) };
+  if (key === 'ringback') answered = setFlags(answered, { ringback: true });
+  return callResult(answered, number, npc, [...lines], 'incoming', key);
 }
 
 function selectedRecords(state, action) {
@@ -373,7 +417,7 @@ function dial(state, action) {
   if (number === '107') return dialNight(state, action, number);
   if (number === '880') {
     const script = PHONE[number];
-    return callResult(setFlags(state, { ringback: true }), number, script.npc, [script.greeting, script.found], 'ringback');
+    return callResult({ ...state, ringbackArmed: true }, number, null, [script.greeting], 'ringback-test');
   }
   return callResult(state, number, null, ['嘟……这条内线目前无人接听。'], 'unavailable');
 }
@@ -405,7 +449,8 @@ function nextCase(state) {
   const next = deliverVisits(state);
   if (state.index + 1 < getDay(state).cases.length) return startCase(next, state.index + 1);
   if (state.day === DAYS.length - 1) return { ...next, phase: 'handoff' };
-  return { ...next, phase: 'summary', records: ship(next.records) };
+  const summary = { ...next, phase: 'summary', records: ship(next.records) };
+  return state.day === 1 ? queueIncomingCall(summary, 'lab-close') : summary;
 }
 
 function finish(state) {
@@ -415,7 +460,7 @@ function finish(state) {
     const status = record.status === 'shipped' || record.status === 'recalled' ? 'recalled' : 'held';
     records = updateRecord(records, 7, { status, traceDisposition: status });
   }
-  return { ...state, phase: 'ending', records, event: null, events: [] };
+  return { ...state, phase: 'ending', records, event: null, events: [], incomingCalls: [], ringbackArmed: false };
 }
 
 export function dispatch(state, action) {
@@ -435,11 +480,17 @@ export function dispatch(state, action) {
     case 'next':
       return state.phase === 'receipt' && !waitingForVisit ? nextCase(state) : state;
     case 'advance-day':
-      return state.phase === 'summary' && !waitingForVisit ? { ...state, phase: 'brief', day: state.day + 1, index: 0 } : state;
+      return state.phase === 'summary' && !waitingForVisit
+        ? { ...state, phase: 'brief', day: state.day + 1, index: 0, incomingCalls: incomingQueue(state).filter((key) => key !== 'lab-close') }
+        : state;
     case 'ack-visit':
       return acknowledgeVisit(state);
     case 'dial':
       return dial(state, action);
+    case 'hang-up':
+      return hangUp(state);
+    case 'answer-call':
+      return answerCall(state);
     case 'explore':
       return explore(state, action.key);
     case 'recheck':
