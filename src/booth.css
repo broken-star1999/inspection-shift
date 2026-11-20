@@ -154,6 +154,33 @@
   background: #26342c url('/art/room.webp') center / cover no-repeat;
 }
 
+.booth-shutter {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.booth-shutter::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  border-inline: 3px solid #343b34;
+  border-block-end: 4px solid #302c24;
+  background:
+    linear-gradient(90deg, #1d211c91, transparent 12%, transparent 75%, #26291f8c),
+    repeating-linear-gradient(180deg, #807960 0 1px, #666251 1px 6px, #4b4d42 6px 8px);
+  transform: translateY(-100%);
+}
+
+#game[data-shutter='closed'] .booth-shutter::before { transform: none; }
+#game[data-modeled='true'] .booth-shutter { display: none; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .booth-shutter::before { transition: transform 420ms cubic-bezier(.35, 0, .3, 1); }
+}
+
 .booth-layout .static-worker {
   position: absolute;
   inset-block-end: 0;

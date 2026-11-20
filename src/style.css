@@ -982,7 +982,7 @@ button:disabled { opacity: .46; }
 
 .brief-card h3 { margin: .15rem 0; color: #59422d; font-size: clamp(.9rem, 1.7cqw, 1.18rem); }
 .brief-card p { margin: .6rem 0 .85rem; font-size: clamp(.86rem, 1.2cqw, 1.06rem); line-height: 1.65; }
-.brief-card:is(.summary-card, .ending-card) { display: flex; flex-direction: column; min-block-size: 0; overflow: hidden; }
+.brief-card.ending-card { display: flex; flex-direction: column; min-block-size: 0; overflow: hidden; }
 .summary-head, .summary-footer, .ending-head, .ending-footer { flex: none; }
 .summary-body, .ending-body { min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .summary-list { list-style: none; display: grid; gap: .25rem; margin: .37rem .16rem .25rem; padding: 0; }
@@ -1009,7 +1009,6 @@ button:disabled { opacity: .46; }
 .summary-footer, .ending-footer { padding-block-start: .48rem; border-block-start: 1px solid #aa956e; }
 
 @container workstation (max-height: 330px) {
-  .brief-card.summary-card { padding-block: .58rem; }
   .summary-head h2 { font-size: 1.45rem; }
   .summary-record { min-block-size: 1.9rem; }
   .summary-footer { padding-block-start: .32rem; }

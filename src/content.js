@@ -196,7 +196,7 @@ export const DAYS = [
   {
     title: '周一', subtitle: '老周带你接班',
     intro: '窗口这周你顶。单走一个，货才走一个。先看这批。',
-    outro: '小罗从窗外把本班回执递回来。远处响过一声铃，卷帘拉下。',
+    outro: '小罗「今天的回执都在这儿。」',
     cases: [
       {
         id: 1, batch: 'G-201', npc: 'luo', title: '小罗的第一箱',
@@ -236,7 +236,6 @@ export const DAYS = [
   {
     title: '周二', subtitle: '少了一份报告',
     intro: '小罗在窗下压了一张内线表。「缺报告找 204，小陈。」',
-    outro: '你把今天的回执收齐，压在交班板边。',
     cases: [
       {
         id: 5, batch: 'G-205', npc: 'luo', title: '少来了一张报告',
@@ -272,7 +271,7 @@ export const DAYS = [
   {
     title: '周三', subtitle: '有些东西会回来',
     intro: '卷帘刚拉过半，黄线那头就有人把昨天的箱子挪了回来。',
-    outro: '小唐来拿落在台边的笔。他说，明早自己会把登记原件带来。',
+    outro: '小唐「笔我拿走了。登记原件明早带来。」',
     cases: [
       {
         id: 9, batch: 'G-205', npc: 'luo', title: '送到窗口的二零五报告',
@@ -309,7 +308,7 @@ export const DAYS = [
   {
     title: '周四', subtitle: '一张新的，一张旧的',
     intro: '窗角贴着一张纸，「周五交班，改章请在原回执旁另开一联。」',
-    outro: '老周把交接板靠在窗边，教你把原来的回执留在新单后面。',
+    outro: '老周「明天改章另开一联，旧单留在后头。」',
     cases: [
       {
         id: 13, batch: 'G-211', npc: 'tang', title: '换签登记的原件',

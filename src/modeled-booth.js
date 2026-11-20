@@ -6,7 +6,9 @@ const workerNames = new Set(['luo', 'tang', 'xu', 'chen', 'zhou', 'sun']);
 const baseFov = 38;
 const deskDepartureMs = 285;
 const deskArrivalMs = 368;
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null };
+const shutterTravelMs = 420;
+const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null, shutterClosed: null };
 const paperStyles = {
   label: { width: 1.04, depth: .78, bright: '#ead2a0', shade: '#c4a875', edge: '#a67b52', turn: -.081 },
   report: { width: 1.22, depth: .97, bright: '#f2e4bb', shade: '#d4c4a0', edge: '#6e7955', turn: .048 },
@@ -152,6 +154,95 @@ function contactShadow(texture, width, depth, opacity) {
   return shadow;
 }
 
+function makeWindowShutter(window) {
+  const { x, y, z, width, height } = window;
+  const top = y + height / 2;
+  const sill = y - height / 2 + .035;
+  const openEdge = top - .094;
+  const travel = openEdge - sill;
+  const count = 28;
+  const pitch = travel / count;
+  const halfWidth = width / 2;
+  const root = new THREE.Group();
+  const finish = (color, roughness, metalness) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
+  const casing = finish('#656c5c', .71, .22);
+  const edging = finish('#888e78', .62, .34);
+  const darkness = finish('#30382f', .90, .11);
+  const steel = finish('#9a9983', .49, .41);
+  const box = (parent, material, w, h, d, px, py, pz) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(px, py, pz);
+    parent.add(mesh);
+  };
+
+  box(root, darkness, width + .20, .102, .20, x, top - .013, z + .135);
+  box(root, casing, width + .255, .300, .308, x, top + .110, z + .195);
+  box(root, edging, width + .15, .047, .034, x, top + .227, z + .356);
+  box(root, edging, width + .135, .024, .031, x, top - .006, z + .348);
+  box(root, darkness, width - .010, .024, .030, x, top - .043, z + .270);
+  for (const side of [-1, 1]) {
+    const edge = x + side * (halfWidth - .025);
+    box(root, darkness, .111, height + .035, .123, edge, y + .022, z + .102);
+    box(root, edging, .045, height + .031, .028, edge + side * .015, y + .018, z + .172);
+    box(root, casing, .115, .262, .048, x + side * (halfWidth + .060), top + .110, z + .354);
+    for (const screwY of [sill + .185, y, top - .252, top + .119]) {
+      const screw = new THREE.Mesh(new THREE.CylinderGeometry(.013, .013, .014, 8), steel);
+      screw.rotation.x = Math.PI / 2;
+      screw.position.set(edge + side * .015, screwY, z + (screwY > top ? .386 : .190));
+      root.add(screw);
+    }
+  }
+
+  // One bent cross-section serves all the steel slats. The lip overlaps the
+  // neighbouring slat slightly so the closed curtain blocks the room behind it.
+  const profile = new THREE.Shape();
+  profile.moveTo(.011, -.529 * pitch);
+  profile.lineTo(-.003, -.529 * pitch);
+  profile.quadraticCurveTo(-.016, -.48 * pitch, -.023, -.30 * pitch);
+  profile.quadraticCurveTo(-.034, .035 * pitch, -.021, .31 * pitch);
+  profile.lineTo(-.009, .529 * pitch);
+  profile.lineTo(.011, .529 * pitch);
+  profile.closePath();
+  const slatWidth = width + .026;
+  const shape = new THREE.ExtrudeGeometry(profile, { depth: slatWidth, bevelEnabled: false, curveSegments: 4 });
+  shape.rotateY(Math.PI / 2).translate(-slatWidth / 2, 0, 0);
+  const slats = new THREE.InstancedMesh(shape, finish('#818477', .86, .31), count);
+  slats.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  slats.frustumCulled = false;
+  root.add(slats);
+
+  const bottomRail = new THREE.Group();
+  box(bottomRail, darkness, width + .045, .034, .093, x, -.011, z + .110);
+  box(bottomRail, edging, width + .040, .073, .087, x, .036, z + .126);
+  box(bottomRail, casing, width - .108, .023, .012, x, .046, z + .171);
+  box(bottomRail, darkness, .207, .045, .024, x, .040, z + .183);
+  box(bottomRail, steel, .119, .015, .020, x, .032, z + .198);
+  root.add(bottomRail);
+
+  const matrix = new THREE.Matrix4();
+  const patina = new THREE.Color();
+  let previousCoverage = -1;
+  function setCoverage(coverage) {
+    if (previousCoverage === coverage) return;
+    previousCoverage = coverage;
+    const lift = travel * (1 - coverage);
+    bottomRail.position.y = sill + lift;
+    let visible = 0;
+    for (let row = 0; row < count; row++) {
+      const center = openEdge - (row + .5) * pitch + lift;
+      if (center - .529 * pitch >= top + .048) continue;
+      slats.setMatrixAt(visible, matrix.makeTranslation(x, center, z + .097));
+      slats.setColorAt(visible, patina.setScalar(.94 - (row * 7 % 13) * .006));
+      visible++;
+    }
+    slats.count = visible;
+    slats.instanceMatrix.needsUpdate = true;
+    slats.instanceColor.needsUpdate = true;
+  }
+  setCoverage(0);
+  return { root, setCoverage };
+}
+
 function buildPaper(doc, index, count, ownerDocument, shadowTexture, standalone) {
   const style = paperStyles[doc.type] ?? paperStyles.archive;
   const footprint = Math.min(1, 3 / count);
@@ -187,6 +278,7 @@ function disposeObject(object, retainedTexture) {
   const materials = new Set();
   const textures = new Set();
   object.traverse((child) => {
+    if (child.isInstancedMesh) child.dispose();
     if (child.geometry) geometry.add(child.geometry);
     if (!child.material) return;
     for (const material of [].concat(child.material)) {
@@ -253,6 +345,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
   const models = createWorkbenchModels();
   scene.add(models.group);
+  const shutter = makeWindowShutter(BOOTH_METRICS.window);
+  scene.add(shutter.root);
   const caps = Object.entries(models.caps ?? {}).map(([key, cap]) => ({ key, cap, baseY: cap.position.y }));
   scene.add(new THREE.HemisphereLight('#e8eef4', '#4e3d31', 1.49));
   const daylight = new THREE.DirectionalLight('#eff3fb', 1.31);
@@ -271,6 +365,10 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let width = 0;
   let height = 0;
   let frame = initialFrame;
+  let shutterSettled = false;
+  let shutterFrom = 0;
+  let shutterTarget = 0;
+  let shutterMotionAt = -Infinity;
   let paperSet = [];
   let paperKey = null;
   let deskMotionAt = -Infinity;
@@ -431,10 +529,27 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     return filename.includes('/') || /^(data|blob):/.test(filename) ? filename : `${art}${filename}`;
   }
 
+  function shutterCoverage(now) {
+    if (reduced.matches || shutterFrom === shutterTarget) return shutterTarget;
+    const duration = shutterTravelMs * Math.abs(shutterTarget - shutterFrom);
+    const progress = THREE.MathUtils.clamp((now - shutterMotionAt) / duration, 0, 1);
+    return THREE.MathUtils.lerp(shutterFrom, shutterTarget, progress ** 2 * (3 - 2 * progress));
+  }
+
   function setFrame(next = {}) {
     if (destroyed) return;
     const before = frame;
     frame = { ...initialFrame, ...next };
+    const nextShutter = Number(frame.shutterClosed ?? shutterRestPhases.has(frame.phase));
+    if (!shutterSettled || before.phase === 'home' || frame.phase === 'home' || reduced.matches) {
+      shutterFrom = shutterTarget = nextShutter;
+      shutterSettled = true;
+    } else if (shutterTarget !== nextShutter) {
+      const now = view.performance.now();
+      shutterFrom = shutterCoverage(now);
+      shutterMotionAt = now;
+      shutterTarget = nextShutter;
+    }
     const waiting = frame.phase === 'waiting';
     const arriving = frame.phase === 'arriving';
     const working = arriving || frame.phase === 'case' || frame.phase === 'receipt' || frame.visit;
@@ -604,6 +719,10 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     portrait.material.color.setScalar(closing ? .81 : .98 - day * .045);
 
     const deskMoving = placeDesk(now);
+    if (reduced.matches) shutterFrom = shutterTarget;
+    const coverage = shutterCoverage(now);
+    shutter.setCoverage(coverage);
+    const shutterMoving = coverage !== shutterTarget;
     const pressAge = now - pressedAt;
     const pressDepth = reduced.matches || pressAge >= 165 ? 0 : Math.sin(pressAge / 165 * Math.PI) * .073;
     for (const { key, cap, baseY } of caps) cap.position.y = baseY - (pressed === key ? pressDepth : 0);
@@ -619,7 +738,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       ready = true;
       onReady?.();
     }
-    if (deskMoving || (portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
+    if (shutterMoving || deskMoving || (portrait.visible && progress < 1) || (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 
   function captureDeskProjection() {

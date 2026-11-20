@@ -48,7 +48,7 @@ export function shell() {
           <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b><span class="phone-ring-indicator" aria-hidden="true"></span></button>
           <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" fetchpriority="low" draggable="false"><b>交接簿</b></button>
         </aside>
-        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
+        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="booth-shutter" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
         <aside class="booth-wing booth-right" aria-label="值班告示">
           <div id="wall-shift" data-fixture="shift"></div>
           <button class="wall-notice" data-act="rules" data-fixture="rules">查验要求<span aria-hidden="true">﹣﹣﹣</span></button>
@@ -233,16 +233,16 @@ export function overlay(run, ending, reviewingHistory = false, incomingCall = nu
   if (run.phase === 'brief') return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(day.subtitle)}</h3><p>${esc(day.intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
   if (run.phase === 'summary') {
     const records = run.records.filter(({ day: dayIndex }) => dayIndex === run.day);
-    return `<div class="stage-overlay"><section class="brief-card summary-card">
-      <header class="summary-head"><div class="eyebrow">${day.title} · 收班回执</div><h2>当班交接</h2></header>
+    return `<section class="shift-close-sheet" aria-labelledby="shift-close-title">
+      <header class="summary-head"><h2 id="shift-close-title">收班单</h2><small>${day.title} · 质检窗口</small></header>
       <div class="summary-body"><ul class="summary-list">${records.map((record) => {
         const batch = esc(record.batch);
         const decision = esc(labels[record.decision]);
         const destination = esc(dispositionLabel(record));
         return `<li><button type="button" class="summary-record" data-act="archive-receipt" data-i="${esc(record.id)}" aria-label="查看 ${batch} 回执，${decision}，${destination}"><b>${batch}</b><span>${decision} · ${destination}</span></button></li>`;
-      }).join('')}</ul><p>${esc(day.outro)}</p></div>
+      }).join('')}</ul>${day.outro ? `<p class="shift-close-note">${esc(day.outro)}</p>` : ''}</div>
       <footer class="summary-footer">${incomingCall ? button('接电话', 'phone', 'secondary summary-phone') : ''}${button('下一班', 'advance-day', 'primary')}</footer>
-    </section></div>`;
+    </section>`;
   }
   if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button(incomingCall ? '接电话' : '打电话', 'phone')}${button('打开交接板', 'handoff', 'primary')}</div></section></div>`;
   if (run.phase === 'ending') return endingView(ending, reviewingHistory);

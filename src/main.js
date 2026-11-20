@@ -389,6 +389,9 @@ function setScene() {
   const sceneRun = approaching ? arrival.next : run;
   const visit = waiting ? null : activeVisit(sceneRun);
   const phase = approaching ? 'arriving' : waiting ? 'waiting' : (run?.phase ?? 'home');
+  const shutterClosed = !visit && (phase === 'summary' || phase === 'brief' || phase === 'ending');
+  if (shutterClosed && phase === 'summary' && root.dataset.shutter === 'open') playSound('shutter');
+  root.dataset.shutter = shutterClosed ? 'closed' : 'open';
   const item = !waiting && !visit && sceneRun ? getCase(sceneRun) : null;
   const npc = waiting ? (arrival.keepVisitor ? visitorAt(run) : null)
     : visit?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
@@ -406,7 +409,7 @@ function setScene() {
   const delivered = visitDocument(visit, sceneRun);
   const documents = item?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
-  scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit),
+  scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit), shutterClosed,
     documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
@@ -414,6 +417,9 @@ function setScene() {
 }
 
 function render(resumeScroll) {
+  const settingDownCloseSheet = run?.phase === 'summary' &&
+    (root.dataset.phase === 'receipt' || root.dataset.phase === 'summary') &&
+    !screenLayer.querySelector('.shift-close-sheet');
   root.dataset.phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
   if (arrival) root.dataset.arrivalStage = arrival.stage;
   else delete root.dataset.arrivalStage;
@@ -431,7 +437,9 @@ function render(resumeScroll) {
   const visit = arrivalTimer ? null : activeVisit();
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
-  hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous) : '';
+  hud.innerHTML = run && !arrivalTimer && (run.phase !== 'summary' || visit)
+    ? view.room(run, item, step, teaching, item?.pressureLine, visit, previous)
+    : '';
   const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
   const previewVisit = preview ? activeVisit(preview) : null;
   const previewItem = preview && !previewVisit ? getCase(preview) : null;
@@ -447,6 +455,12 @@ function render(resumeScroll) {
   screenLayer.innerHTML = run
     ? (arrivalTimer || visit ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory, incomingCall))
     : view.home(saved, endings, completedShifts.size);
+  if (settingDownCloseSheet) {
+    animateOnDesk(screenLayer.querySelector('.shift-close-sheet'), [
+      { translate: '.8rem 1.35rem', rotate: '-.9deg', opacity: .65 },
+      { translate: '0 0', rotate: '0deg', opacity: 1 },
+    ], 300);
+  }
   const delayDetails = screenLayer.querySelector('details.ending-delay');
   if (delayDetails && delayOpen) delayDetails.open = true;
   if (recapScroll !== undefined) screenLayer.querySelector('.summary-body, .ending-body')?.scrollTo(0, recapScroll);
@@ -523,7 +537,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (handoffIndexScroll !== undefined) modalLayer.querySelector('.handoff-board')?.scrollTo(0, handoffIndexScroll);
   if (handoffDetailScroll !== undefined) modalLayer.querySelector('.handoff-detail-scroll')?.scrollTo(0, handoffDetailScroll);
   const blockingDialog = Boolean(markup && !surface);
-  booth.inert = blockingDialog || !run || Boolean(arrivalTimer || screenLayer.firstElementChild);
+  const screenCoversBooth = Boolean(screenLayer.firstElementChild) && run?.phase !== 'summary';
+  booth.inert = blockingDialog || !run || Boolean(arrivalTimer) || screenCoversBooth;
   screenLayer.inert = Boolean(markup);
   if (!markup) {
     if (hadModal && modalOpener) {
@@ -714,7 +729,8 @@ function enter(restore) {
     return;
   }
   const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
-  playSound(resumeSound ?? (run.phase === 'ending' ? 'paper' : 'shutter'));
+  if (resumeSound) playSound(resumeSound);
+  else if (run.phase !== 'summary') playSound(run.phase === 'ending' ? 'paper' : 'shutter');
   render(workspace?.scrollTop);
 }
 
