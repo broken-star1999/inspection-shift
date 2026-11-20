@@ -123,15 +123,15 @@
 .documents-surface:has(.doc-grid.spread) { inline-size: min(78cqw, 64rem); }
 .doc-grid.spread { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .doc-grid.spread .sheet { min-inline-size: 0; border-radius: 1px 4px 2px 1px; }
-.desk-surface .field-value {
+:is(.desk-surface, .handoff-detail-scroll) .field-value {
   padding: .06rem .12rem;
   border: 0;
   border-block-end: 1px dotted #9c8255;
   background: transparent;
   color: #433425;
 }
-.desk-surface .field-value:is(:hover, :focus-visible) { background: #d5b66b59; }
-.desk-surface .field-value[aria-pressed='true'] {
+:is(.desk-surface, .handoff-detail-scroll) .field-value:is(:hover, :focus-visible) { background: #d5b66b59; }
+:is(.desk-surface, .handoff-detail-scroll) .field-value[aria-pressed='true'] {
   background: #d7b9629c;
   border-block-end-style: solid;
 }
@@ -465,6 +465,146 @@
   background: #354438;
 }
 
+.modal.handoff-modal:has(.handoff-workspace) { inline-size: min(65rem, 100%); block-size: min(100%, 43rem); }
+.handoff-modal:has(.handoff-workspace) > .modal-body {
+  flex: 1 1 auto;
+  display: flex;
+  padding: .53rem .63rem .59rem;
+  overflow: hidden;
+}
+.handoff-sheet {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+.handoff-sheet > p { margin: 0 0 .38rem; color: #d8cbaa; font-size: .8rem; line-height: 1.36; }
+.handoff-workspace {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  display: grid;
+  grid-template-columns: clamp(10.2rem, 31%, 19rem) minmax(0, 1fr);
+  gap: .57rem;
+}
+.handoff-workspace > *, .handoff-detail > * { min-inline-size: 0; min-block-size: 0; }
+.handoff-workspace .handoff-board,
+.handoff-detail-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  touch-action: pan-y;
+}
+.handoff-workspace .handoff-board {
+  align-content: start;
+  gap: .38rem;
+  padding: .16rem .2rem .28rem 0;
+  align-self: stretch;
+}
+.handoff-workspace .handoff-slips {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 4.05rem), 1fr));
+  gap: .25rem;
+}
+.handoff-workspace .handoff-group[data-disposition='recallPending'] .handoff-slips { grid-template-columns: minmax(0, 1fr); }
+.handoff-workspace .handoff-slip { min-block-size: 2.75rem; }
+.handoff-workspace .handoff-slip b { overflow: hidden; text-overflow: ellipsis; }
+.handoff-workspace .handoff-slip small { white-space: normal; overflow-wrap: anywhere; }
+.handoff-workspace .handoff-slip[aria-pressed='true'] {
+  border-color: #c8a268;
+  border-inline-start-color: #865631;
+  background: #f0d297;
+  color: #3d2a1d;
+  box-shadow: inset 0 1px #fae6b8;
+}
+.handoff-workspace .handoff-recall-action { min-inline-size: 2.75rem; }
+.handoff-board .handoff-attachments-entry { min-block-size: 2.75rem; text-align: start; }
+.handoff-board .handoff-attachments-entry[aria-pressed='true'] { background: #615945; border-color: #bb9a69; }
+.handoff-detail {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #917756;
+  background: #49372b;
+  box-shadow: inset 0 1px #ae9070a6, .14rem .19rem #151c1799;
+}
+.handoff-detail-head {
+  flex: 0 0 auto;
+  padding: .35rem .47rem .37rem;
+  border-block-end: 1px solid #8e7357;
+  background: linear-gradient(145deg, #5a4736, #4f3b2f);
+  color: #f7e1b7;
+}
+.handoff-detail-head :is(p, h3) { margin: 0; }
+.handoff-detail-head h3 { overflow-wrap: anywhere; font-size: .92rem; line-height: 1.24; }
+.handoff-detail-head:has(.handoff-detail-heading) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .27rem .39rem;
+}
+.handoff-detail-heading { display: contents; }
+.handoff-detail-name {
+  display: flex;
+  min-inline-size: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .08rem .5rem;
+  grid-area: 1 / 1;
+}
+.handoff-detail-name small { color: #eed2a1; font: 680 .73rem / 1.28 var(--mono); }
+.handoff-detail-status {
+  grid-area: 1 / 2;
+  justify-self: end;
+  padding: .13rem .32rem;
+  border: 1px solid #ab8a64;
+  background: #3b2f23;
+  font: 760 .72rem / 1.2 var(--mono);
+  white-space: nowrap;
+}
+.handoff-detail-tabs {
+  grid-area: 2 / 1 / 3 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .23rem;
+  margin: 0;
+}
+.handoff-detail-head:has(.handoff-detail-edit) .handoff-detail-tabs { grid-column: 1 / 2; }
+.handoff-detail-head .handoff-detail-edit {
+  grid-area: 2 / 2;
+  padding-inline: .42rem;
+  min-block-size: 2.75rem;
+  font-size: .79rem;
+  white-space: nowrap;
+}
+.handoff-detail-tabs .tab {
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  padding: .24rem .38rem;
+  background: #493c30;
+  border-color: #a58a63;
+  color: #f5dfb1;
+  font: 750 .78rem / 1.22 var(--mono);
+  text-shadow: none;
+  white-space: nowrap;
+}
+.handoff-detail-tabs .tab[aria-pressed='true'] { background: #e7cf9c; border-color: #d8ab70; color: #473224; }
+.handoff-detail-tabs .tab:not([aria-pressed='true']):is(:hover, :focus-visible) { background: #69523a; }
+.handoff-detail-scroll { flex: 1 1 auto; padding: .42rem .48rem .56rem; }
+.handoff-detail-scroll > :is(.archive-receipt, .sheet):last-child { margin-block-end: 0; }
+.handoff-detail-scroll .handoff-attachments { margin-block-start: 0; }
+.handoff-detail-scroll .handoff-evidence:first-child { margin-block-start: 0; }
+.handoff-detail-scroll :is(.handoff-related, .handoff-evidence) .button { min-block-size: 2.75rem; }
+.handoff-detail-scroll .field-value[data-act='correction-basis'] { min-block-size: 1.9rem; margin-block: 0; }
+.handoff-empty { margin: .12rem 0; padding: .47rem .54rem; color: #ebd8b4; background: #392c23; font-size: .84rem; }
+.handoff-modal:has(.handoff-workspace) > .handoff-actions { flex-wrap: nowrap; }
+.handoff-modal:has(.handoff-workspace) > .handoff-actions :is(.button, .stamp) { min-block-size: 2.75rem; }
+.handoff-actions :is(.archive-correction, .handoff-correction) {
+  flex: 0 1 26rem;
+  min-inline-size: 0;
+  grid-template: auto / repeat(3, minmax(0, 1fr));
+  gap: .28rem;
+}
+.handoff-actions .handoff-cancel { flex: 0 0 auto; white-space: nowrap; }
+
 .receipt-surface {
   inset-inline-start: auto;
   inset-inline-end: clamp(1rem, 5.4cqw, 5.75rem);
@@ -716,6 +856,27 @@
   .archive-surface .archive-actions .archive-recall-action { min-block-size: 2.75rem; padding-inline: .4rem; font-size: .76rem; }
   .ending-recall { padding: .29rem .35rem .37rem; }
   .handoff-modal > .handoff-actions { padding: .3rem .56rem; }
+  .handoff-modal:has(.handoff-workspace) > .modal-head { padding: .15rem .55rem; }
+  .handoff-modal:has(.handoff-workspace) > .modal-head .modal-close { inline-size: 2rem; block-size: 2rem; }
+  .handoff-modal:has(.handoff-workspace) > .modal-body { padding: .25rem .4rem .31rem; }
+  .handoff-sheet > p { margin-block-end: .21rem; font-size: .74rem; line-height: 1.25; }
+  .handoff-workspace { gap: .38rem; }
+  .handoff-detail-head { padding: .21rem .35rem .27rem; }
+  .handoff-detail-head h3 { font-size: .84rem; }
+  .handoff-detail-head:has(.handoff-detail-heading) { gap: .19rem .28rem; }
+  .handoff-detail-tabs { gap: .19rem; }
+  .handoff-detail-tabs .tab, .handoff-detail-head .handoff-detail-edit { padding-inline: .35rem; font-size: .75rem; }
+  .handoff-detail-scroll { padding: .29rem .35rem .39rem; }
+  .handoff-detail-scroll .archive-receipt { padding: .33rem .44rem .39rem; }
+  .handoff-detail-scroll .archive-receipt-head > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: .12rem .43rem; }
+  .handoff-detail-scroll .archive-receipt-head strong { font-size: .83rem; }
+  .handoff-detail-scroll .archive-receipt-head small { margin: 0; }
+  .handoff-detail-scroll .archive-receipt-head .receipt-result { font-size: .72rem; }
+  .handoff-detail-scroll .receipt-facts { margin-block-start: .28rem; }
+  .handoff-detail-scroll .sheet { padding: .32rem .48rem .45rem; }
+  .handoff-detail-scroll .sheet > h3 { margin: .12em 0 .28em; }
+  .handoff-detail-scroll .fields > div { gap: .32rem; padding-block: .2rem; }
+  .handoff-modal:has(.handoff-workspace) > .handoff-actions { padding: .18rem .43rem; }
 }
 
 @container workstation (max-width: 720px) {
@@ -726,4 +887,8 @@
   .sample-surface:has(.sample-workbench.with-reference) { inline-size: calc(100cqw - 1.32rem); }
   .archive-surface { inline-size: min(88cqw, 59rem); }
   .receipt-surface { inset-inline-start: auto; inset-inline-end: 1rem; inline-size: min(52cqw, 22rem); }
+}
+
+@container workstation (max-height: 330px) {
+  .handoff-sheet > .handoff-instruction { display: none; }
 }

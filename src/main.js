@@ -88,6 +88,8 @@ let suppressPaperClick = false;
 let modalOpener = null;
 let archiveReturn = null;
 let correctionDraft = null;
+let handoffFocus = null;
+let handoffDocument = null;
 let phoneReturn = null;
 let ringing = null;
 let interaction = freshInteraction();
@@ -423,7 +425,9 @@ function render(resumeScroll) {
 }
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
-  const { compare, inspection, archiveFocus, archiveQuery, archiveEditing, pinned, phoneNumber, egg } = interaction;
+  const { compare, inspection, archiveFocus, archiveQuery, pinned, phoneNumber, egg } = interaction;
+  const correction = activeCorrection();
+  const correctionFindings = correction ? selectedCorrectionFindings(correction, correctionDraft.keys) : null;
   const incomingCall = incomingAtWindow();
   const work = { ...interaction, incomingCall };
   let markup = '';
@@ -432,10 +436,10 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, work);
   if (panel === 'archive' && run) {
     markup = view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery), archiveFocus, pinned,
-      archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending', {
+      archiveQuery, Boolean(correction), run.phase === 'handoff', run.phase === 'ending', {
         returnTo: archiveReturn?.panel,
         canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
-        correctionFindings: archiveEditing ? selectedCorrectionFindings(correctableRow(archiveFocus), correctionDraft?.keys) : [],
+        correctionFindings: correctionFindings ?? [],
       });
   }
   if (panel === 'phone' && run) {
@@ -447,8 +451,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     });
   }
   if (panel === 'handoff' && run?.phase === 'handoff') {
-    const records = archive(run).filter(({ record, latestReceipt }) => record && !latestReceipt).map(({ record }) => record);
-    markup = view.handoffPanel(run, EVIDENCE, records);
+    const rows = archive(run).filter(({ record }) => record);
+    markup = view.handoffPanel(run, EVIDENCE, rows, { focus: handoffFocus, documentIndex: handoffDocument, correctionFindings });
   }
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
@@ -471,11 +475,13 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const previousPaper = previousSurface?.querySelector('.return-previous');
   const archiveIndexScroll = previousSurface?.querySelector('.drawer-list')?.scrollTop;
   const phoneScroll = modalLayer.querySelector('.phone-modal .modal-body')?.scrollTop;
-  const handoffScroll = modalLayer.querySelector('.handoff-modal .modal-body')?.scrollTop;
+  const handoffIndexScroll = modalLayer.querySelector('.handoff-board')?.scrollTop;
+  const handoffDetailScroll = modalLayer.querySelector('.handoff-detail-scroll')?.scrollTop;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
   if (phoneScroll !== undefined) modalLayer.querySelector('.phone-modal .modal-body')?.scrollTo(0, phoneScroll);
-  if (handoffScroll !== undefined) modalLayer.querySelector('.handoff-modal .modal-body')?.scrollTo(0, handoffScroll);
+  if (handoffIndexScroll !== undefined) modalLayer.querySelector('.handoff-board')?.scrollTo(0, handoffIndexScroll);
+  if (handoffDetailScroll !== undefined) modalLayer.querySelector('.handoff-detail-scroll')?.scrollTo(0, handoffDetailScroll);
   const blockingDialog = Boolean(markup && !surface);
   booth.inert = blockingDialog || !run || Boolean(arrivalTimer || screenLayer.firstElementChild);
   screenLayer.inert = Boolean(markup);
@@ -542,7 +548,8 @@ function workspaceBody() {
   if (panel === 'docs') return modalLayer.querySelector('.documents-surface .desk-surface-content');
   if (panel === 'sample') return modalLayer.querySelector('.sample-surface .desk-surface-content');
   if (panel === 'phone') return modalLayer.querySelector('.phone-modal .modal-body');
-  if (panel === 'archive' && interaction.archiveEditing) return modalLayer.querySelector('.archive-surface .desk-surface-content');
+  if (panel === 'handoff') return modalLayer.querySelector('.handoff-detail-scroll');
+  if (panel === 'archive' && activeCorrection()) return modalLayer.querySelector('.archive-surface .desk-surface-content');
   return null;
 }
 
@@ -570,7 +577,8 @@ function persistWorkspaceScroll() {
   clearTimeout(workspaceScrollTimer);
   const body = workspaceBody();
   const workspace = saved?.inspectionProgress?.workspace;
-  const scrollTop = panel === 'archive' ? saved?.correctionDraft?.scrollTop : workspace?.panel === panel ? workspace.scrollTop : undefined;
+  const scrollTop = ['archive', 'handoff'].includes(panel) ? (activeCorrection() ? saved?.correctionDraft?.scrollTop : undefined)
+    : workspace?.panel === panel ? workspace.scrollTop : undefined;
   if (!body || scrollTop === undefined || Math.abs(body.scrollTop - scrollTop) < 1) return;
   // Passive scroll saves must not replace newer progress from another tab.
   if (JSON.stringify(readStorage(SAVE_KEY)) === JSON.stringify(saved)) persistRun();
@@ -611,7 +619,8 @@ function openPanel(name, opener) {
     phoneReturn = null;
   }
   if (name === 'archive' && (panel === 'phone' || panel === 'handoff')) {
-    archiveReturn = { panel, opener: { ...opener.dataset }, scrollTop: modalLayer.querySelector('.modal-body')?.scrollTop ?? 0 };
+    const index = panel === 'handoff' ? modalLayer.querySelector('.handoff-board') : workspaceBody();
+    archiveReturn = { panel, opener: { ...opener.dataset }, scrollTop: index?.scrollTop ?? 0, detailScroll: workspaceBody()?.scrollTop ?? 0 };
   } else if (name !== 'archive' || panel !== 'archive') {
     archiveReturn = null;
   }
@@ -643,6 +652,8 @@ function enter(restore) {
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
   archiveReturn = null;
+  handoffFocus = null;
+  handoffDocument = null;
   correctionDraft = restoreCorrectionDraft(savedCorrection);
   const next = windowAdvance(arrivalAction);
   if (needsArrival(next)) {
@@ -651,14 +662,15 @@ function enter(restore) {
     return;
   }
   if (correctionDraft && !activeVisit()) {
-    panel = 'archive';
-    focusArchiveRow(correctionDraft.id);
-    modalOpener = { act: correctionDraft.fromBoard ? 'handoff' : 'archive' };
+    panel = correctionDraft.fromBoard ? 'handoff' : 'archive';
+    modalOpener = { act: panel };
     if (correctionDraft.fromBoard) {
-      archiveReturn = { panel: 'handoff', opener: { act: 'archive-receipt', i: String(correctionDraft.id) }, scrollTop: 0 };
-    }
+      handoffFocus = correctionDraft.id;
+      handoffDocument = correctionDraft.documentIndex;
+    } else focusArchiveRow(correctionDraft.id);
     playSound('paper');
     render(correctionDraft.scrollTop);
+    if (panel === 'handoff') revealHandoffSelection();
     return;
   }
   const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
@@ -723,17 +735,18 @@ function finishWindowAdvance(value, restoreFocus) {
   if (visit) {
     interaction.archiveFocus = visit.key;
     interaction.archiveQuery = '';
-    interaction.archiveEditing = false;
     if (visit.kind === 'recall') {
       const confirmed = run.records.find(({ id }) => id === visit.caseId)?.status === 'recalled';
       panel = 'handoff';
       modalOpener = { act: 'handoff' };
+      handoffFocus = visit.caseId;
+      handoffDocument = null;
       if (!confirmed) toast('这份回执需要再核对');
     } else toast('留底已收入交接簿');
   }
   render();
   if (visit?.kind === 'recall') {
-    focusControl(modalLayer, { act: 'archive-receipt', i: String(visit.caseId) })?.scrollIntoView({ block: 'nearest' });
+    revealHandoffSelection(true);
     return;
   }
   if (restoreFocus) focusNextWindowAction();
@@ -835,6 +848,17 @@ function correctableRow(id) {
   return run?.phase === 'handoff' ? archive(run).find((row) => row.id === id && row.record && !row.latestReceipt) : null;
 }
 
+function correctionFocus() {
+  if (panel === 'handoff') return handoffFocus;
+  if (panel === 'archive') return interaction.archiveFocus;
+  return null;
+}
+
+function activeCorrection() {
+  if (!correctionDraft || correctionDraft.id !== correctionFocus()) return null;
+  return correctableRow(correctionDraft.id);
+}
+
 function selectedCorrectionFindings(row, keys = []) {
   if (!row) return [];
   const available = [
@@ -848,29 +872,34 @@ function selectedCorrectionFindings(row, keys = []) {
 function restoreCorrectionDraft(draft) {
   const row = correctableRow(draft?.id);
   if (!row) return null;
+  const keys = selectedCorrectionFindings(row, Array.isArray(draft.keys) ? draft.keys : []).map(({ key }) => key);
+  const fromBoard = draft.fromBoard === true;
+  const legacyBoardDraft = fromBoard && draft.documentIndex === undefined;
+  const lastPaper = keys.findLast((key) => key.startsWith('doc:'));
+  const documentIndex = legacyBoardDraft ? Number(lastPaper?.split(':')[1] ?? 0) : draft.documentIndex;
   return {
     id: row.id,
-    keys: selectedCorrectionFindings(row, Array.isArray(draft.keys) ? draft.keys : []).map(({ key }) => key),
-    fromBoard: draft.fromBoard === true,
-    scrollTop: Number.isFinite(draft.scrollTop) ? Math.max(0, draft.scrollTop) : 0,
+    keys,
+    fromBoard,
+    documentIndex: fromBoard && Number.isInteger(documentIndex) && row.documents[documentIndex] ? documentIndex : null,
+    scrollTop: !legacyBoardDraft && Number.isFinite(draft.scrollTop) ? Math.max(0, draft.scrollTop) : 0,
   };
 }
 
 function captureCorrectionScroll() {
-  if (panel !== 'archive' || !interaction.archiveEditing || correctionDraft?.id !== interaction.archiveFocus) return;
+  if (!activeCorrection()) return;
   correctionDraft.scrollTop = workspaceBody()?.scrollTop ?? 0;
-  correctionDraft.fromBoard = archiveReturn?.panel === 'handoff';
+  correctionDraft.fromBoard = panel === 'handoff';
+  correctionDraft.documentIndex = panel === 'handoff' ? handoffDocument : null;
 }
 
 function focusArchiveRow(id) {
   captureCorrectionScroll();
   interaction.archiveFocus = id;
-  interaction.archiveEditing = correctionDraft?.id === id && Boolean(correctableRow(id));
 }
 
 function editCorrectionFinding(key, { remove = false, field } = {}) {
-  if (!interaction.archiveEditing || panel !== 'archive' || correctionDraft?.id !== interaction.archiveFocus) return;
-  const row = correctableRow(correctionDraft.id);
+  const row = activeCorrection();
   if (!selectedCorrectionFindings(row, [key]).length) return;
   const alreadySelected = correctionDraft.keys.includes(key);
   if (remove && !alreadySelected) return;
@@ -1061,16 +1090,51 @@ function setPhoneNumber(value) {
 
 function openArchive(opener) {
   interaction.archiveFocus ??= archive(run).at(-1)?.id ?? null;
-  interaction.archiveEditing = correctionDraft?.id === interaction.archiveFocus && Boolean(correctableRow(interaction.archiveFocus));
   playSound('paper');
   openPanel('archive', opener);
+}
+
+function openHandoff(opener) {
+  if (run?.phase !== 'handoff') return;
+  if (handoffFocus === null) {
+    const current = archive(run).filter(({ record, latestReceipt }) => record && !latestReceipt);
+    handoffFocus = (current.find(({ record }) => record.status === 'recallPending')
+      ?? current.find(({ record }) => record.status === 'shipping') ?? current[0])?.id ?? null;
+  }
+  playSound('paper');
+  openPanel('handoff', opener);
+  revealHandoffSelection();
+}
+
+function revealHandoffSelection(focus = false) {
+  const board = modalLayer.querySelector('.handoff-board');
+  const selected = board?.querySelector('[data-act="handoff-focus"][aria-pressed="true"]');
+  if (focus) selected?.focus({ preventScroll: true });
+  selected?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function selectHandoff(id, reveal) {
+  if (panel !== 'handoff' || handoffFocus === id) return;
+  if (id !== 'attachments' && !archive(run).some((row) => row.id === id && row.record)) return;
+  captureCorrectionScroll();
+  handoffFocus = id;
+  const draft = correctionDraft?.id === id ? correctionDraft : null;
+  handoffDocument = draft?.documentIndex ?? null;
+  playSound('paper');
+  render(draft?.scrollTop ?? 0);
+  if (reveal) {
+    revealHandoffSelection(true);
+    if (!modalLayer.querySelector('.handoff-board [aria-pressed="true"]')) {
+      focusControl(modalLayer, { act: 'handoff-doc', key: 'receipt' });
+    }
+  }
 }
 
 function revealArchiveReceipt(revealIndex) {
   if (revealIndex) {
     modalLayer.querySelector('.drawer-list [aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
-  modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, interaction.archiveEditing ? correctionDraft?.scrollTop ?? 0 : 0);
+  modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, activeCorrection() ? correctionDraft.scrollTop : 0);
 }
 
 function closePanel() {
@@ -1083,13 +1147,16 @@ function closePanel() {
   }
   panel = previousPanel?.panel ?? null;
   archiveReturn = null;
-  render(previousPanel?.scrollTop);
+  const toBoard = previousPanel?.panel === 'handoff';
+  render(toBoard ? previousPanel.detailScroll : previousPanel?.scrollTop);
   if (previousPanel) {
-    const body = workspaceBody();
-    if (body) body.scrollLeft = previousPanel.scrollLeft ?? 0;
-    else modalLayer.querySelector('.modal-body')?.scrollTo(0, previousPanel.scrollTop);
-    const opener = focusControl(modalLayer, previousPanel.opener);
-    if (previousPanel.panel === 'handoff') opener?.scrollIntoView({ block: 'nearest' });
+    if (toBoard) modalLayer.querySelector('.handoff-board')?.scrollTo(0, previousPanel.scrollTop);
+    else {
+      const body = workspaceBody();
+      if (body) body.scrollLeft = previousPanel.scrollLeft ?? 0;
+      else modalLayer.querySelector('.modal-body')?.scrollTo(0, previousPanel.scrollTop);
+    }
+    focusControl(modalLayer, previousPanel.opener);
   } else if (run?.phase === 'summary' && document.activeElement === document.body) focusControl(screenLayer, { act: 'advance-day' });
 }
 
@@ -1216,27 +1283,36 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'edit-record': {
-      const row = panel === 'archive' && correctableRow(interaction.archiveFocus);
+      const row = correctableRow(correctionFocus());
       if (!row) break;
-      interaction.archiveEditing = !interaction.archiveEditing;
-      correctionDraft = interaction.archiveEditing ? { id: row.id, keys: [], fromBoard: false, scrollTop: 0 } : null;
+      const editing = activeCorrection();
+      if (editing) correctionDraft = null;
+      else {
+        const fromBoard = panel === 'handoff';
+        if (fromBoard && handoffDocument === null && row.documents.length) handoffDocument = 0;
+        correctionDraft = { id: row.id, keys: [], fromBoard, documentIndex: fromBoard ? handoffDocument : null, scrollTop: 0 };
+      }
       playSound('paper');
-      render();
+      render(panel === 'handoff' && !editing ? 0 : undefined);
       break;
     }
     case 'correction-basis': editCorrectionFinding(`doc:${index}:${Number(target.dataset.field)}`, { field: target }); break;
     case 'correction-original': editCorrectionFinding(key); break;
     case 'correction-remove': editCorrectionFinding(key, { remove: true }); break;
     case 'recheck': {
-      if (!interaction.archiveEditing || panel !== 'archive' || correctionDraft?.id !== interaction.archiveFocus) break;
-      const row = correctableRow(correctionDraft.id);
+      const row = activeCorrection();
       if (!row) break;
       const findings = selectedCorrectionFindings(row, correctionDraft.keys);
       if (update({ type: 'recheck', id: row.id, value: key, findings }, false)) {
-        interaction.archiveEditing = false;
         correctionDraft = null;
-        render();
-        modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, 0);
+        if (panel === 'handoff') {
+          handoffDocument = null;
+          render(0);
+          revealHandoffSelection(true);
+        } else {
+          render();
+          revealArchiveReceipt(false);
+        }
         playSound('stamp');
         const status = run.records.find(({ id }) => id === row.id)?.status;
         if (status !== 'recallPending') toast('更正已留底');
@@ -1256,7 +1332,19 @@ root.addEventListener('click', (event) => {
     case 'phone-back': update({ type: 'explore', key: 'phone-back' }); break;
     case 'dial': dial(); break;
     case 'egg': update({ type: 'explore', key }, false); interaction.egg = key; playSound('paper'); openPanel('egg', target); break;
-    case 'handoff': openPanel('handoff', target); break;
+    case 'handoff': openHandoff(target); break;
+    case 'handoff-focus': selectHandoff(index, !target.closest('.handoff-board')); break;
+    case 'handoff-attachments': selectHandoff('attachments', false); break;
+    case 'handoff-doc': {
+      if (panel !== 'handoff') break;
+      const row = archive(run).find((entry) => entry.id === handoffFocus && entry.record);
+      const documentIndex = key === 'receipt' ? null : index;
+      if (!row || (documentIndex !== null && !row.documents[documentIndex]) || handoffDocument === documentIndex) break;
+      handoffDocument = documentIndex;
+      playSound('paper');
+      render(0);
+      break;
+    }
     case 'attach': update({ type: 'attach', key, value: !run.flags[`${key}Attached`] }); playSound('paper'); break;
     case 'finish': panel = null; playSound('bell'); update({ type: 'finish' }); break;
     case 'shade': if (event.target === target) closePanel(); break;

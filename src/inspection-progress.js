@@ -97,7 +97,6 @@ export function freshInteraction(carry = {}) {
     returnToDocs: false,
     archiveFocus: null,
     archiveQuery: '',
-    archiveEditing: false,
     showFindings: false,
     ...carryProgress(carry),
     egg: null,
