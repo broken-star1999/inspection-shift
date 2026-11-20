@@ -310,12 +310,16 @@ function recheck(state, action) {
   if (!record || action.value === record.decision || findVerifiedReceipt(state.records, record)) return state;
   const requiresRecall = record.status === 'shipped' || record.status === 'recalled';
   const status = requiresRecall && action.value !== 'pass' ? 'recalled' : disposition(state.records, record, action.value);
-  const { decision: previous, status: priorStatus } = record;
+  const findings = normalizeFindings(action.findings);
+  const amendment = {
+    from: record.decision, to: action.value, status, previousStatus: record.status, day: state.day,
+    ...(findings.length ? { findings } : {}),
+  };
   const revised = {
     ...record,
     decision: action.value,
     status,
-    amendments: [...record.amendments, { from: previous, to: action.value, status, previousStatus: priorStatus, day: state.day }],
+    amendments: [...record.amendments, amendment],
   };
   return { ...state, records: confirmFollowup(updateRecord(state.records, record.id, revised), revised) };
 }

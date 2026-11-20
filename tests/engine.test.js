@@ -183,6 +183,12 @@ test('trace needs both archived records, the lab visit and submission at handoff
   assert.equal(getEnding(state).id, 'routine');
   state = act(state, 'attach', { key: 'trace' });
   assert.equal(getEnding(state).id, 'trace');
+  const findings = [{ key: 'trace:source', source: 'R-071 实验室原件', text: '样品来源 · 试样 S-019' }];
+  const corrected = act(state, 'recheck', { id: 7, value: 'review', findings });
+  const tracedCorrection = getEnding(act(corrected, 'finish'));
+  assert.equal(tracedCorrection.id, 'trace');
+  assert.equal(tracedCorrection.traceReceipt.status, 'recalled');
+  assert.deepEqual(tracedCorrection.traceReceipt.amendments.at(-1).findings, findings);
   state = act(state, 'finish');
   assert.equal(state.phase, 'ending');
   assert.equal(state.records.find(({ id }) => id === 7).status, 'recalled');
@@ -296,6 +302,43 @@ test('a corrected decision removes the released batch from the handoff delay', (
   assert.deepEqual(getEnding(act(state, 'finish')).delayed, { count: 1, batches: ['G-202'] });
 });
 
+test('each Friday amendment preserves its own findings alongside the original and legacy entries', () => {
+  let firstCase = act(createRun(21), 'start-day');
+  for (const { key } of TUTORIAL.slice(0, -1)) firstCase = act(firstCase, 'tutorial', { key });
+  const firstFindings = [{ key: 'doc:0:0', source: '外箱标签', text: '批号 · G-201' }];
+  const initialState = act(firstCase, 'stamp', { value: 'pass', findings: firstFindings, note: '初查已签发' });
+  const week = untilHandoff(21, { initialState });
+  const legacy = act(week, 'recheck', { id: 1, value: 'review', findings: [{ key: '', text: '忽略空键' }] });
+  assert.deepEqual(legacy.records[0].amendments, [
+    { from: 'pass', to: 'review', status: 'recalled', previousStatus: 'shipped', day: 4 },
+  ]);
+
+  const firstAmendment = [{ key: ' doc:1:1 ', source: ' 检验报告 ', text: ' 报告编号 · R-061 ' }];
+  const revised = act(JSON.parse(JSON.stringify(legacy)), 'recheck', {
+    id: 1, value: 'fail', findings: [...firstAmendment, { key: 'doc:1:1', text: '忽略重复条目' }],
+  });
+  firstAmendment[0].text = '草稿后来改动';
+  const secondAmendment = [{ key: 'doc:2:1', source: '送检联', text: '检验项目 · 外观、扣合' }];
+  assert.equal(act(revised, 'recheck', { id: 1, value: 'fail', findings: secondAmendment }), revised);
+  const released = act(revised, 'recheck', { id: 1, value: 'pass', findings: secondAmendment });
+  secondAmendment.pop();
+  const restored = JSON.parse(JSON.stringify(released));
+  const { record } = archive(restored, 'G-201').find(({ id }) => id === 1);
+  assert.deepEqual(record.findings, firstFindings);
+  assert.equal(record.note, '初查已签发');
+  assert.equal(record.original, 'pass');
+  assert.equal(record.status, 'shipping');
+  assert.deepEqual(record.amendments, [
+    ...legacy.records[0].amendments,
+    { from: 'review', to: 'fail', previousStatus: 'recalled', status: 'recalled', day: 4,
+      findings: [{ key: 'doc:1:1', source: '检验报告', text: '报告编号 · R-061' }] },
+    { from: 'fail', to: 'pass', previousStatus: 'recalled', status: 'shipping', day: 4,
+      findings: [{ key: 'doc:2:1', source: '送检联', text: '检验项目 · 外观、扣合' }] },
+  ]);
+  assert.deepEqual(week.records[0].amendments, []);
+  assert.deepEqual(week.records[0].findings, firstFindings);
+});
+
 test('recalling an accepted supplement reports the current receipt until the lot is released again', () => {
   const week = untilHandoff(21);
   const recalled = act(week, 'recheck', { id: 9, value: 'review' });
@@ -392,10 +435,12 @@ test('a signed same-lot supplement preserves the prior shipment in its immediate
 test('a first acceptance at handoff keeps the offsite lot shipped, and a later release can requeue', () => {
   const week = untilHandoff(21, { decisions: { 5: 'pass', 9: 'review' } });
   assert.deepEqual(getEnding(week).issues.map(({ id }) => id), [5]);
-  const accepted = act(week, 'recheck', { id: 9, value: 'pass' });
+  const findings = [{ key: 'doc:1:1', source: '耳罩检验报告', text: '报告编号 · R-065' }];
+  const accepted = act(week, 'recheck', { id: 9, value: 'pass', findings });
   const original = archive(accepted, 'G-205').find(({ id }) => id === 5);
   assert.equal(original.latestReceipt.status, 'shipped');
   assert.equal(original.latestReceipt.amendments.at(-1).status, 'shipped');
+  assert.deepEqual(original.latestReceipt.amendments.at(-1).findings, findings);
   assert.deepEqual(getEnding(accepted).issues, []);
 
   const recalled = act(accepted, 'recheck', { id: 9, value: 'review' });

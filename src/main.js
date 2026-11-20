@@ -4,6 +4,7 @@ import { sampleAppearance, sampleObservation } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress } from './inspection-progress.js';
+import { readFindings } from './inspection-findings.js';
 import * as view from './view.js';
 import './style.css';
 import './booth.css';
@@ -86,6 +87,7 @@ let stampTouch = null;
 let suppressPaperClick = false;
 let modalOpener = null;
 let archiveReturn = null;
+let correctionDraft = null;
 let phoneReturn = null;
 let ringing = null;
 let interaction = freshInteraction();
@@ -411,13 +413,14 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
   if (panel === 'docs' && item) markup = view.documents(item, viewedDocument(), compare, step, work, previousInspection(item));
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, work);
-  if (panel === 'archive' && run) markup = view.archivePanel(
-    archive(run, archiveQuery), filedSupportingPapers(archiveQuery), archiveFocus, pinned,
-    archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending', {
-      returnTo: archiveReturn?.panel,
-      canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
-    },
-  );
+  if (panel === 'archive' && run) {
+    markup = view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery), archiveFocus, pinned,
+      archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending', {
+        returnTo: archiveReturn?.panel,
+        canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
+        correctionFindings: archiveEditing ? selectedCorrectionFindings(correctableRow(archiveFocus), correctionDraft?.keys) : [],
+      });
+  }
   if (panel === 'phone' && run) {
     const filed = archive(run);
     const papers = pinned.map((id) => filed.find((row) => row.id === id)).filter(Boolean);
@@ -522,11 +525,13 @@ function workspaceBody() {
   if (panel === 'docs') return modalLayer.querySelector('.documents-surface .desk-surface-content');
   if (panel === 'sample') return modalLayer.querySelector('.sample-surface .desk-surface-content');
   if (panel === 'phone') return modalLayer.querySelector('.phone-modal .modal-body');
+  if (panel === 'archive' && interaction.archiveEditing) return modalLayer.querySelector('.archive-surface .desk-surface-content');
   return null;
 }
 
 function persistRun() {
   if (!run || reviewingHistory) return;
+  captureCorrectionScroll();
   const body = workspaceBody();
   const archivedPhone = panel === 'archive' && archiveReturn?.panel === 'phone';
   const context = body || archivedPhone ? workspaceContext() : undefined;
@@ -538,6 +543,7 @@ function persistRun() {
   saved = {
     ...run,
     ...(arrival ? { arrivalAction: arrival.type } : {}),
+    ...(run.phase === 'handoff' && correctionDraft ? { correctionDraft } : {}),
     inspectionProgress: captureInspectionProgress(getCase(run), interaction, workspace),
   };
   writeStorage(SAVE_KEY, saved);
@@ -547,7 +553,8 @@ function persistWorkspaceScroll() {
   clearTimeout(workspaceScrollTimer);
   const body = workspaceBody();
   const workspace = saved?.inspectionProgress?.workspace;
-  if (!body || !workspace || workspace.panel !== panel || Math.abs(body.scrollTop - workspace.scrollTop) < 1) return;
+  const scrollTop = panel === 'archive' ? saved?.correctionDraft?.scrollTop : workspace?.panel === panel ? workspace.scrollTop : undefined;
+  if (!body || scrollTop === undefined || Math.abs(body.scrollTop - scrollTop) < 1) return;
   // Passive scroll saves must not replace newer progress from another tab.
   if (JSON.stringify(readStorage(SAVE_KEY)) === JSON.stringify(saved)) persistRun();
 }
@@ -568,7 +575,10 @@ function update(action, redraw = true) {
   run = dispatch(run, action);
   if (run !== before) {
     if (getCase(before)?.id !== getCase(run)?.id) interaction = freshInteraction(interaction);
-    if (run.phase === 'ending') rememberCompletedShift(run);
+    if (run.phase === 'ending') {
+      correctionDraft = null;
+      rememberCompletedShift(run);
+    }
   }
   if (redraw) render();
   return run !== before;
@@ -597,9 +607,11 @@ function enter(restore) {
   reviewingHistory = false;
   let workspace;
   let arrivalAction;
+  let savedCorrection;
   if (restore && saved) {
-    const { inspectionProgress, arrivalAction: savedArrival, ...savedRun } = saved;
+    const { inspectionProgress, arrivalAction: savedArrival, correctionDraft: draft, ...savedRun } = saved;
     arrivalAction = savedArrival;
+    savedCorrection = draft;
     run = restoreRun(savedRun);
     const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
@@ -614,10 +626,22 @@ function enter(restore) {
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
   archiveReturn = null;
+  correctionDraft = restoreCorrectionDraft(savedCorrection);
   const next = windowAdvance(arrivalAction);
   if (needsArrival(next)) {
     panel = null;
     pauseBeforeArrival(arrivalAction, next, true, true);
+    return;
+  }
+  if (correctionDraft) {
+    panel = 'archive';
+    focusArchiveRow(correctionDraft.id);
+    modalOpener = { act: correctionDraft.fromBoard ? 'handoff' : 'archive' };
+    if (correctionDraft.fromBoard) {
+      archiveReturn = { panel: 'handoff', opener: { act: 'archive-receipt', i: String(correctionDraft.id) }, scrollTop: 0 };
+    }
+    playSound('paper');
+    render(correctionDraft.scrollTop);
     return;
   }
   const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
@@ -635,6 +659,7 @@ function reviewCompletedShift(id) {
   panel = null;
   modalOpener = null;
   archiveReturn = null;
+  correctionDraft = null;
   phoneReturn = null;
   playSound('paper');
   render();
@@ -751,12 +776,13 @@ function checkBasis(index, field) {
   const doc = windowCase()?.documents[index];
   const datum = doc?.fields[field];
   if (!datum) return;
-  const [label, value] = datum;
-  const key = `doc:${index}:${field}`;
+  const [label] = datum;
+  const finding = paperFieldFinding(doc, index, field);
+  const { key } = finding;
   const selected = interaction.findings.some((finding) => finding.key === key);
   updateFindings(selected
     ? interaction.findings.filter((finding) => finding.key !== key)
-    : [...interaction.findings, { key, source: doc.title, text: `${label} · ${value}` }]);
+    : [...interaction.findings, finding]);
   if (label.includes('签发') && tutorialStep()?.key === 'signature') {
     interaction.signed = true;
     advanceSignature();
@@ -764,6 +790,63 @@ function checkBasis(index, field) {
   playSound('click');
   toast(`${selected ? '已移除' : '已记下'} · ${label}`);
   render();
+}
+
+function paperFieldFinding(doc, index, field) {
+  const [label, value] = doc.fields[field];
+  return { key: `doc:${index}:${field}`, source: doc.title, text: `${label} · ${value}` };
+}
+
+function correctableRow(id) {
+  return run?.phase === 'handoff' ? archive(run).find((row) => row.id === id && row.record && !row.latestReceipt) : null;
+}
+
+function selectedCorrectionFindings(row, keys = []) {
+  if (!row) return [];
+  const available = [
+    ...row.documents.flatMap((doc, index) => doc.fields.map((_, field) => paperFieldFinding(doc, index, field))),
+    ...readFindings(row.record).filter(({ key }) => key.startsWith('sample:')),
+  ];
+  const byKey = new Map(available.map((finding) => [finding.key, finding]));
+  return [...new Set(keys)].flatMap((key) => byKey.has(key) ? [byKey.get(key)] : []);
+}
+
+function restoreCorrectionDraft(draft) {
+  const row = correctableRow(draft?.id);
+  if (!row) return null;
+  return {
+    id: row.id,
+    keys: selectedCorrectionFindings(row, Array.isArray(draft.keys) ? draft.keys : []).map(({ key }) => key),
+    fromBoard: draft.fromBoard === true,
+    scrollTop: Number.isFinite(draft.scrollTop) ? Math.max(0, draft.scrollTop) : 0,
+  };
+}
+
+function captureCorrectionScroll() {
+  if (panel !== 'archive' || !interaction.archiveEditing || correctionDraft?.id !== interaction.archiveFocus) return;
+  correctionDraft.scrollTop = workspaceBody()?.scrollTop ?? 0;
+  correctionDraft.fromBoard = archiveReturn?.panel === 'handoff';
+}
+
+function focusArchiveRow(id) {
+  captureCorrectionScroll();
+  interaction.archiveFocus = id;
+  interaction.archiveEditing = correctionDraft?.id === id && Boolean(correctableRow(id));
+}
+
+function editCorrectionFinding(key, { remove = false, field } = {}) {
+  if (!interaction.archiveEditing || panel !== 'archive' || correctionDraft?.id !== interaction.archiveFocus) return;
+  const row = correctableRow(correctionDraft.id);
+  if (!selectedCorrectionFindings(row, [key]).length) return;
+  const alreadySelected = correctionDraft.keys.includes(key);
+  if (remove && !alreadySelected) return;
+  correctionDraft.keys = alreadySelected ? correctionDraft.keys.filter((entry) => entry !== key) : [...correctionDraft.keys, key];
+  playSound('click');
+  render();
+  if (field) {
+    focusControl(modalLayer, { ...field.dataset })?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    persistRun();
+  }
 }
 
 function compareDocs() {
@@ -944,7 +1027,7 @@ function setPhoneNumber(value) {
 
 function openArchive(opener) {
   interaction.archiveFocus ??= archive(run).at(-1)?.id ?? null;
-  interaction.archiveEditing = false;
+  interaction.archiveEditing = correctionDraft?.id === interaction.archiveFocus && Boolean(correctableRow(interaction.archiveFocus));
   playSound('paper');
   openPanel('archive', opener);
 }
@@ -953,10 +1036,11 @@ function revealArchiveReceipt(revealIndex) {
   if (revealIndex) {
     modalLayer.querySelector('.drawer-list [aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
-  modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, 0);
+  modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, interaction.archiveEditing ? correctionDraft?.scrollTop ?? 0 : 0);
 }
 
 function closePanel() {
+  captureCorrectionScroll();
   let previousPanel = run && panel === 'archive' ? archiveReturn : null;
   if (panel === 'phone') {
     update({ type: 'hang-up' }, false);
@@ -1065,17 +1149,16 @@ root.addEventListener('click', (event) => {
     case 'archive': if (run) openArchive(target); break;
     case 'archive-receipt':
       if (!run?.seen.includes(index)) break;
-      interaction.archiveFocus = index;
+      focusArchiveRow(index);
       interaction.archiveQuery = '';
       openArchive(target);
       revealArchiveReceipt(true);
       break;
     case 'archive-focus': case 'archive-followup': case 'archive-evidence':
-      interaction.archiveFocus = act === 'archive-evidence' ? key : index;
+      focusArchiveRow(act === 'archive-evidence' ? key : index);
       if (act === 'archive-followup' && !archive(run, interaction.archiveQuery).some((row) => row.id === index)) {
         interaction.archiveQuery = '';
       }
-      interaction.archiveEditing = false;
       playSound('paper');
       render();
       revealArchiveReceipt(act === 'archive-followup');
@@ -1095,10 +1178,27 @@ root.addEventListener('click', (event) => {
       }
       break;
     }
-    case 'edit-record': interaction.archiveEditing = !interaction.archiveEditing; render(); break;
+    case 'edit-record': {
+      const row = panel === 'archive' && correctableRow(interaction.archiveFocus);
+      if (!row) break;
+      interaction.archiveEditing = !interaction.archiveEditing;
+      correctionDraft = interaction.archiveEditing ? { id: row.id, keys: [], fromBoard: false, scrollTop: 0 } : null;
+      playSound('paper');
+      render();
+      break;
+    }
+    case 'correction-basis': editCorrectionFinding(`doc:${index}:${Number(target.dataset.field)}`, { field: target }); break;
+    case 'correction-original': editCorrectionFinding(key); break;
+    case 'correction-remove': editCorrectionFinding(key, { remove: true }); break;
     case 'recheck': {
-      interaction.archiveEditing = false;
-      if (update({ type: 'recheck', id: interaction.archiveFocus, value: key })) {
+      if (!interaction.archiveEditing || panel !== 'archive' || correctionDraft?.id !== interaction.archiveFocus) break;
+      const row = correctableRow(correctionDraft.id);
+      if (!row) break;
+      const findings = selectedCorrectionFindings(row, correctionDraft.keys);
+      if (update({ type: 'recheck', id: row.id, value: key, findings }, false)) {
+        interaction.archiveEditing = false;
+        correctionDraft = null;
+        render();
         modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, 0);
         playSound('stamp');
         toast('更正已留底');
@@ -1161,8 +1261,7 @@ root.addEventListener('submit', (event) => {
   if (event.target.dataset.form !== 'archive') return;
   event.preventDefault();
   interaction.archiveQuery = String(new FormData(event.target).get('query') ?? '').slice(0, 60);
-  interaction.archiveFocus = archive(run, interaction.archiveQuery).at(-1)?.id ?? filedSupportingPapers(interaction.archiveQuery).at(-1)?.[0] ?? null;
-  interaction.archiveEditing = false;
+  focusArchiveRow(archive(run, interaction.archiveQuery).at(-1)?.id ?? filedSupportingPapers(interaction.archiveQuery).at(-1)?.[0] ?? null);
   render();
 });
 

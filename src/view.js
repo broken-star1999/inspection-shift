@@ -105,8 +105,8 @@ export function visitSlip(doc) {
     <small>回访留底</small><h3>收下留底</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
 }
 
-function stampButtons(instructed, disabled = false, action = 'stamp') {
-  return Object.entries(labels).map(([key, value]) => `<button class="stamp ${key}${cls('instructed', instructed && key === 'pass')}" data-act="${action}" data-key="${key}"${action === 'stamp' ? ` data-fixture="${key}"` : ''} ${disabled ? 'disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`).join('');
+function stampButtons(instructed, disabled = false, action = 'stamp', currentVerdict = null) {
+  return Object.entries(labels).map(([key, value]) => `<button class="stamp ${key}${cls('instructed', instructed && key === 'pass')}" data-act="${action}" data-key="${key}"${action === 'stamp' ? ` data-fixture="${key}"` : ''}${disabled || key === currentVerdict ? ' disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`).join('');
 }
 
 const sampleRatios = { vented: 508 / 318, compact: 508 / 284, shield: 357 / 363, clip: 496 / 218, glove: 282 / 363, earmuff: 396 / 363 };
@@ -151,7 +151,7 @@ export function desk(run, item, tutorial, interaction) {
   const findings = readFindings(interaction);
   const benchDraft = run.phase === 'case' && !stampBlocked && findings.length ? `<aside class="bench-draft" data-fixture="findings">
     ${button(`查验依据 ${findings.length}`, 'bench-findings', 'bench-draft-toggle', `aria-expanded="${Boolean(benchFindingsOpen)}" aria-controls="bench-findings"`)}
-    <div class="bench-draft-body" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, true) : ''}</div>
+    <div class="bench-draft-body" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, 'remove-finding') : ''}</div>
   </aside>` : '';
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, tutorial, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
@@ -232,27 +232,28 @@ export function instructions(how) {
 }
 
 function sheet(doc, index, inspection) {
+  const action = inspection?.action ?? 'basis';
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
     const highlight = inspection?.signature && key.includes('签发');
     const chosen = inspection?.selected.has(`doc:${index}:${field}`);
-    const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="basis" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
+    const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
     return `<div><dt>${esc(key)}</dt><dd>${fieldValue}</dd></div>`;
   }).join('');
   return `<article class="sheet sheet-${doc.type}"><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small><h3>${esc(doc.title)}</h3><dl class="fields">
     ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
 }
 
-function findingLines(findings, editable = false) {
+function findingLines(findings, removeAction = '') {
   return `<ul class="finding-lines">${findings.map(({ key, source, text }) => `<li><div class="finding-description">${source ? `<small class="finding-source">${esc(source)}</small>` : ''}<span>${esc(text)}</span></div>
-    ${editable ? button('取回', 'remove-finding', 'finding-remove', `data-key="${esc(key)}" aria-label="取回依据 ${esc(text)}"`) : ''}</li>`).join('')}</ul>`;
+    ${removeAction ? button('取回', removeAction, 'finding-remove', `data-key="${esc(key)}" aria-label="取回依据 ${esc(text)}"`) : ''}</li>`).join('')}</ul>`;
 }
 
 function findingsDraft(findings, showFindings) {
   if (!findings.length) return { header: '', list: '' };
   return {
     header: button(`查验依据 ${findings.length}`, 'toggle-findings', 'findings-toggle', `aria-expanded="${Boolean(showFindings)}" aria-controls="working-findings"`),
-    list: `<div class="working-findings" id="working-findings" role="region" aria-label="已经记录的查验依据"${showFindings ? '' : ' hidden'}>${showFindings ? findingLines(findings, true) : ''}</div>`,
+    list: `<div class="working-findings" id="working-findings" role="region" aria-label="已经记录的查验依据"${showFindings ? '' : ' hidden'}>${showFindings ? findingLines(findings, 'remove-finding') : ''}</div>`,
   };
 }
 
@@ -345,10 +346,20 @@ export function sample(item, inspection, tutorial, progress) {
     ${basis}${tutorial?.key === 'stamp' ? button('回台面开单', 'close', 'primary') : ''}</div></div>${referencePicker}</div>`, 'sample-surface', '放下检样', undefined, { headerActions: referenceActions + phoneAction + draft.header });
 }
 
-function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false) {
+function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {
   const findings = readFindings(record);
   return `<dl class="receipt-facts"><div><dt>${destinationLabel}</dt><dd>${esc(statuses[record.status] ?? '待登记')}</dd></div>
-    ${findings.length || showEmptyNote ? `<div class="receipt-findings"><dt>开单依据</dt><dd>${findings.length ? findingLines(findings) : '未另记'}</dd></div>` : ''}</dl>`;
+    ${findings.length || showEmptyNote ? `<div class="receipt-findings"><dt>${basisLabel}</dt><dd>${findings.length ? findingLines(findings) : '未另记'}</dd></div>` : ''}</dl>`;
+}
+
+function amendmentFindings(entry) {
+  const findings = readFindings({ findings: entry.findings });
+  if (!findings.length) return '';
+  const content = findingLines(findings);
+  if (findings.length > 2 || findings.reduce((length, item) => length + item.source.length + item.text.length, 0) > 106) {
+    return `<details class="amendment-findings"><summary>更正依据 ${findings.length} 项</summary>${content}</details>`;
+  }
+  return `<div class="amendment-findings"><b>更正依据</b>${content}</div>`;
 }
 
 function archivedReceipt(record, latestReceipt) {
@@ -358,10 +369,10 @@ function archivedReceipt(record, latestReceipt) {
   return `<article class="archive-receipt receipt-${record.decision}" aria-label="出票留底">
     <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
       <span class="receipt-result">${esc(labels[record.decision])}</span></div>
-    ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true)}
+    ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true, changed ? '原开单依据' : '开单依据')}
     ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(statuses[latestReceipt.status])}</strong>。</p>` : ''}
     ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}更正</b>
-      <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(statuses[entry.previousStatus] ?? '待登记')} → ${esc(statuses[entry.status] ?? '待登记')}</small></li>`).join('')}</ol>` : ''}</article>`;
+      <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(statuses[entry.previousStatus] ?? '待登记')} → ${esc(statuses[entry.status] ?? '待登记')}</small>${amendmentFindings(entry)}</li>`).join('')}</ol>` : ''}</article>`;
 }
 
 export function receipt(record) {
@@ -375,7 +386,17 @@ export function receipt(record) {
   return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
 }
 
-export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious } = {}) {
+function correctionPanel(record, findings, selected) {
+  const originals = readFindings(record).filter(({ key }) => key.startsWith('sample:'));
+  return `<section class="correction-panel" aria-label="本次更正依据">
+    ${findings.length ? `<div class="correction-draft"><b>更正依据 ${findings.length}</b>${findingLines(findings, 'correction-remove')}</div>`
+      : '<p class="correction-help">可点单据字段，留下本次更正依据。</p>'}
+    ${originals.length ? `<div class="correction-originals"><b>沿用原检样观察</b><div class="correction-original-options">${originals.map(({ key, source, text }) =>
+      button(`<small>${esc(source)}</small><span>${esc(text)}</span>`, 'correction-original', 'secondary correction-original', `data-key="${esc(key)}"${active(selected.has(key))}`)).join('')}</div></div>` : ''}
+  </section>`;
+}
+
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [] } = {}) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const isCall = ([key]) => key.startsWith('call:');
@@ -389,10 +410,15 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   }).join('');
   const index = `${visitIndex}${callIndex}${visits.length && rows.length ? '<h3 class="archive-group-title">批次单据</h3>' : ''}${records}`;
   let details = '<p class="archive-empty">选一张留底，可以翻看原来的单据。</p>';
+  let footer = '';
   if (visit) details = sheet(visit);
   if (row) {
     const { latestReceipt, previousReceipt } = row;
     const canAmend = !finished && handoff && row.record && !latestReceipt;
+    const correcting = Boolean(editing && canAmend);
+    const findings = correcting ? readFindings({ findings: correctionFindings }) : [];
+    const correction = correcting ? { action: 'correction-basis', selected: new Set(findings.map(({ key }) => key)) } : null;
+    if (correcting) footer = `<div class="stamp-buttons archive-correction" aria-label="更正开单">${stampButtons(false, false, 'recheck', row.record.decision)}</div>`;
     const actions = [
       !finished && button(selected.includes(row.id) ? '已放到电话旁 · 取回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`),
       canComparePrevious && button('放到桌上对照', 'previous-compare', 'secondary', `data-i="${row.id}"`),
@@ -401,14 +427,14 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
       canAmend && button(editing ? '取消更正' : '更正开单', 'edit-record'),
     ].filter(Boolean).join('');
     details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
-      ${editing && canAmend ? `<div class="stamp-buttons archive-correction">${stampButtons(false, false, 'recheck')}</div>` : ''}
-      ${archivedReceipt(row.record, latestReceipt)}<div class="doc-grid">${row.documents.map((doc) => sheet(doc)).join('')}</div>`;
+      ${correction ? correctionPanel(row.record, findings, correction.selected) : ''}
+      ${archivedReceipt(row.record, latestReceipt)}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction)).join('')}</div>`;
   }
   const navigation = { phone: '回到电话', handoff: '回到交接板' }[returnTo];
   return deskSurface('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
     <div class="drawer-list" aria-label="留档单据">${index || '<p>没有找到匹配的单据。</p>'}</div></div>
     <div class="archive-detail">${details}</div></div>`, 'archive-surface', navigation || '合上簿子', query,
-    { closeLabel: navigation || '关闭面板' });
+    { footer, closeLabel: navigation || '关闭面板' });
 }
 
 export function phone(number, call, pinned, numberGuide, phoneBack, current, { returnTo, incomingCall } = {}) {
