@@ -18,6 +18,8 @@ test('restores current inspection work after a JSON round trip', () => {
     orderSeen: true,
     doc: 1,
     compare: 0,
+    previousDoc: 0,
+    previousCurrentDoc: 1,
     referenceDoc: 1,
     returnToDocs: true,
     archiveFocus: 'trace',

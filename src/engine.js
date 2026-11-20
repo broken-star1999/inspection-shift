@@ -260,7 +260,8 @@ function recheck(state, action) {
   if (!DECISIONS.includes(action.value)) return state;
   const record = getRecord(state, Number(action.id));
   if (!record || action.value === record.decision || findVerifiedReceipt(state.records, record)) return state;
-  const status = record.status === 'shipped' && action.value !== 'pass' ? 'recalled' : disposition(action.value);
+  const requiresRecall = record.status === 'shipped' || record.status === 'recalled';
+  const status = requiresRecall && action.value !== 'pass' ? 'recalled' : disposition(action.value);
   const { decision: previous, status: priorStatus } = record;
   const revised = {
     ...record,

@@ -221,7 +221,24 @@ function findingsDraft(findings, showFindings) {
   };
 }
 
-export function documents(item, index, compare, tutorial, progress) {
+function returnTabs(documents, action, selected, label) {
+  return `<nav class="doc-tabs return-tabs" aria-label="${label}">${documents.map(({ title }, index) =>
+    button(esc(title), action, 'tab', `data-i="${index}"${active(index === selected)}`)).join('')}</nav>`;
+}
+
+function returnComparison(item, index, previous, previousIndex, inspection) {
+  const day = DAYS.find(({ cases }) => cases.some(({ id }) => id === item.id))?.title;
+  const { record, documents, sameLot } = previous;
+  return `<div class="return-comparison">
+    <section class="return-current"><div class="return-source"><b>${sameLot ? '本次来件' : '留厂件'}</b><small>${esc(day)}</small></div>
+      ${returnTabs(item.documents, 'doc', index, '切换本次单据')}${sheet(item.documents[index], index, inspection)}</section>
+    <section class="return-previous" data-previous-doc="${previousIndex}"><div class="return-source"><b>${sameLot ? '前次留底' : '原批留底'}</b><small>${esc(DAYS[record.day]?.title)}</small>
+      <span class="return-disposition">${esc(labels[record.decision])} · ${esc(statuses[record.status])}</span></div>
+      ${returnTabs(documents, 'previous-doc', previousIndex, '切换留底单据')}${sheet(documents[previousIndex])}</section>
+  </div>`;
+}
+
+export function documents(item, index, compare, tutorial, progress, previous) {
   const doc = item.documents[index];
   if (!doc) return '';
   const extras = [3, 15].includes(item.id) ? button('翻工艺夹板背面', 'egg', 'secondary', 'data-key="cat"') : item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
@@ -231,14 +248,23 @@ export function documents(item, index, compare, tutorial, progress) {
   const inspection = { signature, selected: new Set(findings.map(({ key }) => key)) };
   const draft = findingsDraft(findings, progress.showFindings);
   const guide = signature ? `${progress.signed ? '签发已核对。' : '点报告上的「已签发」。'}${progress.orderSeen ? '送检联已核对。' : '再并排翻看送检联的检验项目。'}` : tutorial?.line;
+  const sampleAction = tutorial ? '' : button('拿起检样', 'sample', 'reference-control');
+  const canCompare = !tutorial && previous?.documents?.length;
+  const previousIndex = progress.previousDoc;
+  const comparing = Boolean(canCompare && Number.isInteger(previousIndex) && previous.documents[previousIndex]);
+  const previousAction = canCompare ? button(previous.sameLot
+    ? (comparing ? '收起旧单' : '对照前次单据')
+    : (comparing ? '收起原批' : '对照原批单据'), 'previous-compare', 'reference-control', active(comparing)) : '';
+  const headerActions = previousAction + sampleAction + draft.header;
+  if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, inspection)}`,
+    'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
   const tabs = item.documents.map(({ title, type }, position) => {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
     return `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
   }).join('');
-  const sampleAction = tutorial ? '' : button('拿起检样', 'sample', 'reference-control');
   return deskSurface('桌面单据', `${draft.list}${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
     <div class="doc-grid${cls('pair', other)}">${sheet(doc, index, inspection)}${other ? sheet(other, compare, inspection) : ''}</div>
-    <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions: sampleAction + draft.header });
+    <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions });
 }
 
 export function sample(item, inspection, tutorial, progress) {
@@ -281,11 +307,12 @@ function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false
 function archivedReceipt(record, latestReceipt) {
   if (!record) return '';
   const changed = record.amendments?.length > 0;
+  const latestAmendment = latestReceipt?.amendments?.at(-1);
   return `<article class="archive-receipt receipt-${record.decision}" aria-label="出票留底">
     <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
       <span class="receipt-result">${esc(labels[record.decision])}</span></div>
     ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true)}
-    ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestReceipt.day]?.title ?? '')}复核后，现去向为<strong>${esc(statuses[latestReceipt.status])}</strong>。</p>` : ''}
+    ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(statuses[latestReceipt.status])}</strong>。</p>` : ''}
     ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}更正</b>
       <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(statuses[entry.previousStatus] ?? '待登记')} → ${esc(statuses[entry.status] ?? '待登记')}</small></li>`).join('')}</ol>` : ''}</article>`;
 }
@@ -294,7 +321,7 @@ export function receipt(record) {
   return deskSurface('出货回执', `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${receiptFacts(record)}</div>`, 'receipt-surface', undefined, undefined, { footer: button('接着值班', 'next', 'primary') });
 }
 
-export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, returnToPhone = false) {
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, returnToPhone = false, canComparePrevious = false) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const visitIndex = visits.length ? `<h3 class="archive-group-title">回访留底</h3>${visits.map(([key, doc]) =>
@@ -311,6 +338,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
     const canAmend = !finished && handoff && row.record && !latestReceipt;
     const actions = [
       !finished && button(selected.includes(row.id) ? '已放到电话旁 · 取回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`),
+      canComparePrevious && button('放到桌上对照', 'previous-compare', 'secondary', `data-i="${row.id}"`),
       previousReceipt && button(previousReceipt.sameLot ? '查看前次回执' : '查看前次同号回执', 'archive-followup', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`),
       latestReceipt && button('查看后续回执', 'archive-followup', 'secondary', `data-i="${latestReceipt.id}"`),
       canAmend && button(editing ? '取消更正' : '更正开单', 'edit-record'),

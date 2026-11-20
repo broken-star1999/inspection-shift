@@ -114,7 +114,7 @@
 }
 .documents-surface .doc-grid > :first-child { border-radius: 1px 7px 2px 1px; }
 .documents-surface .doc-grid.pair > :last-child { border-radius: 5px 1px 3px 1px; }
-.documents-surface:not(:has(.doc-grid.pair)) { inline-size: min(42cqw, 35rem); }
+.documents-surface:not(:has(.doc-grid.pair, .return-comparison)) { inline-size: min(42cqw, 35rem); }
 .desk-surface .field-value {
   padding: .06rem .12rem;
   border: 0;
@@ -159,6 +159,50 @@
 .desk-surface .sample-reference .reference-tabs { margin-block-end: .36rem; }
 .desk-surface .sample-reference .reference-tabs .tab:not([aria-pressed='true']) { background: #343c2e; }
 .desk-surface .sample-reference .reference-tabs .tab[aria-pressed='true'] { border-color: #b79a66; }
+
+.documents-surface:has(.return-comparison) { inline-size: min(76cqw, 61rem); }
+.return-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(.58rem, 1.35cqw, 1.12rem);
+  align-items: start;
+}
+.return-comparison > section { min-inline-size: 0; }
+.return-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .22rem .48rem;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  margin-block-end: .28rem;
+  padding: .22rem .48rem;
+  border-inline-start: 2px solid #9caa80;
+  background: #30392c;
+  color: #f0ddaf;
+  font: 720 .78rem / 1.28 var(--mono);
+}
+.return-previous .return-source { border-inline-start-color: #c39970; background: #413327; }
+.return-source small { color: #d2c4a0; font-size: .88em; }
+.return-disposition { color: #efc89d; font-size: .88em; }
+.desk-surface .return-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, max-content);
+  gap: .26rem;
+  margin-block-end: .32rem;
+}
+#game .documents-surface .return-tabs .tab {
+  min-inline-size: 0;
+  padding-inline: .42rem;
+  background: #363b2c;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#game .documents-surface .return-tabs .tab[aria-pressed='true'] { background: #dcc49a; color: #392a1a; text-shadow: none; }
+#game .documents-surface .return-previous .return-tabs .tab:not([aria-pressed='true']) { background: #493b2f; }
+.return-current .sheet { border-radius: 1px 5px 3px 1px; }
+.return-previous .sheet { border-radius: 5px 1px 1px 3px; }
 
 .archive-surface { inset-inline-start: clamp(1rem, 8.3cqw, 7rem); inline-size: min(74cqw, 63rem); }
 .archive-surface .desk-surface-content { background: linear-gradient(130deg, #5b3d30, #3c2f27); box-shadow: 0 4px #302317, 4px 9px 15px #13160fad, inset 0 1px #aa866a; }
@@ -276,7 +320,7 @@
 
 @container workstation (max-height: 540px) {
   .desk-surface { inset-block-end: .38rem; max-block-size: calc(100cqh - 3.5rem); }
-  .documents-surface:not(:has(.doc-grid.pair)) { inline-size: min(60cqw, 36rem); }
+  .documents-surface:not(:has(.doc-grid.pair, .return-comparison)) { inline-size: min(60cqw, 36rem); }
   .desk-surface-content { padding: .4rem .42rem .46rem; }
   .desk-surface-bar h2, .surface-close { font-size: .73rem; }
   .surface-close { min-block-size: 1.77rem; }
@@ -290,6 +334,16 @@
   .sample-reference .sheet { padding: .47rem .57rem; }
   .sample-reference .fields > div { grid-template-columns: minmax(4em, .56fr) minmax(0, 1fr); gap: .34rem; padding-block: .21rem; }
   .sample-reference .fields dd { font-size: .81rem; }
+  .return-comparison { gap: .48rem; }
+  .return-comparison .sheet { padding: .36rem .52rem .42rem; }
+  .return-comparison .sheet > h3 { margin-block: .15em .31em; }
+  .return-comparison .fields > div {
+    grid-template-columns: minmax(3.5rem, .56fr) minmax(0, 1fr);
+    gap: .32rem;
+    padding-block: .19rem;
+  }
+  .return-source { padding-block: .18rem; font-size: .74rem; }
+  #game .documents-surface .return-tabs .tab { min-block-size: 1.85rem; padding: .22rem .32rem; }
   .archive-receipt { margin-block-end: .45rem; padding: .38rem .53rem .46rem; }
   .receipt-facts > div { font-size: .82rem; }
   .receipt-facts > .receipt-findings { grid-template-columns: minmax(0, 1fr); gap: .18rem; }
@@ -299,7 +353,8 @@
 
 @container workstation (max-width: 720px) {
   .desk-surface { inset-inline-start: .66rem; inline-size: min(72cqw, 43rem); }
-  .documents-surface:not(:has(.doc-grid.pair)) { inline-size: min(72cqw, 36rem); }
+  .documents-surface:not(:has(.doc-grid.pair, .return-comparison)) { inline-size: min(72cqw, 36rem); }
+  .documents-surface:has(.return-comparison) { inline-size: calc(100cqw - 1.32rem); }
   .sample-surface:has(.sample-workbench.with-reference) { inline-size: calc(100cqw - 1.32rem); }
   .archive-surface { inline-size: min(88cqw, 59rem); }
   .receipt-surface { inset-inline-start: auto; inset-inline-end: 1rem; inline-size: min(52cqw, 22rem); }

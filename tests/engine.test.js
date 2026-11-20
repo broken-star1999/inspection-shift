@@ -270,6 +270,31 @@ test('recalling an accepted supplement reports the current receipt until the lot
   assert.deepEqual(releasedEnding.delayedReceipts, []);
 });
 
+test('a second non-pass amendment keeps an accepted supplement in recall with a Friday history', () => {
+  const week = untilHandoff(21, { decisions: { 20: 'review' } });
+  const recalled = act(week, 'recheck', { id: 9, value: 'review' });
+  const revised = act(JSON.parse(JSON.stringify(recalled)), 'recheck', { id: 9, value: 'fail' });
+  const original = archive(revised, 'G-205').find(({ id }) => id === 5);
+  const supplement = original.latestReceipt;
+  assert.equal(original.record.status, 'held');
+  assert.equal(supplement.id, 9);
+  assert.equal(supplement.day, 2);
+  assert.equal(supplement.decision, 'fail');
+  assert.equal(supplement.status, 'recalled');
+  assert.deepEqual(supplement.amendments, [
+    { from: 'pass', to: 'review', previousStatus: 'shipped', status: 'recalled', day: 4 },
+    { from: 'review', to: 'fail', previousStatus: 'recalled', status: 'recalled', day: 4 },
+  ]);
+  assert.deepEqual(getEnding(act(revised, 'finish')).delayedReceipts, [supplement, revised.records.at(-1)]);
+
+  const released = act(revised, 'recheck', { id: 9, value: 'pass' });
+  assert.equal(archive(released, 'G-205').find(({ id }) => id === 5).latestReceipt.status, 'shipping');
+  const returned = act(released, 'recheck', { id: 20, value: 'fail' });
+  assert.equal(returned.records.at(-1).status, 'returned');
+  const finished = act(returned, 'finish');
+  assert.equal(archive(finished, 'G-205').find(({ id }) => id === 5).latestReceipt.status, 'shipped');
+});
+
 test('newly signed proof clears a premature release, while G-204 is tracked separately', () => {
   let state = untilHandoff(9, { decisions: { 4: 'pass', 5: 'pass', 10: 'pass', 11: 'pass' } });
   for (const [id, verifiedBy] of [[5, 9], [10, 14], [11, 13]]) {

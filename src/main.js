@@ -193,10 +193,24 @@ function filedVisitPapers(query) {
   });
 }
 
+function previousInspection(item = windowCase()) {
+  if (!item || run.phase !== 'case') return null;
+  const previous = getPreviousReceipt(run, item);
+  if (!previous) return null;
+  const filed = archive(run).find(({ id }) => id === previous.record.id);
+  return filed ? { ...previous, documents: filed.documents } : null;
+}
+
+function viewedDocument() {
+  return interaction.previousCurrentDoc ?? interaction.doc;
+}
+
 function heldObjects() {
   const sampleHeld = panel === 'sample';
   let heldDocuments = [];
-  if (panel === 'docs') heldDocuments = [interaction.doc, interaction.compare];
+  if (panel === 'docs') {
+    heldDocuments = interaction.previousDoc === null ? [interaction.doc, interaction.compare] : [viewedDocument()];
+  }
   if (sampleHeld && interaction.referenceDoc !== null) heldDocuments = [interaction.referenceDoc];
   return {
     heldDocuments,
@@ -248,14 +262,15 @@ function render() {
 }
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
-  const { doc, compare, inspection, archiveFocus, archiveQuery, archiveEditing, pinned, phoneNumber, egg } = interaction;
+  const { compare, inspection, archiveFocus, archiveQuery, archiveEditing, pinned, phoneNumber, egg } = interaction;
   let markup = '';
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
-  if (panel === 'docs' && item) markup = view.documents(item, doc, compare, step, interaction);
+  if (panel === 'docs' && item) markup = view.documents(item, viewedDocument(), compare, step, interaction, previousInspection(item));
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, interaction);
   if (panel === 'archive' && run) markup = view.archivePanel(
     archive(run, archiveQuery), filedVisitPapers(archiveQuery), archiveFocus, pinned,
     archiveQuery, archiveEditing, run.phase === 'handoff', run.phase === 'ending', Boolean(phoneArchiveOpener),
+    !phoneArchiveOpener && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
   );
   if (panel === 'phone' && run) {
     const filed = archive(run);
@@ -274,6 +289,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const previousContent = previousSurface?.querySelector('.desk-surface-content');
   const scroll = previousContent ? [previousContent.scrollLeft, previousContent.scrollTop] : null;
   const previousReference = previousSurface?.querySelector('.sample-reference');
+  const previousPaper = previousSurface?.querySelector('.return-previous');
   const archiveIndexScroll = previousSurface?.querySelector('.drawer-list')?.scrollTop;
   const phoneScroll = modalLayer.querySelector('.phone-modal .modal-body')?.scrollTop;
   modalLayer.innerHTML = markup;
@@ -299,7 +315,13 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
     animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
   } else if (surface && surface.dataset.surfacePage !== previousSurface?.dataset.surfacePage) {
-    const sheet = surface.querySelector('.doc-grid.pair .sheet:last-child, .doc-grid:not(.pair) .sheet');
+    const oldPaper = surface.querySelector('.return-previous');
+    let sheet = surface.querySelector('.doc-grid.pair .sheet:last-child, .doc-grid:not(.pair) .sheet');
+    if (oldPaper) {
+      sheet = oldPaper.dataset.previousDoc !== previousPaper?.dataset.previousDoc
+        ? oldPaper.querySelector('.sheet') : surface.querySelector('.return-current .sheet');
+      if (previousPaper && scroll) surface.querySelector('.desk-surface-content').scrollTo(...scroll);
+    }
     animateOnDesk(sheet, [{ translate: '.85rem .3rem', opacity: .65 }, { translate: '0 0', opacity: 1 }], 180);
   } else if (surface && scroll) {
     const content = surface.querySelector('.desk-surface-content');
@@ -422,11 +444,15 @@ function chooseDoc(index, opener) {
     render();
     return;
   }
-  if (panel === 'docs' && interaction.compare !== null) {
+  if (panel === 'docs' && interaction.previousDoc !== null) {
+    interaction.previousCurrentDoc = index;
+  } else if (panel === 'docs' && interaction.compare !== null) {
     if (index !== interaction.doc) interaction.compare = index;
   } else {
     interaction.doc = index;
     interaction.compare = null;
+    interaction.previousDoc = null;
+    interaction.previousCurrentDoc = null;
   }
   readDocument(doc);
   playSound('paper');
@@ -471,9 +497,28 @@ function compareDocs() {
   render();
 }
 
+function comparePrevious(opener) {
+  const item = windowCase();
+  const previous = previousInspection(item);
+  if (!previous?.documents.length) return;
+  if (panel !== 'docs' && (panel !== 'archive' || phoneArchiveOpener || interaction.archiveFocus !== previous.record.id)) return;
+  if (panel === 'docs' && interaction.previousDoc !== null) {
+    interaction.previousDoc = null;
+    interaction.previousCurrentDoc = null;
+  } else {
+    const type = item.documents[interaction.doc]?.type;
+    const matching = previous.documents.findIndex((doc) => doc.type === type);
+    const order = previous.documents.findIndex((doc) => doc.type === 'order');
+    interaction.previousDoc = matching >= 0 ? matching : Math.max(order, 0);
+    interaction.previousCurrentDoc = interaction.doc;
+  }
+  playSound('paper');
+  openPanel('docs', opener);
+}
+
 function openSample(opener) {
   interaction.returnToDocs = panel === 'docs' && !tutorialStep();
-  interaction.referenceDoc = interaction.returnToDocs ? interaction.doc : null;
+  interaction.referenceDoc = interaction.returnToDocs ? viewedDocument() : null;
   playSound('slide');
   openPanel('sample', opener);
 }
@@ -485,7 +530,7 @@ function toggleReference() {
   if (interaction.referenceDoc !== null) {
     interaction.referenceDoc = null;
   } else if (interaction.returnToDocs) {
-    interaction.referenceDoc = interaction.doc;
+    interaction.referenceDoc = viewedDocument();
   } else {
     const report = documents.findIndex((doc) => doc.type === 'report');
     const order = documents.findIndex((doc) => doc.type === 'order');
@@ -648,6 +693,15 @@ root.addEventListener('click', (event) => {
       render();
       break;
     case 'compare': compareDocs(); break;
+    case 'previous-compare': comparePrevious(target); break;
+    case 'previous-doc': {
+      const previous = previousInspection();
+      if (panel !== 'docs' || interaction.previousDoc === null || !previous?.documents[index]) break;
+      interaction.previousDoc = index;
+      playSound('paper');
+      render();
+      break;
+    }
     case 'sample': openSample(target); break;
     case 'reference': toggleReference(); break;
     case 'reference-back':
