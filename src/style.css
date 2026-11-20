@@ -898,6 +898,12 @@ button:disabled { opacity: .46; }
 
 .ending-card { inline-size: min(42rem, 100%); }
 .ending-note { padding: .55rem .7rem; border: 1px dashed #b49c72; background: #a98d5530; font-size: .9rem; line-height: 1.55; }
+.ending-delay {
+  padding: .42rem .62rem;
+  border-inline-start: 2px solid #9b6048;
+  background: #aa765822;
+}
+.ending-delay b { margin-inline-end: .28em; color: #713f30; }
 .ending-counts { display: flex; flex-wrap: wrap; gap: .55rem; margin-block: .6rem; }
 .ending-counts span { display: flex; align-items: center; gap: .4rem; padding: .2rem .45rem; font-size: .75rem; background: #aa976f4a; }
 .ending-counts b { font: 850 1.07rem / 1.25 var(--mono); }
@@ -1269,6 +1275,11 @@ button:disabled { opacity: .46; }
 }
 
 @container workstation (max-height: 390px) {
+  .ending-card { padding-block: .72rem; }
+  .ending-card p { margin-block: .34rem .54rem; line-height: 1.45; }
+  .ending-card .ending-note { padding-block: .38rem; }
+  .ending-card .ending-counts { margin-block: .48rem; }
+  .ending-card .ending-stamp { margin-block: .44rem .55rem; }
   .topbar { min-block-size: 2.34rem; }
   .icon-button { min-block-size: 1.85rem; }
   .brand small { font-size: .61rem; }

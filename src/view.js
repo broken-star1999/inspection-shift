@@ -75,8 +75,8 @@ export function room(run, item, tutorial, firstIssue, pressure, eventIndex) {
     ${tutorial && !sceneEvent ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>` : firstIssue ? `<div class="training"><span class="tutorial-index">查验卡</span><small>老周</small><p>${esc(firstIssue)}</p></div>` : ''}`;
 }
 
-function paperCard(doc, index, tutorial, offset) {
-  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', tutorial?.target === doc.type)}" data-act="doc" data-i="${index}" data-drag="paper" data-fixture="doc${index}"${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}">
+function paperCard(doc, index, tutorial, offset, lifted) {
+  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', tutorial?.target === doc.type)}" data-act="doc" data-i="${index}" data-drag="paper" data-fixture="doc${index}"${lifted ? ' data-lifted' : ''}${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}">
     <small>${types[doc.type] ?? '归档'}</small><h3>${esc(doc.title)}</h3><b class="paper-num">${esc(doc.fields[0]?.[1])}</b><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">${doc.type === 'label' ? '批' : doc.type === 'report' ? '检' : '联'}</span></button>`;
 }
 
@@ -93,11 +93,11 @@ function sampleArt(spec, appearance, back, measurement) {
 
 export function desk(run, item, tutorial, interaction) {
   if (!item) return '';
-  const { note, positions, pencil, inspection } = interaction;
+  const { note, positions, pencil, inspection, heldDocuments, sampleHeld } = interaction;
   const appearance = sampleAppearance(item.sample);
-  return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, tutorial, positions[index])).join('')}</div>
+  return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, tutorial, positions[index], heldDocuments.includes(index))).join('')}</div>
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
-    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample" aria-label="检查${appearance.name}"><span class="sample-visual sample-preview-art${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, false, false)}</span><span class="sample-caption">${appearance.name}</span></button></section>
+    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="检查${appearance.name}"><span class="sample-visual sample-preview-art${cls('turned', inspection.back)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, inspection.back, false)}</span><span class="sample-caption">${appearance.name}</span></button></section>
     <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
       <p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上选一项作为依据'}</p></aside>`;
 }
@@ -110,11 +110,16 @@ export function overlay(run, ending) {
     return `<div class="stage-overlay"><section class="brief-card summary-card"><div class="eyebrow">${day.title} · 收班回执</div><h2>当班交接</h2><ul class="summary-list">${records.map((record) => `<li><b>${record.batch}</b><span>${labels[record.decision]} · ${statuses[record.status]}</span></li>`).join('')}</ul><p>${esc(day.outro)}</p>${button('下一班', 'advance-day', 'primary')}</section></div>`;
   }
   if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button('打电话', 'phone')}${button('交接', 'handoff', 'primary')}</div></section></div>`;
-  if (run.phase === 'ending') return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}"><div class="eyebrow">南渡防护用品厂 · 交班存根</div>
+  if (run.phase === 'ending') {
+    const { count, batches } = ending.delayed;
+    const delayed = count ? `${batches.join('、')}${count > batches.length ? ' 等 ' : '，共 '}${count} 批经核对可以放行的货，还在待审区或退件区。` : '';
+    return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}"><div class="eyebrow">南渡防护用品厂 · 交班存根</div>
       <h2>${esc(ending.title)}</h2><p>${esc(ending.line)}</p><div class="ending-note">${esc(ending.detail).replace(/\n/g, '<br>')}</div>
       ${ending.id === 'issue' && ending.traceDisposition ? `<p>${esc(ending.traceDisposition)}</p>` : ''}
+      ${delayed ? `<p class="ending-delay"><b>未放行</b> ${esc(delayed)}</p>` : ''}
       <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
       <div class="brief-actions">${button('返回窗口', 'home')}${button('再接一周', 'new', 'primary')}</div></section></div>`;
+  }
   return '';
 }
 
@@ -140,9 +145,16 @@ export function instructions(how) {
     ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。电脑也可用 1、2、3 开单，Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
-function sheet(doc, index, actions, highlightSignature = false) {
+function sheet(doc, index, inspection) {
+  const rows = doc.fields.map(([key, value], field) => {
+    const text = esc(value);
+    const highlight = inspection?.signature && key.includes('签发');
+    const chosen = inspection?.note === `${key} · ${value}`;
+    const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="basis" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
+    return `<div><dt>${esc(key)}</dt><dd>${fieldValue}</dd></div>`;
+  }).join('');
   return `<article class="sheet sheet-${doc.type}"><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small><h3>${esc(doc.title)}</h3><dl class="fields">
-    ${doc.fields.map(([key, value], field) => `<div><dt>${esc(key)}</dt><dd>${actions ? `<button class="field-value${cls('instructed', highlightSignature && key.includes('签发'))}" data-act="basis" data-i="${index}" data-field="${field}">${esc(value)}</button>` : esc(value)}</dd></div>`).join('')}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
+    ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
 }
 
 export function documents(item, index, compare, tutorial, progress) {
@@ -151,10 +163,15 @@ export function documents(item, index, compare, tutorial, progress) {
   const extras = [3, 15].includes(item.id) ? button('翻工艺夹板背面', 'egg', 'secondary', 'data-key="cat"') : item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
   const other = item.documents[compare];
   const signature = tutorial?.key === 'signature';
+  const inspection = { signature, note: progress.note };
   const guide = signature ? `${progress.signed ? '签发已核对。' : '点报告上的「已签发」。'}${progress.orderSeen ? '送检联已核对。' : '再并排翻看送检联的检验项目。'}` : tutorial?.line;
-  return deskSurface('桌面单据', `${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="单据切换">${item.documents.map(({ title, type }, position) => `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index)}>${esc(title)}</button>`).join('')}</nav>
-    <div class="doc-grid${cls('pair', other)}">${sheet(doc, index, true, signature)}${other ? sheet(other, compare, true, signature) : ''}</div>
-    <div class="modal-actions">${button(other ? '收起并排单据' : '并排核对', 'compare')}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', index);
+  const tabs = item.documents.map(({ title, type }, position) => {
+    const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
+    return `<button class="button tab${cls('instructed', tutorial?.target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
+  }).join('');
+  return deskSurface('桌面单据', `${guide ? `<p class="modal-guide"><b>老周</b> ${esc(guide)}</p>` : ''}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
+    <div class="doc-grid${cls('pair', other)}">${sheet(doc, index, inspection)}${other ? sheet(other, compare, inspection) : ''}</div>
+    <div class="modal-actions">${item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : ''}${tutorial?.key === 'sample' ? button('检查样品', 'sample', 'primary') : ''}${extras}</div>`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`);
 }
 
 export function sample(item, inspection, tutorial) {
@@ -181,7 +198,7 @@ export function archivePanel(rows, focus, selected, query, editing, handoff) {
   const row = rows.find(({ id }) => id === focus);
   return deskSurface('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
     <div class="drawer-list" aria-label="留档单据">${rows.length ? rows.slice().reverse().map(({ id, batch, title, record }) => `<button class="record-button" data-act="archive-focus" data-i="${id}"${active(id === focus)}><b>${esc(batch)}</b><span>${esc(title)}</span><small>${record ? statuses[record.status] : '本班来件'}</small></button>`).join('') : '<p>这页暂时没有单据。</p>'}</div></div>
-    <div class="archive-detail">${row ? `<div class="doc-grid">${row.documents.map((doc) => sheet(doc, 0, false)).join('')}</div><div class="modal-actions">${button(selected.includes(row.id) ? '从电话旁拿回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
+    <div class="archive-detail">${row ? `<div class="doc-grid">${row.documents.map((doc) => sheet(doc)).join('')}</div><div class="modal-actions">${button(selected.includes(row.id) ? '从电话旁拿回' : '带到电话旁', 'archive-pin', 'secondary', `data-i="${row.id}"`)}
       ${handoff && row.record ? button(editing ? '取消更正' : '更正开单', 'edit-record') : ''}</div>${editing && row.record ? `<div class="stamp-buttons">${stampButtons(false, false, 'recheck')}</div>` : ''}` : '<p class="archive-empty">选一张留底，可以翻看原来的单据。</p>'}</div></div>`, 'archive-surface', '合上簿子');
 }
 
@@ -195,7 +212,7 @@ export function phone(number, call, pinned, numberGuide, phoneBack) {
 
 export function handoffPanel(run, evidence) {
   return dialog('周五交接', `<div class="handoff-paper"><p>确认下一班拿到你手里的回执和留底。</p>
-    ${['trace', 'night'].map((key) => run.flags[`${key}Document`] ? `<div class="handoff-evidence">${sheet(evidence[key], 0, false)}${button(run.flags[`${key}Attached`] ? '已夹入 · 取回' : '夹入交接板', 'attach', run.flags[`${key}Attached`] ? 'primary' : 'secondary', `data-key="${key}"`)}</div>` : '').join('')}
+    ${['trace', 'night'].map((key) => run.flags[`${key}Document`] ? `<div class="handoff-evidence">${sheet(evidence[key])}${button(run.flags[`${key}Attached`] ? '已夹入 · 取回' : '夹入交接板', 'attach', run.flags[`${key}Attached`] ? 'primary' : 'secondary', `data-key="${key}"`)}</div>` : '').join('')}
     <div class="modal-actions">${button('回看全周出货', 'archive')}${button('拉铃交班', 'finish', 'primary')}</div></div>`, 'handoff-modal');
 }
 

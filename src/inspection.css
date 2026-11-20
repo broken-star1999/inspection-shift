@@ -71,6 +71,15 @@
   font-size: .78rem;
 }
 .desk-surface .doc-tabs .tab[aria-pressed='true'] { background: #d8c294; color: #3c301d; }
+.doc-tabs .sheet-side {
+  margin-inline-start: .34em;
+  padding-inline-start: .36em;
+  border-inline-start: 1px solid currentColor;
+  font-size: .83em;
+  opacity: .74;
+}
+
+.booth-layout .console [data-lifted] { visibility: hidden; pointer-events: none; }
 .desk-surface .sheet {
   padding: clamp(.57rem, 1.22cqw, 1.05rem);
   background: repeating-linear-gradient(0deg, #826f4520 0 1px, transparent 1px 1.62rem), linear-gradient(125deg, #f0e2c0, #e3cca0);
@@ -87,6 +96,10 @@
   color: #433425;
 }
 .desk-surface .field-value:is(:hover, :focus-visible) { background: #d5b66b59; }
+.desk-surface .field-value[aria-pressed='true'] {
+  background: #d7b9629c;
+  border-block-end-style: solid;
+}
 .desk-surface .modal-actions { flex-wrap: wrap; margin-block-start: .55rem; gap: .43rem; }
 .desk-surface .modal-actions .button { min-block-size: 2.2rem; font-size: .83rem; }
 

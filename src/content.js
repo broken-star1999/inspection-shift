@@ -42,7 +42,7 @@ const earmuff = { kind: 'clear', appearance: 'earmuff', front: '双侧耳罩壳�
 
 export const TUTORIAL = [
   { target: 'label', title: '先认箱', line: '先看箱子是谁。这儿写二零一。你点开看看。' },
-  { target: 'report', title: '对批号', line: '把报告拖到箱签边上。先看它测的是不是二零一这箱。' },
+  { target: 'report', title: '对批号', line: '拿起检验报告，看看批号是不是二零一。' },
   { target: 'order', title: '核对签发与项目', line: '号对了，再找报告的签发栏。拿送检联挨着它放，外观和扣合两项都得有结果。' },
   { target: 'sample', title: '动手检查', line: '拿起这副。正面看镜片，再翻到背面。扣上以后轻拉一下。' },
   { target: 'pass', title: '把单交出去', line: '镜片好，扣件也牢。你自己盖个通过，把这张交给小罗。' },

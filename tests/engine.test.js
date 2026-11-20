@@ -53,7 +53,9 @@ test('same seed remains playable after JSON restore and contains one of each pre
       const slots = { favor: week.flags.offerCase, warning: week.flags.warningCase };
       return slots[a] - slots[b];
     }));
-    assert.equal(getEnding(act(week, 'finish')).id, 'routine');
+    const ending = getEnding(act(week, 'finish'));
+    assert.equal(ending.id, 'routine');
+    assert.deepEqual(ending.delayed, { count: 0, batches: [] });
     weeks.push(week);
   }
   for (const id of [8, 12]) {
@@ -128,6 +130,21 @@ test('report filed during handoff can still lead to an on-site hold', () => {
   state = act(state, 'finish');
   assert.equal(getEnding(state).id, 'trace');
   assert.match(getEnding(state).traceDisposition, /已封存/);
+  assert.deepEqual(getEnding(state).delayed, { count: 0, batches: [] });
+});
+
+test('sending every batch to review reports the release-ready batches that remain held', () => {
+  const decisions = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [index + 1, 'review']));
+  const ending = getEnding(act(untilHandoff(21, { decisions }), 'finish'));
+  assert.equal(ending.id, 'routine');
+  assert.deepEqual(ending.delayed, { count: 12, batches: ['G-201', 'G-202', 'G-203'] });
+});
+
+test('a corrected decision removes the released batch from the handoff delay', () => {
+  let state = untilHandoff(9, { decisions: { 1: 'review', 2: 'fail' } });
+  assert.deepEqual(getEnding(state).delayed, { count: 2, batches: ['G-201', 'G-202'] });
+  state = act(state, 'recheck', { id: 1, value: 'pass' });
+  assert.deepEqual(getEnding(act(state, 'finish')).delayed, { count: 1, batches: ['G-202'] });
 });
 
 test('newly signed proof clears a premature release, while G-204 is tracked separately', () => {

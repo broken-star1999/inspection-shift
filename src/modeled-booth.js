@@ -4,7 +4,7 @@ import { BOOTH_METRICS, createWorkbenchModels } from './workbench-models.js';
 const pixelsPerUnit = 86;
 const workerNames = new Set(['luo', 'tang', 'xu', 'chen', 'zhou', 'sun']);
 const baseFov = 38;
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false };
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false };
 const paperStyles = {
   label: { width: 1.04, depth: .78, bright: '#ead2a0', shade: '#c4a875', edge: '#a67b52', turn: -.081 },
   report: { width: 1.22, depth: .97, bright: '#f2e4bb', shade: '#d4c4a0', edge: '#6e7955', turn: .048 },
@@ -356,7 +356,10 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const working = frame.phase === 'case' || frame.phase === 'receipt';
     if (models.anchors?.pencil) models.anchors.pencil.visible = working && Boolean(frame.pencil);
     updatePaperSet(working ? frame.documents ?? [] : []);
-    paperSet.forEach((paper, index) => setPaperOffset(index, frame.positions?.[index]));
+    paperSet.forEach((paper, index) => {
+      paper.visible = !frame.heldDocuments.includes(index);
+      setPaperOffset(index, frame.positions?.[index]);
+    });
     if (frame.phase === 'waiting') {
       if (before.phase !== 'waiting') portraitMotionAt = view.performance.now();
     } else if (frame.npc !== before.npc || (before.phase === 'receipt' && frame.phase === 'case')) {
@@ -388,7 +391,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       else loadTexture(path, (image) => {
         if (frame.sample?.filename === filename) fitSample(image.image.width / image.image.height);
       });
-      sample.visible = true;
+      sample.visible = !frame.sampleHeld;
       sample.material.color.setHex(frame.sample.kind === 'yellow' && !frame.sample.unpacked ? 0xdcccc0 : 0xffffff);
     } else sample.visible = false;
     layoutDirty = true;

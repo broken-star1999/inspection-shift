@@ -185,16 +185,24 @@ function windowCase() {
   return run && !arrivalTimer ? getCase(run) : null;
 }
 
+function heldObjects() {
+  return {
+    heldDocuments: panel === 'docs' ? [interaction.doc, interaction.compare] : [],
+    sampleHeld: panel === 'sample',
+  };
+}
+
 function setScene() {
   const event = arrivalTimer ? null : run?.events?.[eventIndex];
   const phase = arrivalTimer ? 'waiting' : (run?.phase ?? 'home');
   const item = windowCase();
   const npc = event?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
   const appearance = item ? sampleAppearance(item.sample) : null;
+  const side = interaction.inspection.back ? '-back' : '';
   scenery?.setFrame({ day: run?.day ?? 0, phase, npc: npc || null,
     documents: item?.documents.map((doc) => ({ type: doc.type, title: doc.title, batch: doc.fields[0]?.[1] ?? item.batch })) ?? [],
-    sample: appearance ? { ...interaction.inspection, filename: `${appearance.stem}.webp`, kind: item.sample.kind } : null,
-    positions: interaction.positions, pencil: showPencil(item) });
+    sample: appearance ? { ...interaction.inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind } : null,
+    positions: interaction.positions, pencil: showPencil(item), ...heldObjects() });
 }
 
 function render() {
@@ -209,7 +217,7 @@ function render() {
   const step = item ? tutorialStep() : null;
   const teaching = item?.id === 2 && !interaction.inspection.film ? '先对箱签和报告。检查镜片时，可以掀开检样的膜角。' : '';
   hud.innerHTML = run && !arrivalTimer ? view.room(run, item, step, teaching, item?.pressureLine, eventIndex) : '';
-  desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item) }) : '';
+  desktop.innerHTML = item ? view.desk(run, item, step, { ...interaction, pencil: showPencil(item), ...heldObjects() }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   if (root.dataset.modeled === 'true') placeFixtures();
   const event = arrivalTimer ? null : run?.events?.[eventIndex];
@@ -234,7 +242,9 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const focused = document.activeElement;
   const hadModal = Boolean(modalLayer.firstElementChild);
   const focusedData = focused instanceof HTMLElement && modalLayer.contains(focused) ? { ...focused.dataset } : null;
-  const previousSurface = modalLayer.querySelector('[data-desk-surface]')?.dataset;
+  const previousSurface = modalLayer.querySelector('[data-desk-surface]');
+  const previousContent = previousSurface?.querySelector('.desk-surface-content');
+  const scroll = previousContent ? [previousContent.scrollLeft, previousContent.scrollTop] : null;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
   const blockingDialog = Boolean(markup && !surface);
@@ -252,11 +262,15 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
   (restored || focusables.find((element) => element instanceof HTMLButtonElement && element.dataset.act && element.dataset.act !== 'close') || focusables[0])?.focus({ preventScroll: true });
-  if (surface && surface.dataset.deskSurface !== previousSurface?.deskSurface) {
+  if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
     const object = surface.querySelector('.sheet, .sample-stage img, .receipt-slip');
     animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
-  } else if (surface?.dataset.surfacePage !== previousSurface?.surfacePage) {
-    animateOnDesk(surface?.querySelector('.sheet'), [{ translate: '.85rem .3rem', opacity: .65 }, { translate: '0 0', opacity: 1 }], 180);
+  } else if (surface && surface.dataset.surfacePage !== previousSurface?.dataset.surfacePage) {
+    const sheet = surface.querySelector('.doc-grid.pair .sheet:last-child, .doc-grid:not(.pair) .sheet');
+    animateOnDesk(sheet, [{ translate: '.85rem .3rem', opacity: .65 }, { translate: '0 0', opacity: 1 }], 180);
+  } else if (surface && scroll) {
+    const content = surface.querySelector('.desk-surface-content');
+    [content.scrollLeft, content.scrollTop] = scroll;
   }
 }
 
@@ -321,14 +335,28 @@ function pauseBeforeArrival(restoreFocus) {
   render();
 }
 
+function advanceSignature() {
+  if (!interaction.orderSeen || !interaction.signed) return;
+  const advanced = update({ type: 'tutorial', key: 'signature' }, false);
+  if (advanced && interaction.inspection.tug) update({ type: 'tutorial', key: 'sample' }, false);
+}
+
+function readDocument(doc) {
+  if (doc?.type === 'label' || doc?.type === 'report') update({ type: 'tutorial', key: doc.type }, false);
+  if (doc?.type === 'order' && tutorialStep()?.key === 'signature') interaction.orderSeen = true;
+  advanceSignature();
+}
+
 function chooseDoc(index, opener) {
-  const target = getCase(run)?.documents[index];
-  if (!target) return;
-  if (interaction.doc !== index) interaction.compare = null;
-  interaction.doc = index;
-  if (target.type === 'order' && tutorialStep()?.key === 'signature') interaction.orderSeen = true;
-  if (target.type === 'label' || target.type === 'report') update({ type: 'tutorial', key: target.type }, false);
-  if (interaction.orderSeen && interaction.signed) update({ type: 'tutorial', key: 'signature' }, false);
+  const doc = getCase(run)?.documents[index];
+  if (!doc) return;
+  if (panel === 'docs' && interaction.compare !== null) {
+    if (index !== interaction.doc) interaction.compare = index;
+  } else {
+    interaction.doc = index;
+    interaction.compare = null;
+  }
+  readDocument(doc);
   playSound('paper');
   openPanel('docs', opener);
 }
@@ -340,7 +368,7 @@ function checkBasis(index, field) {
   interaction.note = `${key} · ${value}`;
   if (key.includes('签发') && tutorialStep()?.key === 'signature') {
     interaction.signed = true;
-    if (interaction.orderSeen) update({ type: 'tutorial', key: 'signature' }, false);
+    advanceSignature();
   }
   playSound('click');
   toast(`已记下 · ${key}`);
@@ -349,12 +377,13 @@ function checkBasis(index, field) {
 
 function compareDocs() {
   const item = getCase(run);
-  if (!item) return;
+  if (!item || item.documents.length < 2) return;
   const index = interaction.doc;
-  const preferred = item.documents.findIndex(({ type }, id) => id !== index && type === (tutorialStep()?.key === 'signature' ? 'order' : 'report'));
+  const type = item.documents[index].type;
+  const preferredType = type === 'report' ? (tutorialStep()?.key === 'signature' ? 'order' : 'label') : 'report';
+  const preferred = item.documents.findIndex((doc, id) => id !== index && doc.type === preferredType);
   interaction.compare = interaction.compare === null ? (preferred >= 0 ? preferred : (index + 1) % item.documents.length) : null;
-  if (item.documents[interaction.compare]?.type === 'order') interaction.orderSeen = true;
-  if (interaction.orderSeen && interaction.signed) update({ type: 'tutorial', key: 'signature' }, false);
+  readDocument(item.documents[interaction.compare]);
   playSound('slide');
   render();
 }

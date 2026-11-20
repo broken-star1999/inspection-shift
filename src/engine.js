@@ -358,8 +358,15 @@ export function getEnding(state) {
   const recall = record?.status === 'shipped' || record?.status === 'recalled';
   const traceDisposition = !state.flags.traceAttached ? '' : recall ? 'G-241 已确认召回，安排抽检。' : 'G-241 已封存，安排补检。';
   const counts = { pass: 0, fail: 0, review: 0 };
-  for (const { decision } of state.records) counts[decision] += 1;
-  const shared = { issues, traceDisposition, counts };
+  const delayedBatches = new Set();
+  for (const { id, batch, decision, answer, status, verifiedBy } of state.records) {
+    counts[decision] += 1;
+    const stillWithheld = status === 'held' || status === 'returned';
+    const justifiedTraceHold = id === record?.id && state.flags.traceAttached;
+    if (answer === 'pass' && stillWithheld && !verifiedBy && !justifiedTraceHold) delayedBatches.add(batch);
+  }
+  const delayed = { count: delayedBatches.size, batches: [...delayedBatches].slice(0, 3) };
+  const shared = { issues, traceDisposition, counts, delayed };
   if (issues.length) {
     const detail = issues.map(({ batch, reason, answer }) => `${batch} · ${answer === 'review' ? '暂缓入库' : '收货方复核'} · ${reason}`).join('\n');
     return { id: 'issue', ...HANDOFF.escaped, detail, ...shared };
