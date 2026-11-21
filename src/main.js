@@ -639,7 +639,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
-  const firstAction = focusables.find((element) => element instanceof HTMLButtonElement &&
+  const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]') ?? focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
     !['close', 'toggle-findings', 'remove-finding'].includes(element.dataset.act));
   (restored || firstAction || focusables[0])?.focus({ preventScroll: true });
@@ -709,6 +709,7 @@ function workspaceBody() {
   if (panel === 'phone') return modalLayer.querySelector('.phone-modal .modal-body');
   if (panel === 'handoff') return modalLayer.querySelector('.handoff-detail-scroll');
   if (panel === 'archive') return modalLayer.querySelector('.archive-surface .desk-surface-content');
+  if (!panel && run?.phase === 'receipt' && !arrival) return modalLayer.querySelector('.receipt-surface .desk-surface-content');
   return null;
 }
 
@@ -785,10 +786,11 @@ function openPanel(name, opener) {
     update({ type: 'hang-up' }, false);
     phoneReturn = null;
   }
-  if (name === 'archive' && ['phone', 'handoff', 'docs', 'sample'].includes(panel)) {
+  const archiveParent = panel ?? (opener?.closest('.receipt-surface') ? 'receipt' : null);
+  if (name === 'archive' && ['phone', 'handoff', 'docs', 'sample', 'receipt'].includes(archiveParent)) {
     const body = workspaceBody();
     const index = panel === 'handoff' ? modalLayer.querySelector('.handoff-board') : body;
-    archiveReturn = { panel, opener: { ...opener.dataset }, scrollTop: index?.scrollTop ?? 0, detailScroll: body?.scrollTop ?? 0,
+    archiveReturn = { panel: archiveParent, opener: { ...opener.dataset }, scrollTop: index?.scrollTop ?? 0, detailScroll: body?.scrollTop ?? 0,
       scrollLeft: body?.scrollLeft ?? 0 };
   } else if (name !== 'archive' || panel !== 'archive') {
     archiveReturn = null;
@@ -1606,7 +1608,9 @@ function closePanel() {
     previousPanel = phoneReturn;
     phoneReturn = null;
   }
-  panel = previousPanel?.panel ?? null;
+  const toReceipt = previousPanel?.panel === 'receipt';
+  panel = toReceipt ? null : previousPanel?.panel ?? null;
+  if (toReceipt) modalOpener = null;
   archiveReturn = previousPanel?.archiveReturn ?? null;
   reportIndex = previousPanel?.reportIndex ?? null;
   if (panel === 'archive' && previousPanel.archiveFocus != null) {

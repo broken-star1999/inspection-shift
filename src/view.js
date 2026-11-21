@@ -636,10 +636,11 @@ export function receipt(record, previous) {
     recalled: '已确认召回，下一班按留底复检。',
   }[receiptDisposition(record)];
   const original = previous && previous.id === record.priorShipmentId
-    ? button(`查看原出货回执 · ${esc(DAYS[previous.day]?.title)}`, 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}"`)
+    ? button('原出货回执', 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}" aria-label="查看原出货回执 · ${esc(DAYS[previous.day]?.title)}"`)
     : '';
+  const copy = button('翻本批留底', 'archive-receipt', 'receipt-origin', `data-i="${esc(record.id)}"`);
   const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record)}</div>`;
-  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + button('接着值班', 'next', 'primary') });
+  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + copy + button('接着值班', 'next', 'primary') });
 }
 
 function correctionPanel(record, findings, selected, reworkBasis) {
@@ -698,7 +699,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
         pinAction: !finished && !editing ? phonePinButton(row.id, index, doc.title, selected, 'archive-paper-pin') : '',
       })).join('')}</div>`;
   }
-  const navigation = { phone: '回到电话', handoff: '回到交接板' }[returnTo];
+  const navigation = { phone: '回到电话', handoff: '回到交接板', receipt: '回到回执' }[returnTo];
   const suggestion = reportSuggestion && !editing ? button(`并排核对 ${esc(reportSuggestion)}`, 'report-search', 'secondary report-index-suggestion', `data-key="${esc(reportSuggestion)}"`) : '';
   return deskSurface('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
     ${suggestion}<div class="drawer-list" aria-label="留档单据">${index || '<p>没有找到匹配的单据。</p>'}</div></div>
@@ -714,7 +715,7 @@ function phonePinButton(id, index, title, pinned, className) {
 }
 
 export function archiveReportPanel(number, sources, pinned, { returnTo, finished } = {}) {
-  const closeText = { phone: '回到电话', docs: '回到单据', sample: '回到检样' }[returnTo] ?? '合上簿子';
+  const closeText = { phone: '回到电话', docs: '回到单据', sample: '回到检样', receipt: '回到回执' }[returnTo] ?? '合上簿子';
   const back = button('返回交接簿', 'report-index-back', 'secondary report-index-back');
   const phoneAction = !finished && returnTo !== 'phone' ? button('拿电话', 'phone', 'secondary report-index-phone') : '';
   const papers = sources.map(({ id, batch, day, document, index }) => {

@@ -1298,7 +1298,7 @@
 }
 .receipt-surface .receipt-origin:is(:hover, :focus-visible) { background: #f7e8c4; }
 .receipt-surface .desk-surface-footer { flex: 0 0 auto; display: flex; align-items: stretch; justify-content: flex-end; gap: .38rem; padding: 0 .45rem; }
-.receipt-surface .desk-surface-footer .primary { min-block-size: 2.15rem; font-size: .83rem; }
+.receipt-surface .desk-surface-footer .primary { min-block-size: 2.15rem; padding-inline: .48rem; font-size: .83rem; white-space: nowrap; }
 
 #game[data-phase='receipt'] .playfield:has(.receipt-surface) .booth-layout .room-hud .speech {
   inset-block: calc(100% + .28rem) auto;
