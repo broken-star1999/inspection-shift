@@ -60,6 +60,41 @@
   object-fit: fill;
 }
 
+.sample-object:not([data-image-state='ready']) > :is(img, .sample-cuff-split, .sample-ear-cup-mark, .sample-film-sheet, .sample-lens-crack, .model-mark, .sample-clasp-state),
+.sample-object:not([data-image-state='ready']) + .sample-mark {
+  visibility: hidden;
+}
+
+.sample-image-notice {
+  position: absolute;
+  z-index: 4;
+  inset: 50% auto auto 50%;
+  translate: -50% -50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  max-inline-size: calc(100% - 1.3rem);
+  padding: .3rem .5rem;
+  border: 1px dashed #a09368;
+  background: #233a2d;
+  color: #f3dfb2;
+  font-size: clamp(.72rem, 1.35cqh, .86rem);
+  font-weight: 690;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.sample-image-notice .button {
+  min-block-size: 2.75rem;
+  padding: .22rem .46rem;
+  font-size: inherit;
+  pointer-events: auto;
+}
+
+.sample-image-notice[hidden], .sample-image-notice .button[hidden] { display: none; }
+.gauge-stage .sample-image-notice { inset: auto auto .25rem .44rem; translate: none; }
+
 .sample-object > .sample-cuff-split,
 .sample-cuff-split > span {
   position: absolute;

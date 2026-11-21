@@ -1,6 +1,7 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, getTraceHandoffReview, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
+import { mountSampleImage, retrySampleImage, updateSampleImage } from './sample-images.js';
 import { bindViewport, toggleFullscreen, stagePoint } from './devices.js';
 import { bindAudio, playSound, isMuted, setMuted, setPhoneRinging } from './audio.js';
 import { captureDeskProjection } from './desk-projection.js';
@@ -23,6 +24,11 @@ import './carton-inspector.css';
 
 const root = document.querySelector('#game');
 bindAudio(root.ownerDocument);
+for (const name of ['load', 'error']) {
+  root.addEventListener(name, (event) => {
+    if (event.target instanceof HTMLImageElement) updateSampleImage(event.target);
+  }, true);
+}
 const SAVE_KEY = 'nandu-inspection-save-v1';
 const COLLECTION_KEY = 'nandu-inspection-endings-v1';
 const COMPLETED_KEY = 'nandu-inspection-completed-v1';
@@ -905,6 +911,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const handoffDetailScroll = modalLayer.querySelector('.handoff-detail-scroll')?.scrollTop;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
+  mountSampleImage(surface?.querySelector('[data-sample-art]') ??
+    desktop.querySelector('.sample-preview:not([data-lifted]) [data-sample-art]'));
   if (receiptPrintTimer && surface?.matches('.receipt-surface')) {
     surface.querySelectorAll('button').forEach((control) => { control.disabled = true; });
   }
@@ -1915,6 +1923,9 @@ function checkSample(act) {
   const previousFold = previousFilm ? getComputedStyle(previousFilm).transform : null;
   let sound = 'slide';
   switch (act) {
+    case 'sample-image-retry':
+      retrySampleImage(modalLayer.querySelector('.sample-stage'));
+      return;
     case 'sample-flip':
       if (packed || inGauge) return;
       sample.back = !sample.back;

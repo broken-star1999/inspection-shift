@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CARGO_DEPARTURE_MS, RECEIPT_FEED_MS, RECEIPT_HANDOVER_MS } from './booth-motion.js';
 import { CUFF_SPLIT_PATCHES } from './samples.js';
+import { sampleImage } from './sample-images.js';
 import { BOOTH_METRICS, createWorkbenchModels } from './workbench-models.js';
 
 const pixelsPerUnit = 86;
@@ -532,6 +533,8 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
 
   const loader = new THREE.TextureLoader();
   const textures = new Map();
+  const sampleTextures = new Map();
+  const sampleImageEvents = new AbortController();
   let destroyed = false;
   let contextLost = false;
   let ready = false;
@@ -589,6 +592,14 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     invalidate();
   }
 
+  function setTextureSampling(texture) {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+    return texture;
+  }
+
   function loadTexture(path, onReady) {
     const cached = textures.get(path);
     if (cached) {
@@ -610,11 +621,27 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
       invalidate();
     });
     const { texture } = entry;
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+    setTextureSampling(texture);
     textures.set(path, entry);
+    return texture;
+  }
+
+  function sampleTexture(filename) {
+    const cached = sampleTextures.get(filename);
+    if (cached) return cached;
+    const image = sampleImage(artPath(filename), ownerDocument);
+    const texture = setTextureSampling(new THREE.Texture());
+    if (image.complete && image.naturalWidth) {
+      texture.image = image;
+      texture.needsUpdate = true;
+    }
+    image.addEventListener('load', () => {
+      texture.image = image;
+      texture.needsUpdate = true;
+      if (sampleFilename === filename) fitSample(image.naturalWidth / image.naturalHeight);
+      invalidate();
+    }, { signal: sampleImageEvents.signal });
+    sampleTextures.set(filename, texture);
     return texture;
   }
 
@@ -829,7 +856,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     if (models.anchors?.pencil) models.anchors.pencil.visible = working && !arriving && Boolean(frame.pencil);
     const { npc: nextNpc, sampleFilename: nextSample } = frame.approach ?? {};
     if (workerNames.has(nextNpc)) loadTexture(`${art}${nextNpc}.webp`);
-    if (nextSample) loadTexture(artPath(nextSample));
+    if (nextSample) sampleImage(artPath(nextSample), ownerDocument);
     if (!waiting) {
       updatePaperSet(working ? frame.documents ?? [] : [], frame.visit);
       paperSet.forEach((paper, index) => {
@@ -842,9 +869,8 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
       if (filename) {
         if (filename !== sampleFilename) {
           sampleFilename = filename;
-          const texture = loadTexture(artPath(filename), (loaded) => {
-            if (sampleFilename === filename) fitSample(loaded.image.width / loaded.image.height);
-          });
+          const texture = sampleTexture(filename);
+          if (texture.image) fitSample(texture.image.naturalWidth / texture.image.naturalHeight);
           if (sample.material.map !== texture) {
             sample.material.map = texture;
             sample.material.needsUpdate = true;
@@ -1242,8 +1268,10 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
       reduced.removeEventListener('change', updateMotionPreference);
       canvas.removeEventListener('webglcontextlost', loseContext);
       canvas.removeEventListener('webglcontextrestored', restoreContext);
+      sampleImageEvents.abort();
       disposeObject(scene);
       for (const { texture } of textures.values()) texture.dispose();
+      for (const texture of sampleTextures.values()) texture.dispose();
       renderer.dispose();
       canvas.remove();
       delete host.dataset.renderer;

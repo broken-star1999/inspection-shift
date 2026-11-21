@@ -183,13 +183,14 @@ function sampleArt(spec, appearance, { back = false, unpacked = false, control =
   const ratio = sampleRatios[appearance.key] ?? 720 / (back ? 384 : 382);
   const lensFilm = !back && (spec.kind === 'film' || spec.kind === 'crack');
   const wrapped = spec.kind === 'yellow' && !unpacked;
-  const alt = wrapped ? '' : `${appearance.name}${back ? '背面' : appearance.front ?? '正面'}`;
+  const side = back ? '背面' : appearance.front ?? '正面';
+  const alt = wrapped ? '' : `${appearance.name}${side}`;
+  const image = asset(`${appearance.stem}${back ? '-back' : ''}.webp`);
   const cuff = cuffSplitVisible(spec, { back, unpacked }) ? `<span class="sample-cuff-split" aria-hidden="true">${CUFF_SPLIT_PATCHES.map(({ color, points }) =>
     `<span style="--split-ink:${color};--split-patch:polygon(${points.map(([x, y]) => `${x}% ${y}%`).join(',')})"></span>`).join('')}</span>` : '';
   const cup = earCupMark(spec, back);
   const line = cup ? `<span class="sample-ear-cup-mark" data-shape="${cup.shape}" aria-hidden="true" style="clip-path:polygon(${cup.points.map(([x, y]) => `${x}% ${y}%`).join(',')})"></span>` : '';
-  return `<span class="sample-object" style="--sample-ratio:${ratio}">
-    <img src="${asset(`${appearance.stem}${back ? '-back' : ''}.webp`)}" alt="${esc(alt)}" draggable="false">
+  return `<span class="sample-object" style="--sample-ratio:${ratio}" data-sample-art="${esc(image)}" data-sample-side="${esc(side)}" data-sample-alt="${esc(alt)}">
     ${cuff}${line}
     ${lensFilm ? `<span class="sample-film-sheet" aria-hidden="true">${spec.kind === 'film' ? '<span class="sample-film-trace"></span>' : ''}</span>` : ''}
     ${!back && spec.kind === 'crack' ? '<span class="sample-lens-crack" aria-hidden="true"></span>' : ''}
@@ -692,9 +693,10 @@ export function sample(item, inspection, tutorial, progress) {
     ? `<div class="sample-findings gauge-observation"><div aria-live="polite"><b>量规实测</b><p class="reading"><strong>${measured ? esc(spec.reading) : '—'}</strong></p></div>${gaugeBasis}</div>`
     : `<div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
       ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}</div>`;
+  const imageNotice = packaged || inGauge ? '' : `<div class="sample-image-notice" hidden><span role="status"></span>${button('重试加载', 'sample-image-retry', 'secondary', 'hidden disabled')}</div>`;
   const title = item.carton ? `${appearance.name} · 箱号待核` : `${item.batch} · ${appearance.name}`;
-  return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
-    ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${thicknessAction}</div>
+  return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
+    ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${thicknessAction}</div>
     ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured) : observationCard}</div>
     <div class="modal-actions">${guidedFlip ? '' : flipAction}${gaugeBasis ? '' : basis}${show}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions + phoneAction,
