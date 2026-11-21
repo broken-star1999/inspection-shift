@@ -1,4 +1,4 @@
-import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
+import { CHARACTERS, DAYS, EASTER_EGGS, FILM_BENCH_TUTORIAL, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
 import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { cartonModel } from './carton-inspector.js';
 import { canShowFinding, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
@@ -129,7 +129,11 @@ export function setRoomCargo(layer, cargo) {
   layer.hidden = false;
 }
 
-export function room(run, item, tutorial, pressure, sceneEvent, previous) {
+export function filmLessonPending(item, { returningWeek, filmChecked } = {}) {
+  return item?.id === 2 && !returningWeek && !filmChecked;
+}
+
+export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCue = false) {
   const day = DAYS[run.day];
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
   const record = run.phase === 'receipt' ? run.records.at(-1) : null;
@@ -137,10 +141,12 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous) {
   const exchange = pressure && !sceneEvent && !record;
   const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? reply ?? item?.line ?? day.intro;
   const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
+  const training = tutorial && !sceneEvent
+    ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>`
+    : filmCue ? `<div class="training" id="film-bench-cue" aria-live="polite"><small>老周</small><p>${esc(FILM_BENCH_TUTORIAL)}</p></div>` : '';
   return `<div class="speech${cls('dispatch-event', sceneEvent)}${cls('pressure-exchange', exchange)}"${sceneEvent?.kind ? ` data-visit-kind="${esc(sceneEvent.kind)}"` : ''} aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
       <p${reply ? ' class="pressure-reply"' : ''}>${esc(line)}</p>${exchange && !reply ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
-      ${earlier}</div>
-    ${tutorial && !sceneEvent ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>` : ''}`;
+      ${earlier}</div>${training}`;
 }
 
 function paperCard(doc, index, target, offset, lifted, disabled = false) {
@@ -203,7 +209,7 @@ function sampleHotspot(action, className, text, label, pressed = null, instructe
 
 export function desk(run, item, tutorial, interaction) {
   if (!item) return '';
-  const { note, positions, pencil, inspection, heldDocuments = [], sampleHeld, stampBlocked, benchFindingsOpen } = interaction;
+  const { note, positions, pencil, inspection, heldDocuments = [], sampleHeld, stampBlocked, benchFindingsOpen, filmCue } = interaction;
   const appearance = sampleAppearance(item.sample);
   const sampleBack = inspection.back && (item.sample.kind !== 'yellow' || inspection.unpacked);
   const issued = run.phase === 'receipt';
@@ -221,7 +227,7 @@ export function desk(run, item, tutorial, interaction) {
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, target, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${carton}
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
-    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="拿起检样，${appearance.name}"${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
+    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample' || filmCue)}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="拿起检样，${appearance.name}"${filmCue ? ' aria-describedby="film-bench-cue"' : ''}${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
     <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${item.carton ? '申报 ' : ''}${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}<span class="booth-print-slot" aria-hidden="true"><i></i></span></div>
       ${benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
@@ -339,10 +345,12 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
     const signatureTarget = doc.type === 'report' && inspection?.signature && key === '签发';
-    const highlight = signatureTarget ||
-      (inspection?.projects && ((doc.type === 'report' && ['外观', '扣合'].includes(key)) || (doc.type === 'order' && key === '检验项目')));
+    const batchTarget = inspection?.batch && key === '批号' && ['label', 'report'].includes(doc.type);
     const chosen = inspection?.selected.has(`doc:${index}:${field}`);
-    const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${signatureTarget ? ' data-tutorial-signature' : ''}${active(chosen)}>${text}</button>` : text;
+    const highlight = signatureTarget || (batchTarget && !chosen) ||
+      (inspection?.projects && ((doc.type === 'report' && ['外观', '扣合'].includes(key)) || (doc.type === 'order' && key === '检验项目')));
+    const batchLabel = batchTarget ? ` data-tutorial-batch aria-label="${esc(`${doc.title}批号 ${value}`)}"` : '';
+    const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${signatureTarget ? ' data-tutorial-signature' : ''}${batchLabel}${active(chosen)}>${text}</button>` : text;
     const lookup = reportLookup && (key === '报告编号' || key === '原报告编号') && value;
     const carry = reportCarry && lookup && /^R-\d{3}$/.test(value)
       ? button('带这张问', 'phone-document', 'secondary report-lookup',
@@ -485,24 +493,31 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   }
   const extras = item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
   const other = item.documents[compare];
+  const matchBatch = tutorial?.key === 'report';
   const signature = tutorial?.key === 'signature';
   const sampleReady = tutorial?.key === 'sample';
   const visibleTypes = [doc.type, other?.type];
   const reportVisible = visibleTypes.includes('report');
-  const target = signature && !progress.signed ? 'report' : tutorial?.target;
+  const labelVisible = visibleTypes.includes('label');
+  const batchPairVisible = matchBatch && labelVisible && reportVisible;
+  let target = tutorial?.target;
+  if (matchBatch && reportVisible) target = labelVisible ? null : 'label';
+  if (signature && !progress.signed) target = 'report';
   const findings = readFindings(progress);
   const inspection = {
+    batch: batchPairVisible,
     signature: signature && !progress.signed,
     projects: sampleReady && reportVisible && visibleTypes.includes('order'),
     selected: new Set(findings.map(({ key }) => key)),
   };
   const draft = findingsDraft(findings, progress.showFindings);
   let guide = tutorial?.line;
-  if (signature && progress.signed) guide = tutorial.orderLine;
+  if (batchPairVisible) guide = tutorial.pairLine;
+  else if (signature && progress.signed) guide = tutorial.orderLine;
   else if (signature && !reportVisible) guide = tutorial.reportLine;
   let guidedCompare = '';
-  if (tutorial?.key === 'report' && doc.type === 'label' && !other) {
-    guidedCompare = button('并排报告', 'compare', 'primary tutorial-next');
+  if (matchBatch && !batchPairVisible) {
+    guidedCompare = button(doc.type === 'report' ? '并排箱签' : '并排报告', 'compare', 'primary tutorial-next', 'data-key="batch"');
   } else if (signature && progress.signed && !progress.orderSeen) {
     guidedCompare = button('并排送检联', 'compare', 'primary tutorial-next', 'data-key="order"');
   }
@@ -585,7 +600,7 @@ export function sample(item, inspection, tutorial, progress) {
   const inGauge = sampleInGauge(spec, inspection);
   const practicing = tutorial?.key === 'sample';
   const stampReady = tutorial?.key === 'stamp';
-  const filmHint = item.id === 2 && !progress?.returningWeek && !back && !film && !progress?.filmChecked;
+  const filmHint = !back && !film && filmLessonPending(item, progress);
   const guidedFlip = practicing && !back;
   let guide = '';
   if (stampReady) guide = tutorial.sampleLine;
@@ -635,7 +650,7 @@ export function sample(item, inspection, tutorial, progress) {
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${thicknessAction}</div>
     ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded) : observationCard}</div>
     <div class="modal-actions">${guidedFlip ? '' : flipAction}${basis}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
-    headerActions: (guidedFlip ? flipAction : '') + referenceActions + phoneAction + draft.header,
+    headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions + phoneAction,
     closeLabel: stampReady ? '回台面开单' : '放下检样', closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
   });
 }

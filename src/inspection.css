@@ -233,7 +233,7 @@
   min-block-size: 2.75rem;
   padding-inline: .42rem;
 }
-.documents-surface .field-value[data-tutorial-signature] {
+.documents-surface .field-value:is([data-tutorial-signature], [data-tutorial-batch]) {
   min-inline-size: 2.75rem;
   min-block-size: 2.75rem;
   margin-block: 0;
@@ -242,6 +242,12 @@
   background: #eed19a;
   box-shadow: inset 0 1px #fae8be;
   color: #533425;
+}
+.documents-surface .field-value[data-tutorial-batch][aria-pressed='true'] {
+  border-color: #6c7e53;
+  background: #d6d8ab;
+  box-shadow: inset 0 1px #ecedc5;
+  color: #34452b;
 }
 #game .sample-surface .sample-stage .sample-hotspot.instructed {
   min-inline-size: 2.75rem;

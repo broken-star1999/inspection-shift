@@ -57,7 +57,6 @@ function caseProgress(item, progress) {
       ...(item?.sample?.reading && inspection?.gaugeLoaded === true ? { gaugeLoaded: true } : {}),
     },
     labelSeen: item?.id === 1 && progress?.labelSeen === true,
-    reportSeen: item?.id === 1 && progress?.reportSeen === true,
     signed: progress?.signed === true,
     orderSeen: progress?.orderSeen === true,
     filmChecked: item?.id === 2 && (progress?.filmChecked === true || inspection?.film === true),
@@ -67,10 +66,14 @@ function caseProgress(item, progress) {
   };
 }
 
-export function tutorialActionComplete(key, interaction) {
+export function tutorialActionComplete(key, interaction, item) {
   switch (key) {
     case 'label': return interaction?.labelSeen === true;
-    case 'report': return interaction?.reportSeen === true;
+    case 'report': return ['label', 'report'].every((type) => {
+      const index = item?.documents?.findIndex((doc) => doc.type === type);
+      const field = item?.documents?.[index]?.fields?.findIndex(([name]) => name === '批号');
+      return field >= 0 && interaction?.findings?.some(({ key }) => key === `doc:${index}:${field}`);
+    });
     case 'signature': return interaction?.signed === true && interaction?.orderSeen === true;
     case 'sample': return interaction?.inspection?.tug === true;
     default: return false;
@@ -201,7 +204,6 @@ export function restoreInspectionProgress(progress, item, seen = [], context) {
   const restored = { ...interaction, ...caseProgress(item, progress) };
   if (item.id === 1 && !restored.signed && hasRecordedSignature(item, restored.findings)) {
     restored.signed = true;
-    restored.reportSeen = true;
   }
   const workspace = context ? workspaceProgress(item, progress.workspace, restored.inspection, { ...context, seen }) : null;
   if (!workspace) return restored;

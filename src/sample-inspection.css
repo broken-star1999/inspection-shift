@@ -23,6 +23,7 @@
 
 @media (pointer: coarse) {
   .sample-surface .modal-actions :is(.sample-basis-control, .sample-flip-control),
+  .sample-surface .desk-surface-tools :is(.reference-control, .findings-toggle),
   .sample-surface .surface-close {
     min-block-size: 2.75rem;
   }

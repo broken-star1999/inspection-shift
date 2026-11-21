@@ -600,20 +600,22 @@ function render(resumeScroll) {
   soundToggle.setAttribute('aria-label', isMuted() ? '开启音效' : '关闭音效');
   const item = windowCase();
   const step = item ? tutorialStep() : null;
+  const filmCue = !panel && run?.phase === 'case' &&
+    view.filmLessonPending(item, { returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked });
   const deskGuide = step?.key === 'signature' && interaction.signed
     ? { ...step, target: 'order', line: step.orderLine }
     : step;
   const visit = arrival ? null : activeVisit();
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   hud.innerHTML = run && !arrival && !closingShot && (run.phase !== 'summary' || visit)
-    ? view.room(run, item, deskGuide, item?.pressureLine, visit, previous)
+    ? view.room(run, item, deskGuide, item?.pressureLine, visit, previous, filmCue)
     : '';
   const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
   const previewVisit = preview ? activeVisit(preview) : null;
   const previewItem = preview && !previewVisit ? getCase(preview) : null;
   const delivered = visit ? visitDocument(visit) : visitDocument(previewVisit, preview);
   desktop.innerHTML = delivered ? view.visitSlip(delivered, visit ?? previewVisit, panel === 'visit') : item ? view.desk(run, item, deskGuide, {
-    ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(item),
+    ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), filmCue, ...heldObjects(item),
   }) : previewItem ? view.desk(preview, previewItem, null, { ...freshInteraction(), stampBlocked: true }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   showModeledScene();
@@ -1289,8 +1291,9 @@ function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
 }
 
 function advanceTutorial() {
+  const item = getCase(run);
   let step = tutorialStep();
-  while (step && tutorialActionComplete(step.key, interaction)) {
+  while (step && tutorialActionComplete(step.key, interaction, item)) {
     if (!update({ type: 'tutorial', key: step.key }, false)) break;
     step = tutorialStep();
   }
@@ -1299,7 +1302,6 @@ function advanceTutorial() {
 function readDocument(doc) {
   if (!tutorialStep()) return;
   if (doc?.type === 'label') interaction.labelSeen = true;
-  if (doc?.type === 'report') interaction.reportSeen = true;
   if (doc?.type === 'order') interaction.orderSeen = true;
   advanceTutorial();
 }
@@ -1392,8 +1394,8 @@ function checkBasis(index, field) {
   const [label] = datum;
   const finding = paperFieldFinding(doc, index, field);
   const recorded = toggleFinding(finding);
-  if (label === '签发' && doc.type === 'report' && tutorialStep()) {
-    interaction.signed = true;
+  if (tutorialStep()) {
+    if (label === '签发' && doc.type === 'report') interaction.signed = true;
     advanceTutorial();
   }
   playSound('click');
@@ -1515,7 +1517,11 @@ function compareDocs(hint) {
   const index = interaction.doc;
   const type = item.documents[index].type;
   const guide = tutorialStep();
-  if (hint === 'order' && guide?.key === 'signature') {
+  if (hint === 'batch' && guide?.key === 'report') {
+    const onReport = type === 'report';
+    interaction.doc = item.documents.findIndex(({ type }) => type === (onReport ? 'report' : 'label'));
+    interaction.compare = item.documents.findIndex(({ type }) => type === (onReport ? 'label' : 'report'));
+  } else if (hint === 'order' && guide?.key === 'signature') {
     pairTutorialOrder(item, item.documents.findIndex(({ type }) => type === 'order'));
   } else {
     const hasOrder = item.documents.some(({ type }) => type === 'order');

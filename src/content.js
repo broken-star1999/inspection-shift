@@ -133,7 +133,7 @@ const earmuff = { kind: 'clear', appearance: 'earmuff', front: '双侧耳罩壳�
 
 export const TUTORIAL = [
   { target: 'label', title: '先认箱', line: '点开箱签，找批号。' },
-  { target: 'report', title: '对批号', line: '把报告放在箱签旁，对一对两边的批号。' },
+  { target: 'report', title: '对批号', line: '把箱签和报告并排放，先查批号。', pairLine: '在两张纸上各点一次批号，看是不是同一批。' },
   {
     target: 'order', title: '核对签发和项目', line: '点报告上的「已签发」。',
     reportLine: '翻到检验报告，找签发栏。',
@@ -148,6 +148,7 @@ export const TUTORIAL = [
   { target: 'pass', title: '把单交出去', line: '盖「通过」，把单交给小罗。', sampleLine: '镜片没有裂痕，扣件也没松。' },
 ];
 
+export const FILM_BENCH_TUTORIAL = '先拿起检样，看看白痕在什么地方。';
 export const FILM_TUTORIAL = '点一下膜角，或往右上拉，看看白痕跟着哪一层。';
 
 export const G205_SUPPLEMENT_REQUEST = {

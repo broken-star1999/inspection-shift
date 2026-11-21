@@ -133,36 +133,45 @@ test('drops unknown or unseen batches and invalid document indexes without inven
 });
 
 test('keeps early first-batch actions across reload without completing uninspected steps', () => {
-  const first = { ...item, id: 1, documents: [...item.documents, { type: 'order' }], sample: { kind: 'clear' } };
+  const first = DAYS[0].cases[0];
   const work = {
-    ...freshInteraction(), doc: 1, compare: 2, reportSeen: true, orderSeen: true, signed: true,
+    ...freshInteraction(), doc: 1, compare: 2, orderSeen: true, signed: true,
     inspection: { ...freshInteraction().inspection, back: true, clasp: true, tug: true },
   };
   const saved = captureInspectionProgress(first, work, { panel: 'docs', guided: true });
   const restored = restoreInspectionProgress(JSON.parse(JSON.stringify(saved)), first, [1], { guided: true });
   assert.equal(restored.doc, 1);
   assert.equal(restored.compare, 2);
-  assert.deepEqual(['label', 'report', 'signature', 'sample', 'stamp'].map((key) => tutorialActionComplete(key, restored)),
-    [false, true, true, true, false]);
+  assert.deepEqual(['label', 'report', 'signature', 'sample', 'stamp'].map((key) => tutorialActionComplete(key, restored, first)),
+    [false, false, true, true, false]);
   assert.equal(tutorialActionComplete('signature', { ...restored, signed: false }), false);
   assert.equal(tutorialActionComplete('signature', { ...restored, orderSeen: false }), false);
   assert.equal(tutorialActionComplete('label', { ...restored, labelSeen: true }), true);
-  assert.equal(tutorialActionComplete('report', { ...restored, reportSeen: 1 }), false);
 
   const legacy = restoreInspectionProgress({ caseId: 1, inspection: { clasp: true, tug: true } }, first, [1]);
   assert.equal(tutorialActionComplete('sample', legacy), true);
-  assert.equal(tutorialActionComplete('report', legacy), false);
   const signedReport = { ...first, documents: [
     { type: 'label' }, { type: 'report', fields: [['批号', 'G-201'], ['签发', '已签发']] }, { type: 'order' },
   ] };
   const legacySignature = restoreInspectionProgress({ caseId: 1, orderSeen: true, findings: [
     { key: 'doc:1:1', text: '签发 · 已签发' },
   ] }, signedReport, [1]);
-  assert.equal(tutorialActionComplete('report', legacySignature), true);
+  assert.equal(tutorialActionComplete('report', legacySignature, signedReport), false);
   assert.equal(tutorialActionComplete('signature', legacySignature), true);
   assert.equal(tutorialActionComplete('sample', restoreInspectionProgress(saved, item, [1, 7])), false);
   assert.equal(captureInspectionProgress(item, { ...work, labelSeen: true }).labelSeen, false);
-  assert.equal(captureInspectionProgress(item, work).reportSeen, false);
+});
+
+test('opening a report alone or noting an unrelated lot field does not complete the first lot comparison', () => {
+  const first = DAYS[0].cases[0];
+  const report = { key: 'doc:1:0', source: '检验报告', text: '批号 · G-201' };
+  const label = { key: 'doc:0:0', source: '外箱标签', text: '批号 · G-201' };
+  const order = { key: 'doc:2:0', source: '送检联', text: '批号 · G-201' };
+  const saved = captureInspectionProgress(first, { ...freshInteraction(), doc: 1, compare: 0, findings: [report, order] }, { panel: 'docs', guided: true });
+  const restored = restoreInspectionProgress(JSON.parse(JSON.stringify(saved)), first, [1], { guided: true });
+  assert.equal(tutorialActionComplete('report', restored, first), false);
+  assert.equal(tutorialActionComplete('report', { ...restored, findings: [report, label] }, first), true);
+  assert.equal(tutorialActionComplete('report', { ...restored, findings: [label, report] }, first), true);
 });
 
 test('remembers the second batch was peeled even after putting its film back', () => {
