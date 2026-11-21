@@ -153,6 +153,41 @@
   border-radius: 2px 2px 6px 6px;
   box-shadow: 0 5px 0 #2a261f91, 5px 10px 18px #13160fb0, inset 0 1px #afad7a70;
 }
+
+.desk-dialogue { display: none; }
+
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  .desk-surface:has(> .desk-dialogue) { max-block-size: calc(100% - .6rem); }
+  .desk-dialogue {
+    display: block;
+    flex: none;
+    margin-block-start: .17rem;
+    padding: .18rem .48rem .22rem;
+    border: 1px solid #94825866;
+    background: #1b261ff5;
+    color: #eee0bd;
+    font-size: .8rem;
+    line-height: 1.42;
+  }
+  .desk-dialogue strong { margin-inline-end: .52rem; color: #f3ce94; white-space: nowrap; }
+  .desk-dialogue p { display: inline; margin: 0; }
+  .desk-dialogue .pressure-line { margin-inline-start: .32em; color: #efc489; }
+  #game[data-phase='case']:not([data-window-glance]) .playfield:has(.desk-dialogue) .room-hud .speech { display: none; }
+  .first-documents .desk-surface-bar:has(> .desk-dialogue) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .first-documents .desk-surface-bar:has(> .desk-dialogue) h2 {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .first-documents .desk-surface-bar .desk-dialogue { margin: 0; }
+}
 .carton-fixture {
   border: 0;
   background: transparent;
@@ -2007,6 +2042,10 @@
 }
 
 @container workstation (max-height: 330px) {
+  .documents-surface:has(.desk-dialogue) .doc-grid.spread .sheet > small { display: none; }
+  .documents-surface:has(.desk-dialogue) .doc-grid.spread .fields > div { padding-block: .1rem; }
+  .documents-surface:has(.desk-dialogue) .doc-grid.spread.pair .sheet > h3 { margin-block: .04em .15em; }
+  .documents-surface:has(.desk-dialogue) .doc-grid.spread.pair .doc-focus { min-block-size: 1.7rem; }
   .first-documents .doc-grid.spread .sheet > small { display: none; }
   .first-documents .doc-grid.spread .fields > div { padding-block: .08rem; }
   .documents-surface:has(.tutorial-guide) .doc-grid.pair .sheet > small { display: none; }

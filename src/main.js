@@ -408,7 +408,7 @@ function positionTutorialPointer() {
   const below = { x: middleX, y: y + h + 15, angle: 270 };
   const directions = target.matches('.guided-paper-value') ? [right, left, above, below]
     : panel || run.phase === 'receipt' ? [above, left, right, below] : [left, above, right, below];
-  const guidance = [...playfield.querySelectorAll('.modal-guide, .room-hud .training')].map(stageBounds);
+  const guidance = [...playfield.querySelectorAll('.modal-guide, .room-hud .training, .desk-dialogue')].map(stageBounds);
   const choices = directions.filter(({ x, y }) => x > view.x + 11 && x < view.x + view.w - 11 &&
     y > view.y + 11 && y < view.y + view.h - 11 && !guidance.some((bounds) =>
       x + 11 > bounds.x && x - 11 < bounds.x + bounds.w && y + 11 > bounds.y && y - 11 < bounds.y + bounds.h));
@@ -921,6 +921,20 @@ function toggleWindowGlance() {
   }
 }
 
+function showDeskDialogue(surface) {
+  if (run?.phase !== 'case' || !surface?.matches('.documents-surface, .sample-surface, .carton-surface')) return;
+  const speech = hud.querySelector('.speech');
+  const bar = surface.querySelector('.desk-surface-bar');
+  if (!speech || !bar) return;
+  const dialogue = document.createElement('div');
+  dialogue.className = 'desk-dialogue';
+  dialogue.setAttribute('aria-live', 'polite');
+  const lines = speech.querySelectorAll('.speaker strong, :scope > p');
+  for (const line of lines) dialogue.append(line.cloneNode(true));
+  if (surface.classList.contains('first-documents')) bar.querySelector('h2').after(dialogue);
+  else bar.after(dialogue);
+}
+
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const { compare, inspection, archiveFocus, archiveQuery, pinned, phoneNumber, egg } = interaction;
   const correction = activeCorrection();
@@ -1028,6 +1042,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const handoffDetailScroll = modalLayer.querySelector('.handoff-detail-scroll')?.scrollTop;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
+  showDeskDialogue(surface);
   mountSampleImage(surface?.querySelector('[data-sample-art]') ??
     desktop.querySelector('.sample-preview:not([data-lifted]) [data-sample-art]'));
   if (receiptPrintTimer && surface?.matches('.receipt-surface')) {
