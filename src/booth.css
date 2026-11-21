@@ -303,16 +303,18 @@
 .booth-layout .canvas-room[data-scene-ready='true'] .static-worker { display: none; }
 .booth-layout .canvas-room:not([data-scene-ready='true']) canvas { visibility: hidden; }
 
-@media (prefers-reduced-motion: no-preference) {
-  #game:not([data-modeled='true'])[data-arrival-stage='approach'] #desk :is(.papers, .sample-preview) {
-    animation: paperwork-arrives .42s cubic-bezier(.25, .7, .29, 1) both;
-  }
+.booth-transfer-slot {
+  position: absolute;
+  z-index: 3;
+  inset: auto auto 0 50%;
+  inline-size: clamp(4rem, 20cqw, 12rem);
+  block-size: clamp(.55rem, 3.3cqh, 1.45rem);
+  translate: -50% 0;
+  clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+  background: linear-gradient(0deg, #776e4e 0 12%, #555743 13% 35%, #414437 36% 64%, #252b23 65% 82%, #787453 83%);
+  pointer-events: none;
 }
-
-@keyframes paperwork-arrives {
-  from { translate: .4rem -1.1rem; opacity: 0; }
-  to { translate: 0 0; opacity: 1; }
-}
+#game[data-modeled='true'] :is(.booth-transfer-slot, .booth-print-slot) { display: none; }
 
 .booth-layout .room::after {
   inset: 0;
@@ -458,6 +460,10 @@
   padding: .28rem .6rem;
   border: 1px solid #b4a67a39;
   background: #141b13df;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #game[data-arrival-stage='approach'] .arrival-status { opacity: 0; }
 }
 
 .arrival-status[data-visitor-waiting] {
@@ -687,6 +693,7 @@
 }
 
 .booth-layout .stamp-rail .stamp-buttons {
+  position: relative;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr);
   gap: clamp(.18rem, .64cqh, .48rem);
@@ -697,6 +704,26 @@
     radial-gradient(ellipse at 52% 6%, #8a735367, transparent 66%),
     linear-gradient(125deg, #594936, #42362a);
   box-shadow: 2px 4px 3px #332819be, inset 0 1px #b4a06f88, inset 0 -3px #3a2c22;
+}
+.booth-print-slot {
+  position: absolute;
+  z-index: 1;
+  inset: auto auto 0 50%;
+  inline-size: 56%;
+  block-size: .23rem;
+  border-radius: 2px;
+  translate: -50% 0;
+  background: #191b14;
+  box-shadow: inset 0 -1px #a59160;
+  pointer-events: none;
+}
+.booth-print-slot i {
+  position: absolute;
+  visibility: hidden;
+  inset: 1px 18% auto;
+  block-size: .67rem;
+  background: repeating-linear-gradient(#ead8af 0 2px, #b89c6d 2px 3px, #ead8af 3px 5px);
+  box-shadow: 0 2px 2px #2d231c80;
 }
 
 .booth-layout .stamp-rail .stamp {

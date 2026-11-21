@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RECEIPT_FEED_MS } from './booth-motion.js';
 import { CUFF_SPLIT_PATCHES } from './samples.js';
 import { BOOTH_METRICS, createWorkbenchModels } from './workbench-models.js';
 
@@ -9,10 +10,12 @@ const workerNames = new Set(['luo', 'tang', 'xu', 'chen', 'zhou', 'sun']);
 const baseFov = 38;
 const deskDepartureMs = 285;
 const deskArrivalMs = 368;
+const { hatch: deliveryHatch, lip: deliveryLip } = BOOTH_METRICS.delivery;
+const deliveryPitch = Math.atan2(deliveryHatch.y - deliveryLip.y, deliveryLip.z - deliveryHatch.z);
 const shutterTravelMs = 420;
 const catTravelMs = 900;
 const cargoTravelMs = 740;
-const slipDisplayMs = 620;
+const slipFeedStartMs = 42;
 const evidencePassingMs = 590;
 const cargoStart = { x: -1.05, z: -.04, angle: -.115 };
 const cargoDestinations = {
@@ -417,6 +420,7 @@ function buildPaper(doc, index, count, ownerDocument, shadowTexture, standalone)
   shadow.position.set(.048, -.016, .034);
   paper.add(edge, face, shadow);
   paper.userData.paperBounds = edge;
+  paper.userData.restYaw = style.turn;
   paper.rotation.y = style.turn;
   const spacing = Math.min(1.36, 4.08 / Math.max(1, count));
   const deskX = index === 0 ? -2.69 : -2.54 + index * spacing;
@@ -792,7 +796,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const visitor = visibleVisitor(frame);
     const previousVisitor = visibleVisitor(before);
     if (waiting && !visitor) {
-      if (previousVisitor) portraitMotionAt = now;
+      if (previousVisitor && !before.shutterClosed) portraitMotionAt = now;
+      else if (before.shutterClosed) portrait.visible = false;
     } else if (visitor !== previousVisitor) {
       portrait.visible = false;
       if (workerNames.has(visitor)) {
@@ -804,7 +809,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
           portrait.material.map = texture;
           portrait.material.needsUpdate = true;
           portrait.visible = true;
-          portraitMotionAt = view.performance.now();
+          portraitMotionAt = frame.phase === 'arriving' || frame.visitorWaiting ? view.performance.now() : -Infinity;
           invalidate();
         });
       }
@@ -820,20 +825,35 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const duration = leaving ? deskDepartureMs : deskArrivalMs;
     const elapsed = now - deskMotionAt;
     let active = false;
-    function place(object, rest, onDesk, stagger, distance) {
+    function place(object, rest, onDesk, stagger, lane, pitch = 0, yaw = 0) {
       const progress = moving ? THREE.MathUtils.clamp((elapsed - stagger) / duration, 0, 1) : 1;
-      object.visible = Boolean(onDesk && (!leaving || progress < 1));
+      const collecting = moving && arriving && elapsed < stagger;
+      object.visible = Boolean(onDesk && !collecting && (!leaving || progress < 1));
+      if (!onDesk) return;
+      active ||= moving && (collecting || progress < 1);
       if (!object.visible) return;
-      active ||= moving && progress < 1;
-      const slide = leaving ? progress ** 1.7 : (1 - progress) ** 2.6;
-      const offset = leaving || arriving ? slide : 0;
-      object.position.set(rest.x + (BOOTH_METRICS.window.x - rest.x) * offset * .13,
-        rest.y + Math.sin(progress * Math.PI) * .026, rest.z - offset * distance);
+      if (!moving || progress === 1) {
+        object.position.copy(rest);
+        object.rotation.set(pitch, yaw, 0);
+        return;
+      }
+
+      const travel = leaving ? 1 - progress ** 1.65 : 1 - (1 - progress) ** 2.15;
+      const chute = THREE.MathUtils.clamp(travel / .34, 0, 1);
+      const bench = THREE.MathUtils.smoothstep(travel, .34, 1);
+      const x = deliveryLip.x + lane;
+      const chuteY = THREE.MathUtils.lerp(deliveryHatch.y, deliveryLip.y, chute) + .022;
+      const chuteZ = THREE.MathUtils.lerp(deliveryHatch.z - .14, deliveryLip.z, chute);
+      object.position.set(THREE.MathUtils.lerp(x, rest.x, bench),
+        THREE.MathUtils.lerp(chuteY, rest.y, bench) + Math.sin(bench * Math.PI) * .029,
+        THREE.MathUtils.lerp(chuteZ, rest.z, bench));
+      object.rotation.x = pitch + deliveryPitch * (1 - bench);
+      object.rotation.y = THREE.MathUtils.lerp(lane * .13, yaw, bench);
     }
     paperSet.forEach((paper, index) => {
-      place(paper, paper.userData.rest, paper.userData.onDesk, index * 13, .69 + (index % 3) * .13);
+      place(paper, paper.userData.rest, paper.userData.onDesk, index * 24, -.51 + (index % 3) * .36, 0, paper.userData.restYaw);
     });
-    place(sample, sampleRest, sampleOnDesk && sample.material.map?.image, 24, .69);
+    place(sample, sampleRest, sampleOnDesk && sample.material.map?.image, 74, .56, -Math.PI / 2);
     return active;
   }
 
@@ -889,16 +909,17 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   }
 
   function placeOutgoingSlip(now) {
-    const { paper } = models.outgoingSlip;
+    const { paper, pickup } = models.outgoingSlip;
     const elapsed = now - slipMotionAt;
-    paper.visible = Boolean(frame.outgoingSlip && elapsed >= 42 && elapsed < slipDisplayMs);
+    const feeding = Boolean(frame.outgoingSlip && !reduced.matches && elapsed < RECEIPT_FEED_MS);
+    paper.visible = feeding && elapsed >= slipFeedStartMs;
     if (paper.visible) {
-      const travel = reduced.matches ? 1 : 1 - (1 - THREE.MathUtils.clamp((elapsed - 42) / 152, 0, 1)) ** 2;
-      const settle = reduced.matches ? 1 : THREE.MathUtils.clamp((elapsed - 264) / 220, 0, 1);
-      paper.position.set(-.035 * settle, .139 - .034 * settle, .342 + .425 * travel + .044 * settle);
-      paper.rotation.x = .12 * settle;
+      const progress = (elapsed - slipFeedStartMs) / (RECEIPT_FEED_MS - slipFeedStartMs);
+      const travel = 1 - (1 - progress) ** 2;
+      const { x, y, z } = pickup.position;
+      paper.position.set(x, y, THREE.MathUtils.lerp(.342, z, travel));
     }
-    return elapsed < slipDisplayMs;
+    return feeding;
   }
 
   function placeEvidenceSlip(now) {
@@ -951,8 +972,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     for (const x of [-1, 0, 1]) {
       for (const y of [-1, 0, 1]) {
         aimCamera(probe, x, y);
-        for (const box of Object.values(staticBounds)) {
-          if (box.isEmpty()) continue;
+        for (const [key, box] of Object.entries(staticBounds)) {
+          if (key === 'receiptSlot' || key === 'receiptPickup' || box.isEmpty()) continue;
           for (const px of [box.min.x, box.max.x]) {
             for (const py of [box.min.y, box.max.y]) {
               for (const pz of [box.min.z, box.max.z]) {
@@ -1003,10 +1024,11 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
     const leaving = frame.phase === 'waiting' && !visibleVisitor(frame);
     const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - portraitMotionAt) / (leaving ? 280 : 340), 0, 1);
-    const presence = leaving ? 1 - progress : 1 - (1 - progress) ** 2;
-    const slide = (leaving ? .94 : -.52) * (1 - presence);
-    portrait.position.set(BOOTH_METRICS.window.x + slide, portraitFloor + portraitHeight / 2, -2.43);
-    portrait.material.opacity = presence;
+    // The room walls occlude the full-opacity cutout as it crosses the jamb.
+    const outsideJamb = (BOOTH_METRICS.window.width + portraitWidth) / 2 + .26;
+    const slide = outsideJamb * (leaving ? progress ** 1.5 : -((1 - progress) ** 2.15));
+    const stride = Math.sin(progress * 4 * Math.PI) * Math.sin(progress * Math.PI) * .039;
+    portrait.position.set(BOOTH_METRICS.window.x + slide, portraitFloor + portraitHeight / 2 + stride, -2.43);
     if (leaving && progress === 1) portrait.visible = false;
     portrait.material.color.setScalar(closing ? .81 : .98 - day * .045);
 

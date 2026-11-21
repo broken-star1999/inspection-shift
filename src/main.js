@@ -3,6 +3,7 @@ import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, docu
 import { cuffSplitVisible, sampleAppearance, sampleFinding } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
+import { ARRIVAL_APPROACH_MS, RECEIPT_FEED_MS } from './booth-motion.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
 import { reportWorkspace, TRACE_INQUIRY_KEY } from './report-workspace.js';
@@ -26,7 +27,6 @@ const COMPLETED_KEY = 'nandu-inspection-completed-v1';
 const ARRIVAL_PAUSE_MS = 1150;
 const NEXT_BATCH_PAUSE_MS = 1650;
 const VISIT_HANDOVER_MS = 760;
-const ARRIVAL_APPROACH_MS = 465;
 const PAPER_PAIR_HOLD_MS = 250;
 
 function readStorage(key) {
@@ -89,6 +89,7 @@ let recallPairReturn = null;
 let phoneReturn = null;
 let ringing = null;
 let issuedReceiptId = null;
+let pendingReceiptPrint = false;
 let presentedEvidence = null;
 let interaction = freshInteraction();
 
@@ -256,6 +257,64 @@ reducedMotion.addEventListener('change', resetGaze);
 
 function animateOnDesk(element, frames, duration) {
   if (!reducedMotion.matches) element?.animate?.(frames, { duration, easing: 'cubic-bezier(.2,.78,.27,1)' });
+}
+
+function stageBounds(element) {
+  const rect = element.getBoundingClientRect();
+  const start = stagePoint(root, rect.left, rect.top);
+  const end = stagePoint(root, rect.right, rect.bottom);
+  return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), w: Math.abs(end.x - start.x), h: Math.abs(end.y - start.y) };
+}
+
+function animateFallbackDelivery() {
+  if (reducedMotion.matches || root.dataset.modeled === 'true') return;
+  const slot = stageBounds(booth.querySelector('.booth-transfer-slot'));
+  const elapsed = performance.now() - arrival.approachStartedAt;
+  const objects = desktop.querySelectorAll('.paper-card, .sample-preview');
+  objects.forEach((object, index) => {
+    const rest = stageBounds(object);
+    const offsetX = slot.x + slot.w / 2 - rest.x - rest.w / 2;
+    const offsetY = slot.y + slot.h / 2 - rest.y - rest.h / 2;
+    const motion = object.animate?.([
+      { translate: `${offsetX}px ${offsetY}px`, scale: '.68 .46', opacity: .58 },
+      { translate: '0 0', scale: '1', opacity: 1 },
+    ], { delay: 22 + index * 18, duration: 365, easing: 'cubic-bezier(.2,.71,.24,1)', fill: 'backwards' });
+    if (motion) motion.currentTime = elapsed;
+  });
+}
+
+function animatePrintedReceipt(paper) {
+  if (reducedMotion.matches || !paper?.animate) return;
+  const modeled = root.dataset.modeled === 'true';
+  const pickup = modeled ? fixtureLayout.receiptPickup ?? fixtureLayout.receiptSlot : null;
+  let start;
+  if (pickup) {
+    const world = stageBounds(modelHost);
+    start = { x: world.x + pickup.x, y: world.y + pickup.y, w: pickup.w, h: pickup.h };
+  } else {
+    const slot = desktop.querySelector('.booth-print-slot');
+    const stub = slot?.querySelector('i');
+    if (!stub?.animate || !slot.offsetWidth) return;
+    start = stageBounds(stub);
+    stub.animate([
+      { translate: '0 -60%', clipPath: 'inset(65% 0 0)', visibility: 'visible' },
+      { translate: '0 0', clipPath: 'inset(0)', visibility: 'visible' },
+    ], { duration: RECEIPT_FEED_MS, easing: 'ease-out' });
+  }
+  const rest = stageBounds(paper);
+  if (!rest.w || !rest.h) return;
+  const from = {
+    translate: `${start.x + start.w / 2 - rest.x - rest.w / 2}px ${start.y + start.h / 2 - rest.y - rest.h / 2}px`,
+    scale: `${Math.max(.12, start.w / rest.w)} ${Math.max(.04, start.h / rest.h)}`,
+  };
+  const duration = RECEIPT_FEED_MS + 235;
+  const feed = RECEIPT_FEED_MS / duration;
+  paper.animate([
+    { ...from, clipPath: 'inset(100% 0 0)', offset: 0 },
+    { ...from, clipPath: 'inset(100% 0 0)', offset: feed - .005 },
+    { ...from, clipPath: 'inset(-1rem)', offset: feed, easing: 'cubic-bezier(.17,.73,.33,1)' },
+    { translate: '0 0', scale: '1', clipPath: 'inset(-1rem)', offset: 1 },
+  ], duration);
 }
 
 function tutorialStep() {
@@ -553,6 +612,7 @@ function render(resumeScroll) {
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   showModeledScene();
   if (root.dataset.modeled === 'true') placeFixtures();
+  if (preview) animateFallbackDelivery();
   const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
   const openEndingDetails = [...screenLayer.querySelectorAll('.ending-card details')].map(({ open }) => open);
   const historyLabel = reviewedWeekLabel();
@@ -729,13 +789,9 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   (arrival?.glancing ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
   if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
     const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
-    const printsHere = object?.classList.contains('receipt-slip') && !hadModal && root.dataset.modeled === 'true' &&
-      issuedReceiptId !== null && run.records.at(-1)?.id === issuedReceiptId;
-    if (printsHere && !reducedMotion.matches) {
-      object.animate?.([
-        { translate: '0 .66rem', opacity: .92, easing: 'cubic-bezier(.2,.78,.27,1)' },
-        { translate: '0 0', opacity: 1 },
-      ], 310);
+    if (object?.classList.contains('receipt-slip') && pendingReceiptPrint) {
+      pendingReceiptPrint = false;
+      animatePrintedReceipt(object);
     } else {
       animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
     }
@@ -904,6 +960,7 @@ function enter(restore) {
   reviewingHistory = false;
   historyNavigation = null;
   issuedReceiptId = null;
+  pendingReceiptPrint = false;
   presentedEvidence = null;
   let workspace;
   let arrivalAction;
@@ -1147,6 +1204,7 @@ function beginWindowApproach() {
     return;
   }
   arrival.stage = 'approach';
+  arrival.approachStartedAt = performance.now();
   arrival.next = next;
   arrival.keepVisitor &&= visitorAt(next) === visitorAt(run);
   arrival.approach = arrivalApproach(next);
@@ -1154,7 +1212,7 @@ function beginWindowApproach() {
     cancelArrivalPause();
     finishWindowAdvance(action, restoreFocus);
   }, ARRIVAL_APPROACH_MS);
-  playSound('slide');
+  playSound('delivery');
   render();
 }
 
@@ -1165,6 +1223,10 @@ function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
     action, restoreFocus, stage: 'waiting', keepVisitor: !resumed && npc !== null && npc === visitorAt(run),
     approach: arrivalApproach(next),
   };
+  if (action === 'start-day' && activeVisit(next)?.kind !== 'rework') {
+    beginWindowApproach();
+    return;
+  }
   const duration = action === 'next' ? NEXT_BATCH_PAUSE_MS : action === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
   arrivalTimer = setTimeout(() => {
     arrivalTimer = 0;
@@ -1655,9 +1717,10 @@ function stamp(value) {
   }
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
     issuedReceiptId = run.records.at(-1).id;
+    pendingReceiptPrint = true;
     clearTimeout(toastTimer);
     toastBox.textContent = '';
-    playSound('stamp');
+    playSound('print');
     render();
     scenery?.setPressed?.(value);
   } else toast('先跟老周把这箱查完');
@@ -1972,7 +2035,7 @@ root.addEventListener('click', (event) => {
       const next = !arrival && windowAdvance(act);
       if (!next) break;
       playSound('shutter');
-      if (activeVisit(next)?.kind === 'rework') pauseBeforeArrival(act, next, event.detail === 0);
+      if (needsArrival(next)) pauseBeforeArrival(act, next, event.detail === 0);
       else finishWindowAdvance(act, event.detail === 0);
       break;
     }
@@ -2171,6 +2234,7 @@ root.addEventListener('click', (event) => {
         const needsRecall = run.records.find(({ id }) => id === row.id)?.status === 'recallPending';
         if (atWindow) {
           issuedReceiptId = row.id;
+          pendingReceiptPrint = true;
           toast('');
           closePanel();
           scenery?.setPressed?.(key);
@@ -2183,7 +2247,7 @@ root.addEventListener('click', (event) => {
           render();
           revealArchiveReceipt(false);
         }
-        playSound('stamp');
+        playSound(atWindow ? 'print' : 'stamp');
         if (!atWindow && !needsRecall) toast('更正已留底');
       }
       break;

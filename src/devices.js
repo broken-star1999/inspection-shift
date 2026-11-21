@@ -346,10 +346,24 @@ const effects = {
     rustle(ctx, time, { from: 2450, to: 1050, duration: 0.135, level: 0.34, attack: 0.016 });
     rustle(ctx, time + 0.03, { from: 3800, to: 2220, duration: 0.072, level: 0.2 });
   },
+  delivery(ctx, time) {
+    rustle(ctx, time + 0.018, { from: 1420, to: 840, duration: 0.205, level: 0.23, attack: 0.022 });
+    rustle(ctx, time + 0.084, { from: 2840, to: 1580, duration: 0.175, level: 0.18, attack: 0.02 });
+    rustle(ctx, time + 0.235, { from: 2130, to: 1050, duration: 0.105, level: 0.14, attack: 0.011 });
+    wood(ctx, time + 0.352, 0.15);
+  },
   bell: deskBell,
   stamp(ctx, time) {
     wood(ctx, time);
     rustle(ctx, time + 0.085, { from: 1650, to: 650, duration: 0.075, level: 0.27 });
+  },
+  print(ctx, time) {
+    wood(ctx, time);
+    tone(ctx, time + 0.042, { from: 187, to: 124, duration: 0.125, level: 0.11, type: 'triangle', attack: 0.014 });
+    for (let tooth = 0; tooth < 3; tooth++) {
+      rustle(ctx, time + 0.055 + tooth * 0.038, { from: 1540, to: 810, duration: 0.038, level: 0.19 - tooth * 0.03 });
+    }
+    rustle(ctx, time + 0.142, { from: 2360, to: 1250, duration: 0.068, level: 0.15, attack: 0.011 });
   },
   ring(ctx, time) {
     deskBell(ctx, time, 0.7);

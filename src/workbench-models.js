@@ -3,6 +3,7 @@ import * as THREE from 'three';
 export const BOOTH_METRICS = {
   window: { x: .15, y: 2.72, z: -1.9, width: 5.95, height: 3.06 },
   deskTop: .66,
+  delivery: { hatch: { x: .24, y: .99, z: -1.58 }, lip: { x: .24, y: .678, z: -.49 }, width: 2.59 },
 };
 
 const halfPi = Math.PI / 2;
@@ -225,6 +226,22 @@ function makeDesk(group, m) {
     flat(group, m.rail, .27, .48, .053, x, deskY + .034, -.40, .06, .012);
     cylinder(group, m.bronze, .045, .015, x, deskY + .073, -.46, 8);
   }
+}
+
+function makeDeliveryChute(parent, m) {
+  const { hatch, lip, width } = BOOTH_METRICS.delivery;
+  const rise = hatch.y - lip.y;
+  const run = lip.z - hatch.z;
+  const length = Math.hypot(run, rise);
+  const chute = place(parent, new THREE.Group(), hatch.x, (hatch.y + lip.y) / 2, (hatch.z + lip.z) / 2);
+  chute.rotation.x = Math.atan2(rise, run);
+  flat(chute, [m.work, m.rail], width, length, .043, 0, -.026, 0, .039, .008);
+  for (const side of [-1, 1]) {
+    const x = side * (width / 2 - .055);
+    flat(chute, [m.edge, m.rail], .086, length * .98, .065, x, .017, -.007, .032, .012);
+    for (const z of [-.42, .42]) cylinder(chute, m.screw, .017, .008, x, .055, z, 8);
+  }
+  flat(chute, m.edge, width - .16, .045, .021, 0, -.005, length / 2 - .031, .018, .004);
 }
 
 function makeClipboard(parent, m) {
@@ -452,7 +469,9 @@ function makeStampMachine(parent, m, anchors, caps) {
   flat(machine, [m.machine, m.seam], 2.12, 1.014, .146, 0, .125, 0, .128, .046);
   flat(machine, [m.machineEdge, m.rail], 2, .892, .070, 0, .231, -.017, .094, .029);
   flat(machine, m.rail, 1.887, .137, .061, 0, .286, -.354, .041, .012);
-  rounded(machine, m.black, 1.42, .057, .042, 0, .131, .529, .022, .009);
+  const receiptSlot = place(machine, new THREE.Group(), 0, .131, .529);
+  anchors.receiptSlot = receiptSlot;
+  rounded(receiptSlot, m.black, 1.42, .057, .042, 0, 0, 0, .022, .009);
   rounded(machine, m.bronze, 1.45, .024, .039, 0, .090, .533, .012, .004);
   for (const x of [-.934, .938]) {
     rounded(machine, m.machineEdge, .122, .212, .095, x, .136, .442, .04, .018);
@@ -480,12 +499,16 @@ function makeStampMachine(parent, m, anchors, caps) {
   }
 
   const paper = place(machine, new THREE.Group(), 0, .139, .480);
-  flat(paper, m.paper, .56, .44, .009, 0, 0, 0, .019, .003);
+  const stock = flat(paper, m.paper, .56, .44, .009, 0, 0, 0, .019, .003);
+  const pickup = place(machine, new THREE.Group(), 0, .139, .767);
+  pickup.add(stock.clone());
+  pickup.visible = false;
+  anchors.receiptPickup = pickup;
   for (const z of [-.142, -.072, .012]) box(paper, m.oldInk, .302, .003, .019, -.05, .008, z);
   const imprint = flat(paper, m.pass, .141, .067, .006, .143, .009, .106, .012, .002);
   imprint.rotateZ(.13);
   paper.visible = false;
-  return { paper, imprint, inks: { pass: m.pass, fail: m.fail, review: m.review } };
+  return { paper, pickup, imprint, inks: { pass: m.pass, fail: m.fail, review: m.review } };
 }
 
 export function createWorkbenchModels() {
@@ -496,6 +519,7 @@ export function createWorkbenchModels() {
 
   anchors.window = makeRoom(group, m, BOOTH_METRICS.window);
   makeDesk(group, m);
+  makeDeliveryChute(group, m);
   anchors.rules = makeClipboard(group, m);
   anchors.shift = makeShiftHolder(group, m);
   anchors.archive = makeBinder(group, m);
