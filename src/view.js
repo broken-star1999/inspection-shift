@@ -889,10 +889,14 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
   const labOrder = order >= 0 ? { id: current.id, index: order, batch: current.batch, title: current.documents[order].title } : null;
   const canBring = labOrder && !pinned.some(({ id, index }) => id === labOrder.id && index === labOrder.index);
   const nightPaper = pinned.findLast(({ document }) => document?.fields.some((field) => documentExtension(field) === '107'));
+  const reportNumberOf = (document) => document?.fields.find(([label]) => label === '报告编号' || label === '原报告编号')?.[1];
+  const readyToAsk = reportLookup && pinned.filter(({ document }) => reportNumberOf(document) === reportLookup).length === 2;
+  const redialPrompt = number === call?.number ? '再按「拨出」。' : '再拨 204。';
+  const readyNote = readyToAsk ? `<p class="phone-redial" role="status" data-report-redial>两张单已放好，${redialPrompt}</p>` : '';
   const papers = pinned.length ? `<div class="phone-pinned phone-papers" aria-label="电话旁的单据"><b>电话旁</b><ul>
     ${pinned.map(({ id, index, batch, document }) => {
     const title = document?.title ?? '批次留底';
-    const reportNumber = document?.fields.find(([label]) => label === '报告编号' || label === '原报告编号')?.[1];
+    const reportNumber = reportNumberOf(document);
     return `<li><button type="button" class="phone-paper" data-act="phone-paper" data-i="${id}"${index === null ? '' : ` data-doc="${index}"`} aria-label="查看 ${esc(batch)} ${esc(title)}${reportNumber ? ` ${esc(reportNumber)}` : ''}"><b>${esc(batch)}</b><span>${esc(title)}</span>${reportNumber ? `<small>${esc(reportNumber)}</small>` : ''}</button></li>`;
   }).join('')}
   </ul></div>` : '';
@@ -904,11 +908,11 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
   const registration = call?.kind === 'trace'
     ? button('查看本次登记', 'archive-call', 'secondary phone-registration', `data-key="${TRACE_INQUIRY_KEY}"`)
     : PHONE['204'].requests[call?.caseId] ? button('查看登记留底', 'archive-call', 'secondary phone-registration', `data-i="${esc(call.caseId)}"`) : '';
-  const lookup = reportLookup ? button(`查号 ${esc(reportLookup)}`, 'report-search', 'secondary phone-registration',
+  const lookup = reportLookup ? button(`${readyToAsk ? '再看' : '查号'} ${esc(reportLookup)}`, 'report-search', 'secondary phone-registration',
     `data-key="${esc(reportLookup)}" aria-label="在交接簿查报告号 ${esc(reportLookup)}"`) : '';
   const face = phoneBottom
     ? `<div class="phone-face phone-face-bottom" role="group" aria-label="电话机底"><span class="phone-base-hardware" aria-hidden="true"></span><span class="phone-service-label"><span>内线</span><strong>880</strong><small>回铃自测</small></span></div>`
-    : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div></div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
+    : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div>${readyNote}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
   const directory = `<section class="phone-directory" aria-label="窗口内线">
     ${nightPaper ? contactSlip('107', number, phoneBottom, { batch: nightPaper.batch, title: nightPaper.document.title }) : ''}
     ${contactSlip('204', number, phoneBottom, labOrder, canBring)}

@@ -1262,6 +1262,11 @@ button:disabled { opacity: .46; }
 .phone-face { min-block-size: var(--phone-face-height); }
 .phone-face-front { display: grid; grid-template-rows: auto 1fr; gap: .38rem; }
 .phone-head { display: grid; min-inline-size: 0; gap: .35rem; align-content: center; }
+.phone-redial {
+  margin: 0;
+  color: #352d20;
+  font: 750 .73rem / 1.35 var(--mono);
+}
 .phone-cradle {
   display: flex;
   align-items: start;

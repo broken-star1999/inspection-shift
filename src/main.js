@@ -2180,6 +2180,13 @@ function closePanel() {
   }
   const toBoard = previousPanel?.panel === 'handoff';
   render(toBoard ? previousPanel.detailScroll : previousPanel?.scrollTop);
+  if (panel === 'phone' && previousPanel?.opener?.act === 'report-search' && interaction.phoneNumber === run.phone?.number &&
+      modalLayer.querySelector('[data-report-redial]')) {
+    workspaceBody()?.scrollTo(0, 0);
+    focusControl(modalLayer, { act: 'dial' });
+    persistRun();
+    return;
+  }
   if (previousPanel) {
     if (toBoard) modalLayer.querySelector('.handoff-board')?.scrollTo(0, previousPanel.scrollTop);
     else {
