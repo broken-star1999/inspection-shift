@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DAYS, PRESSURE } from '../src/content.js';
+import { DAYS, PRESSURE, documentExtension } from '../src/content.js';
 import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
 import { createRun, dispatch, getCase, getDay } from '../src/engine.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress } from '../src/inspection-progress.js';
@@ -92,6 +92,19 @@ test('the G-248 comparison keeps the requirements and report text independent of
   assert.equal(projectComparison(item, 2, 0), null);
   assert.equal(projectComparison(item, '2', 1), null);
   assert.equal(projectComparison(cases.get(14), 2, 1), null);
+});
+
+test('missing-report orders name the lab and provide the callable extension on the paper', () => {
+  for (const id of [5, 10]) {
+    const order = cases.get(id).documents.find(({ type }) => type === 'order');
+    const contact = order.fields.find(([name]) => name === '经手窗口');
+    assert.match(contact?.[1], /实验室.*小陈/);
+    assert.equal(documentExtension(contact), '204');
+  }
+  const night = cases.get(11).documents.find(({ type }) => type === 'archive');
+  assert.equal(documentExtension(night.fields.find(([name]) => name === '经手窗口')), '107');
+  assert.equal(documentExtension(['报告编号', '内线 204']), null);
+  assert.equal(documentExtension(['经手窗口', '内线 999']), null);
 });
 
 test('relabel comparisons keep the previous and current batch numbers as independent facts', () => {

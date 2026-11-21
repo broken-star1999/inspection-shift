@@ -533,12 +533,16 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const spreading = canSpread && progress.spreadAll === true;
   const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
   const visible = spreading ? item.documents.map((_, position) => position) : [index, compare];
-  const orderAtHand = (progress.deliveryCheck == null ? visible : [progress.deliveryCheck])
-    .some((position) => item.documents[position]?.type === 'order');
-  const bringOrder = !comparing && !progress.incomingCall && PHONE['204'].requests[item.id] && orderAtHand;
-  const phoneLabel = progress.incomingCall ? '接电话' : bringOrder ? '带送检联问' : '拿电话';
-  const phoneAction = tutorial ? '' : button(phoneLabel, 'phone', `reference-control phone-work-tool${cls('phone-bring-order', bringOrder)}`, bringOrder ? 'data-key="bring-order"' : '');
-  const headerActions = guidedCompare + previousAction + spreadAction + sampleAction + phoneAction + draft.header;
+  const heldOrder = (progress.deliveryCheck == null ? visible : [progress.deliveryCheck])
+    .find((position) => item.documents[position]?.type === 'order');
+  const orderFields = item.documents[heldOrder]?.fields;
+  const contactIndex = orderFields?.findIndex(documentExtension);
+  const extension = !comparing && !progress.incomingCall && documentExtension(orderFields?.[contactIndex]);
+  const phoneAction = tutorial ? '' : extension
+    ? button(`带单问 ${extension}`, 'phone-document', 'reference-control phone-work-tool phone-bring-order',
+      `data-i="${heldOrder}" data-field="${contactIndex}" data-key="${item.id}" aria-label="带送检联拨内线 ${extension}"`)
+    : button(progress.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
+  const headerActions = guidedCompare + draft.header + previousAction + spreadAction + sampleAction + phoneAction;
   const activeSheet = (page, position) => {
     let fieldActions;
     if (!tutorial && !comparing) {
@@ -554,9 +558,9 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const intake = !tutorial && intakeComparison(item, intakeIndex);
   if (intake) {
     const closeIntake = button('收起点收条', 'delivery-check', 'secondary intake-close', `data-i="${intakeIndex}"${active(true)}`);
-    return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair intake-comparison">${sheet(item.documents[intakeIndex], intakeIndex, inspection)}
+    return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair intake-comparison">${sheet(item.documents[intakeIndex], intakeIndex, inspection, { phoneSource: item.id })}
       ${intakeSlip(intake, intakeIndex, inspection.selected)}</div>`, 'documents-surface', '放回台面', `intake:${intakeIndex}`,
-    { headerActions: closeIntake + phoneAction + draft.header });
+    { headerActions: draft.header + closeIntake + phoneAction });
   }
   const relabel = !tutorial && !comparing && relabelComparison(item, progress.relabelCheck);
   if (relabel) {
@@ -880,7 +884,7 @@ export function phone(number, call, pinned, numberGuide, phoneBottom, current, {
   const face = phoneBottom
     ? `<div class="phone-face phone-face-bottom" role="group" aria-label="电话机底"><span class="phone-base-hardware" aria-hidden="true"></span><span class="phone-service-label"><span>内线</span><strong>880</strong><small>回铃自测</small></span></div>`
     : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div></div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
-  const directory = numberGuide ? `<div class="phone-directory">${button('实验室 204', 'phone-select', 'secondary', `data-key="204"${phoneBottom ? ' disabled' : ''}`)}</div>` : '';
+  const directory = numberGuide ? `<div class="phone-directory">${button('实验室 204 · 小陈', 'phone-select', 'secondary', `data-key="204"${phoneBottom ? ' disabled' : ''}`)}</div>` : '';
   return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine" data-phone-face="${phoneBottom ? 'bottom' : 'front'}">${face}</div>
     <div class="phone-side">${directory}
     ${papers}

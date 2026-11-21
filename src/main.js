@@ -1,5 +1,5 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
-import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
+import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
@@ -1819,14 +1819,6 @@ function openPhone(opener) {
   const ringingNow = incomingAtWindow();
   if (!returningToCall || ringingNow) interaction.phoneBottom = false;
   if (ringingNow) update({ type: 'answer-call' }, false);
-  else if (opener.dataset.key === 'bring-order' && panel === 'docs') {
-    const item = windowCase();
-    const order = heldObjects(item).heldDocuments.find((index) => item?.documents[index]?.type === 'order');
-    if (PHONE['204'].requests[item?.id] && order !== undefined) {
-      const displaced = pinPhonePaper(item.id, order);
-      if (displaced) toast(`${displaced} 已收回交接簿`);
-    }
-  }
   playSound('click');
   if (returningToCall) closePanel();
   else openPanel('phone', opener);

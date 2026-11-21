@@ -60,10 +60,12 @@ function report(batch, number, fields = [visual, clasp, seal], title = '检验�
   return { type: 'report', title, fields: [['批号', batch], ['报告编号', number], ...fields], note };
 }
 
-function order(batch, fields = [['检验项目', '外观、扣合']]) {
+const labContact = ['经手窗口', '实验室·小陈　内线 204'];
+
+function order(batch, fields = [['检验项目', '外观、扣合']], contact) {
   const hasMaterialRequirement = fields.some(([name]) => name === '随货要求' || name === '随货材料');
   const materials = hasMaterialRequirement ? [] : [['随货材料', '随货附本批检验报告']];
-  return { type: 'order', title: '送检联', fields: [['批号', batch], ...fields, ...materials] };
+  return { type: 'order', title: '送检联', fields: [['批号', batch], ...fields, ...materials, ...(contact ? [contact] : [])] };
 }
 
 function archive(title, fields, note) {
@@ -226,7 +228,7 @@ export const PHONE = {
 
 export function documentExtension(field) {
   if (field?.[0] !== '经手窗口') return null;
-  const number = /^内线\s+(\d{3})$/.exec(field[1])?.[1];
+  const number = /(?:^|\s)内线\s+(\d{3})$/.exec(field[1])?.[1];
   return PHONE[number] ? number : null;
 }
 
@@ -334,13 +336,13 @@ export const DAYS = [
   },
   {
     title: '周二', subtitle: '装货台在等回单',
-    intro: '小罗在窗下压了一张内线表。「缺报告找 204，小陈。」',
+    intro: '小罗把送检联往窗里推了推。「缺报告找小陈，实验室的内线写这张纸上。」',
     cases: [
       {
         id: 5, batch: 'G-205', npc: 'luo', title: '少来了一张报告',
         line: '二零五，先看这摞。装货台还等着回单。',
         answer: 'review', reason: '未随货提供本批检验报告', receiptAside: '拿到报告我再来一趟。',
-        documents: [label('G-205', [], '防噪耳罩'), order('G-205', earmuffChecks)], sample: earmuff,
+        documents: [label('G-205', [], '防噪耳罩'), order('G-205', earmuffChecks, labContact)], sample: earmuff,
       },
       {
         id: 6, batch: 'G-206', npc: 'tang', title: '换过一只纸箱',
@@ -387,7 +389,7 @@ export const DAYS = [
         id: 10, batch: 'G-248', npc: 'zhou', title: '等着上车的二四八',
         line: '二四八这张签过了。装车那边在等。',
         answer: 'review', reason: '缺少本批耐冲击结果', receiptAside: '实验室那份，我明早去问。',
-        documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-079', [visual, seal], '外观抽检报告'), order('G-248', [['必查项目', '外观、耐冲击'], ['随货要求', '附本批实验室耐冲击结果']])], sample: shield,
+        documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-079', [visual, seal], '外观抽检报告'), order('G-248', [['必查项目', '外观、耐冲击'], ['随货要求', '附本批实验室耐冲击结果']], labContact)], sample: shield,
       },
       {
         id: 11, batch: 'G-211', npc: 'tang', title: '记录差了一行',
