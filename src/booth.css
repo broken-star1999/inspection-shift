@@ -578,6 +578,10 @@
   outline: 1px solid #e7c98e;
   outline-offset: .12rem;
 }
+#game:not([data-modeled='true']) .booth-layout .paper-card[data-pair-drop='ready'] {
+  overflow: visible;
+  z-index: 4;
+}
 .booth-layout .paper-card[data-pair-drop='ready']::after {
   content: '松手并排';
   position: absolute;
