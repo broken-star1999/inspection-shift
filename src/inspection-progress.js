@@ -141,7 +141,7 @@ function workspaceProgress(item, work, inspection, context = {}) {
     if (!guided && EASTER_EGGS.cat.slots.includes(item.id) && work.clipboardBack === true) {
       workspace.clipboardBack = true;
     }
-    if (!guided && count === 3 && work.spreadAll === true) workspace.spreadAll = true;
+    if (!guided && count > 1 && work.spreadAll === true) workspace.spreadAll = true;
 
     const previousDoc = documentIndex(work.previousDoc, prior?.documentCount);
     const previousCurrentDoc = documentIndex(work.previousCurrentDoc, count);

@@ -430,25 +430,29 @@ test('restores thickness mode only for a valid measurement in a non-guided sampl
   assert.equal(restoreInspectionProgress(saved, current, [18], {}).thicknessOpen, false);
 });
 
-test('restores three spread papers directly or on return from the sample', () => {
-  const sampleItem = { ...item, documents: [...item.documents, { type: 'order' }], sample: { kind: 'clip' } };
+test('restores two or three spread papers directly or on return from the sample', () => {
+  const withSample = { ...item, sample: { kind: 'clip' } };
+  const threePapers = [...item.documents, { type: 'order' }];
   const work = {
     ...freshInteraction(),
     doc: 1,
     compare: 0,
     spreadAll: true,
-    referenceDoc: 2,
+    referenceDoc: 1,
     returnToDocs: true,
   };
-  for (const panel of ['docs', 'sample']) {
-    const saved = JSON.parse(JSON.stringify(captureInspectionProgress(sampleItem, work, { panel, scrollTop: 19 })));
-    const resumed = restoreInspectionProgress(saved, sampleItem, [7], {});
-    assert.deepEqual(resumed.workspace, { panel, scrollTop: 19 });
-    assert.equal(resumed.spreadAll, true);
-    assert.equal(resumed.compare, 0);
-    assert.equal(restoreInspectionProgress(saved, sampleItem, [7], { guided: true }).spreadAll, false);
-    assert.equal(restoreInspectionProgress(saved, item, [7], {}).spreadAll, false);
-    assert.equal(restoreInspectionProgress(saved, { ...sampleItem, id: 8 }, [7], {}).spreadAll, false);
+  for (const sampleItem of [withSample, { ...withSample, documents: threePapers }]) {
+    for (const panel of ['docs', 'sample']) {
+      const saved = JSON.parse(JSON.stringify(captureInspectionProgress(sampleItem, work, { panel, scrollTop: 19 })));
+      const resumed = restoreInspectionProgress(saved, sampleItem, [7], {});
+      assert.deepEqual(resumed.workspace, { panel, scrollTop: 19 });
+      assert.equal(resumed.spreadAll, true);
+      assert.equal(resumed.compare, 0);
+      assert.deepEqual(resumed.findings, []);
+      assert.equal(restoreInspectionProgress(saved, sampleItem, [7], { guided: true }).spreadAll, false);
+      assert.equal(restoreInspectionProgress(saved, { ...sampleItem, documents: [item.documents[0]] }, [7], {}).spreadAll, false);
+      assert.equal(restoreInspectionProgress(saved, { ...sampleItem, id: 8 }, [7], {}).spreadAll, false);
+    }
   }
 });
 

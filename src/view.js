@@ -361,8 +361,9 @@ function moldSketch() {
   </figure>`;
 }
 
-function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, reportCarry = false, fieldActions, phoneSource, pinAction = '', showTitle = true, leadField } = {}) {
+function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, reportCarry = false, lookupBelow = false, fieldActions, phoneSource, pinAction = '', showTitle = true, leadField } = {}) {
   const action = inspection?.action ?? 'basis';
+  const lookupActions = [];
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
     const signatureTarget = doc.type === 'report' && inspection?.signature && key === '签发';
@@ -376,11 +377,14 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const carry = reportCarry && lookup && /^R-\d{3}$/.test(value)
       ? button('问小陈', 'phone-document', 'secondary report-lookup',
         `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}，填入小陈的内线 204"`) : '';
+    const lookupControls = (lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : '') + carry;
+    if (lookupBelow && lookupControls) lookupActions.push(lookupControls);
+    const inlineLookup = lookupBelow ? '' : lookupControls;
     const extension = phoneSource && documentExtension([key, value]);
     const extraAction = extension ? button(`带单找${esc(CHARACTERS[PHONE[extension].npc].name)}`, 'phone-document', 'secondary document-field-action',
       `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`) : fieldActions?.get(key);
-    const layout = lookup ? 'report-number-value' : extraAction ? 'document-action-value' : '';
-    return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${carry}${extraAction ?? ''}</dd></div>`;
+    const layout = inlineLookup ? 'report-number-value' : extraAction ? 'document-action-value' : '';
+    return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${inlineLookup}${extraAction ?? ''}</dd></div>`;
   });
   const leadIndex = leadField && doc.fields.findIndex(([key]) => key === leadField);
   if (leadIndex > 1) {
@@ -388,8 +392,9 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     rows.splice(1, 0, leadRow);
   }
   const heading = showTitle ? `<h3>${esc(doc.title)}</h3>` : '';
+  const lookupFooter = lookupActions.length ? `<div class="report-number-value report-lookup-footer">${lookupActions.join('')}</div>` : '';
   return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}${cls('trace-inquiry-sheet', doc.kind === 'trace-inquiry')}"${Number.isInteger(index) ? ` data-doc-index="${index}"` : ''}><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small>${pinAction ? `<div class="sheet-pin-heading">${heading}${pinAction}</div>` : heading}${clipboardFront ? clipboardFlip(false) : ''}${doc.kind === 'mold-sketch' ? moldSketch() : ''}<dl class="fields">
-    ${rows.join('')}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
+    ${rows.join('')}</dl>${lookupFooter}${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
 }
 
 export function visitPaper(doc, visit) {
@@ -552,9 +557,9 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const previousAction = canCompare ? button(previous.sameLot
     ? (comparing ? '收起旧单' : '对照前次单据')
     : (comparing ? '收起原批' : '对照原批单据'), 'previous-compare', 'reference-control', active(comparing)) : '';
-  const canSpread = !comparing && item.documents.length === 3;
-  const spreading = canSpread && progress.spreadAll === true;
-  const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
+  const canSpread = !comparing && item.documents.length > (other ? 2 : 1);
+  const spreading = !comparing && progress.spreadAll === true;
+  const spreadAction = canSpread && !spreading ? button('摊开全部', 'compare-all', 'reference-control') : '';
   const visible = spreading ? item.documents.map((_, position) => position) : [index, compare];
   const relabel = !comparing && relabelComparison(item, progress.relabelCheck);
   const phoneSources = relabel ? [relabel.registerIndex] : progress.deliveryCheck == null ? visible : [progress.deliveryCheck];
@@ -588,8 +593,9 @@ export function documents(item, index, compare, tutorial, progress, previous) {
       fieldActions.set(thicknessField, button(thickness ? '核对实测' : '拿插片测', 'sample', 'secondary document-field-action',
         `data-key="thickness" data-i="${position}"`));
     }
+    const focusAction = spreading ? button('单看', 'doc', 'secondary doc-focus', `data-i="${position}" aria-label="单看${esc(page.title)}"`) : '';
     return sheet(page, position, inspection, { clipboardFront: position === clipboardIndex,
-      reportLookup: true, reportCarry: true, phoneSource: item.id, fieldActions });
+      reportLookup: true, reportCarry: true, lookupBelow: spreading, phoneSource: item.id, fieldActions, pinAction: focusAction });
   };
   const intakeIndex = progress.deliveryCheck;
   const intake = intakeComparison(item, intakeIndex);
@@ -608,7 +614,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   }
   if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, activeSheet)}`,
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
-  if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread">${item.documents.map(activeSheet).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
+  if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread${cls('pair', item.documents.length === 2)}">${item.documents.map(activeSheet).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
     'documents-surface', '放回台面', 'spread', { headerActions });
   const tabs = item.documents.map(({ title }, position) => {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';

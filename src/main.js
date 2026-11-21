@@ -666,7 +666,7 @@ function heldObjects(item) {
     if (relabel) heldDocuments = [relabel.registerIndex, relabel.reportIndex, relabel.labelIndex];
     else if (interaction.deliveryCheck !== null) heldDocuments = [interaction.deliveryCheck];
     else if (interaction.previousDoc !== null) heldDocuments = [viewedDocument()];
-    else if ((interaction.spreadAll || tutorialStep()) && item?.documents.length === 3) heldDocuments = [0, 1, 2];
+    else if (interaction.spreadAll || tutorialStep()) heldDocuments = item?.documents.map((_, index) => index) ?? [];
     else heldDocuments = [interaction.doc, interaction.compare];
   }
   if (sampleHeld && !interaction.thicknessOpen && interaction.referenceDoc !== null) heldDocuments = [interaction.referenceDoc];
@@ -1618,7 +1618,7 @@ function chooseDoc(index, opener) {
   } else if (panel === 'docs' && interaction.compare !== null && !interaction.spreadAll) {
     if (index !== interaction.doc) interaction.compare = index;
   } else {
-    interaction.spreadAll = false;
+    interaction.spreadAll = !panel && item.documents.length > 1;
     interaction.doc = index;
     interaction.compare = null;
     interaction.previousDoc = null;
@@ -1829,11 +1829,13 @@ function compareDocs() {
 }
 
 function spreadDocuments() {
-  const item = windowCase();
-  if (panel !== 'docs' || run?.phase !== 'case' || item?.documents.length !== 3 || tutorialStep() || interaction.previousDoc !== null) return;
-  interaction.spreadAll = !interaction.spreadAll;
+  const item = documentCheckItem();
+  if (!item || item.documents.length < 2 || interaction.previousDoc !== null ||
+      interaction.deliveryCheck !== null || interaction.relabelCheck !== null) return;
+  interaction.spreadAll = true;
   playSound('slide');
   render(0);
+  focusControl(modalLayer, { act: 'doc', i: String(interaction.doc) });
 }
 
 function documentCheckItem() {

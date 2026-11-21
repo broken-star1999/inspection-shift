@@ -457,7 +457,31 @@
 .documents-surface:not(:has(.doc-grid.pair, .doc-grid.spread, .return-comparison)) { inline-size: min(42cqw, 35rem); }
 .documents-surface:has(.doc-grid.spread) { inline-size: min(78cqw, 64rem); }
 .doc-grid.spread { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.doc-grid.spread.pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .doc-grid.spread .sheet { min-inline-size: 0; border-radius: 1px 4px 2px 1px; }
+.doc-grid.spread .sheet-pin-heading {
+  flex-wrap: nowrap;
+  gap: .25rem;
+}
+.doc-grid.spread .sheet-pin-heading > h3 {
+  margin: .15em 0 .32em;
+  color: #3c301f;
+  font-size: clamp(.98rem, 1.7cqw, 1.4rem);
+  text-wrap: balance;
+}
+.sheet .doc-focus {
+  flex: none;
+  min-inline-size: 2.75rem;
+  min-block-size: 2rem;
+  padding: .16rem .32rem;
+  border-color: #91724f;
+  background: #e4cda1;
+  color: #513a26;
+  font: 760 .76rem / 1.24 var(--mono);
+  text-shadow: none;
+  white-space: nowrap;
+}
+.sheet .doc-focus:is(:hover, :focus-visible) { background: #f6e0b7; }
 .fields dd.document-action-value {
   display: flex;
   flex-wrap: wrap;
@@ -676,12 +700,13 @@
 }
 .sheet .archive-paper-pin[aria-pressed='true'] { background: #ced0a4; border-color: #7b8458; }
 .sheet .archive-paper-pin:is(:hover, :focus-visible) { background: #f6e0b7; }
-.fields dd.report-number-value {
+.fields dd.report-number-value, .report-lookup-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: .2rem .5rem;
 }
+.report-lookup-footer { margin-block-start: .4rem; }
 .sheet .report-number-value .report-lookup {
   flex: 0 0 auto;
   min-inline-size: 2.75rem;
