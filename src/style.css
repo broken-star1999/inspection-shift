@@ -1390,9 +1390,15 @@ button:disabled { opacity: .46; }
 .phone-side { min-inline-size: 0; }
 
 .phone-directory { display: grid; gap: .28rem; }
+.phone-directory h3 {
+  margin: 0 0 .06rem;
+  color: #ead9a7;
+  font-size: .8rem;
+  letter-spacing: .06em;
+}
 .phone-contact {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   align-items: center;
   gap: .01rem .58rem;
@@ -1421,6 +1427,21 @@ button:disabled { opacity: .46; }
   color: #5e4630;
 }
 .phone-contact small { color: #5e4d36; font-size: .73rem; }
+.phone-contact-action {
+  grid-area: 1 / 3 / 3;
+  padding-inline-start: .38rem;
+  border-inline-start: 1px dashed #a9966c;
+  color: #4b5440;
+  font-size: .73rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+.phone-contact .phone-contact-source {
+  grid-column: 2 / -1;
+  margin-block-start: .13rem;
+  padding-block-start: .13rem;
+  border-block-start: 1px solid #b5a176;
+}
 .phone-contact:not(:disabled):is(:hover, :focus-visible) { background: #f6eac9; }
 .phone-contact[aria-pressed='true'] { border-inline-start-color: #37624a; background: #e9e4c2; }
 .phone-contact:disabled { opacity: .63; }

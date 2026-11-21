@@ -52,7 +52,7 @@ export function shell() {
       <div class="model-world" aria-hidden="true"></div>
       <div class="booth-layout">
         <aside class="booth-wing booth-left" aria-label="值班工具">
-          <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b><span class="phone-ring-indicator" aria-hidden="true"></span></button>
+          <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone" aria-label="内线电话" aria-describedby="desk-phone-label"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b><span class="desk-phone-label" id="desk-phone-label">缺报告 <strong>204</strong></span><span class="phone-ring-indicator" aria-hidden="true"></span></button>
           <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" fetchpriority="low" draggable="false"><b>交接簿</b></button>
         </aside>
         <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="booth-cargo" aria-hidden="true" hidden><span class="booth-cargo-lane"></span><span class="booth-cargo-crate"></span></div><span class="booth-cat" aria-hidden="true"></span><span class="booth-transfer-slot" aria-hidden="true"></span><span class="booth-handoff-slip" aria-hidden="true"></span><div class="booth-shutter" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
@@ -329,6 +329,7 @@ function deskSurface(title, body, type, closeText, page, { headerActions = '', f
 export function instructions(how) {
   return dialog(how ? '接班说明' : '桌边查验卡', `<div class="rule-sheet"><p>先认箱签，按送检联核对收到的报告。看批号、签发和检验项目，再按实际品类查镜片、罩壳、手套接缝或插片。</p>
     <ol><li><b>通过</b>　样品合格，有效报告能对应这批，并覆盖送检要求。</li><li><b>不通过</b>　实物确有裂纹、划伤、扣件问题或已查明的错型、超差。</li><li><b>要求审查</b>　报告没交、对不上或没验齐，先隔离，等对方补证或安排复检。</li></ol>
+    <p>缺报告带送检联找实验室小陈（204）。单据上另写了「经手窗口」，就带那张单按上面的内线拨出。</p>
     <p>有换签时对照登记上的旧号和新号。保护膜可以揭角。测插片时先放入量规，再合上量爪。核对过的旧单会留在交接簿。</p>
     ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。拿着单据或检样时可以抬头看窗口，再接着查验。两指可在系统支持时缩放视图。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
@@ -353,10 +354,10 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${signatureTarget ? ' data-tutorial-signature' : ''}${batchLabel}${active(chosen)}>${text}</button>` : text;
     const lookup = reportLookup && (key === '报告编号' || key === '原报告编号') && value;
     const carry = reportCarry && lookup && /^R-\d{3}$/.test(value)
-      ? button('带这张问', 'phone-document', 'secondary report-lookup',
-        `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}到电话旁"`) : '';
+      ? button('问小陈', 'phone-document', 'secondary report-lookup',
+        `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}，填入小陈的内线 204"`) : '';
     const extension = phoneSource && documentExtension([key, value]);
-    const extraAction = extension ? button(`带单问 ${extension}`, 'phone-document', 'secondary document-field-action',
+    const extraAction = extension ? button(`带单找${esc(CHARACTERS[PHONE[extension].npc].name)}`, 'phone-document', 'secondary document-field-action',
       `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`) : fieldActions?.get(key);
     const layout = lookup ? 'report-number-value' : extraAction ? 'document-action-value' : '';
     return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${carry}${extraAction ?? ''}</dd></div>`;
@@ -921,10 +922,12 @@ export function archiveSourcePaper({ id, index, batch, day, document }, pinned, 
 
 function contactSlip(extension, number, phoneBottom, batchPaper = null, carry = false) {
   const { department, purpose, npc } = PHONE[extension];
-  const source = batchPaper ? ` · ${carry ? '带 ' : ''}${batchPaper.batch} ${batchPaper.title}` : '';
+  const source = batchPaper ? `${batchPaper.batch} ${batchPaper.title}` : '';
   const attributes = carry ? ` data-i="${batchPaper.id}" data-doc="${batchPaper.index}"` : '';
   return `<button type="button" class="phone-contact" data-act="phone-select" data-key="${extension}"${attributes}${active(number === extension)}${phoneBottom ? ' disabled' : ''}>
-    <strong>${extension}</strong><b>${esc(department)} · ${esc(CHARACTERS[npc].name)}</b><small>${esc(purpose + source)}</small>
+    <strong>${extension}</strong><b>${esc(department)} · ${esc(CHARACTERS[npc].name)}</b><small>${esc(purpose)}</small>
+    <span class="phone-contact-action">${carry ? '带单填号' : '填号'}</span>
+    ${source ? `<small class="phone-contact-source">${esc(source)}</small>` : ''}
   </button>`;
 }
 
@@ -976,9 +979,10 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
     ? `<div class="phone-face phone-face-bottom" role="group" aria-label="电话机底"><span class="phone-base-hardware" aria-hidden="true"></span><span class="phone-service-label"><span>内线</span><strong>880</strong><small>回铃自测</small></span></div>`
     : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(dialDisplay(number))}</div>${readyNote}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
   const directory = `<section class="phone-directory" aria-label="窗口内线">
+    <h3>内线便笺</h3>
     ${nightPaper ? contactSlip('107', number, phoneBottom, { batch: nightPaper.batch, title: nightPaper.document.title }) : ''}
     ${contactSlip('204', number, phoneBottom, labOrder, canBring)}
-    ${!phoneBottom && !call ? '<p class="phone-guide">点内线填号，再按「拨出」。若单据另写了经手窗口，可带那张纸来问。</p>' : ''}
+    ${phoneBottom ? '' : '<p class="phone-guide">点便笺填号，再按「拨出」。其他分机看单据上的「经手窗口」。</p>'}
   </section>`;
   return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine" data-phone-face="${phoneBottom ? 'bottom' : 'front'}">${face}<span class="phone-turn-light" aria-hidden="true"></span></div>
     <div class="phone-side">${directory}

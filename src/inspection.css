@@ -854,6 +854,27 @@
 }
 .archive-current-disposition strong { margin-inline-start: .18em; }
 
+.booth-layout .desk-phone-label {
+  position: absolute;
+  inset: auto auto calc(100% - .36rem) 50%;
+  z-index: 1;
+  padding: .18rem .42rem;
+  border: 1px solid #8d784b;
+  border-radius: 1px .13rem .11rem 1px;
+  background: linear-gradient(105deg, #e9d7a4, #cfb980);
+  box-shadow: 1px 2px 2px #181b13a6;
+  color: #49381f;
+  font: 700 clamp(.69rem, 1.5cqh, .86rem) / 1.15 var(--mono);
+  white-space: nowrap;
+  text-shadow: none;
+  translate: -50%;
+  rotate: -3deg;
+}
+.booth-layout .desk-phone-label strong { color: #6c421e; }
+@container workstation (max-height: 360px) {
+  #game:not([data-modeled='true']) .booth-layout .desk-phone-label { inset-block-end: calc(100% - 1rem); }
+}
+#game[data-ringing='true'] .booth-layout .desk-phone-label { display: none; }
 .wall-phone .phone-ring-indicator { display: none; }
 .phone-log .phone-registration {
   min-block-size: 2.75rem;

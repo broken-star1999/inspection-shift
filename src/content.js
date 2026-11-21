@@ -191,7 +191,7 @@ export const PHONE = {
   '204': {
     npc: 'chen',
     department: '实验室',
-    purpose: '查报告、补件',
+    purpose: '缺报告、查编号、补件',
     greeting: '实验室，小陈。把单据放到电话旁，我按批号或报告号查。',
     requests: {
       5: {
@@ -355,7 +355,7 @@ export const DAYS = [
     cases: [
       {
         id: 5, batch: 'G-205', npc: 'luo', title: '少来了一张报告',
-        line: '二零五，先看这摞。装货台还等着回单。',
+        line: '二零五，装货台还等着回单。要问实验室，内线在送检联上。',
         answer: 'review', reason: '未随货提供本批检验报告',
         reviewAside: {
           compared: '拿到报告我再来一趟。',

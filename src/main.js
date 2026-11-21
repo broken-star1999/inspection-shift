@@ -543,7 +543,10 @@ function showRinging(call) {
   if (call) root.dataset.ringing = 'true';
   else delete root.dataset.ringing;
   const label = call ? '接电话' : '内线电话';
-  if (phoneFixtureLabel.textContent !== label) phoneFixtureLabel.textContent = label;
+  if (phoneFixtureLabel.textContent !== label) {
+    phoneFixtureLabel.textContent = label;
+    phoneFixture.setAttribute('aria-label', label);
+  }
   setPhoneRinging(call);
 }
 
@@ -2102,7 +2105,7 @@ function phoneFromDocument(caseId, index, field, opener) {
   const holdReport = ['docs', 'sample'].includes(panel) && reference &&
     ['报告编号', '原报告编号'].includes(reference[0]) && /^R-\d{3}$/.test(reference[1]);
   if (!number && !holdReport) return;
-  if (number) interaction.phoneNumber = number;
+  interaction.phoneNumber = number ?? '204';
   const displaced = pinPhonePaper(caseId, index);
   if (displaced) toast(`${displaced} 已收回交接簿`);
   openPhone(opener);
