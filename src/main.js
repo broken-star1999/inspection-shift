@@ -135,19 +135,37 @@ bindViewport(root, ({ fullscreen, immersive, rotated }) => {
 
 function placeFixtures() {
   const sample = fixtureLayout.sample;
+  const binder = fixtureLayout.archive;
   const sampleBottom = sample ? `${(sample.y + sample.h).toFixed(1)}px` : '';
+  const stampControls = fixtureLayout.stampControls;
+  const stampRadius = stampControls && Math.min(22, Math.max(1, (Math.min(
+    stampControls.fail.x - stampControls.pass.x, stampControls.review.x - stampControls.fail.x,
+  ) - 1) / 2));
   for (const element of fixtureElements) {
     const fixture = element.dataset.fixture;
-    const rect = fixtureLayout[fixture === 'findings' ? 'pass' : fixture];
+    const rect = fixture === 'findings' ? fixtureLayout.findings ?? fixtureLayout.pass : fixtureLayout[fixture];
+    const stampControl = stampControls?.[fixture];
     element.toggleAttribute('data-fixture-visible', Boolean(rect));
+    element.toggleAttribute('data-stamp-control', Boolean(stampControl));
     if (!rect) continue;
     const { x, y, w, h } = rect;
     element.style.setProperty('--fixture-x', `${x.toFixed(1)}px`);
     element.style.setProperty('--fixture-y', `${y.toFixed(1)}px`);
     element.style.setProperty('--fixture-w', `${w.toFixed(1)}px`);
     element.style.setProperty('--fixture-h', `${h.toFixed(1)}px`);
-    if (fixture === 'findings' || element.matches('.stamp')) {
+    if (fixture === 'findings') {
       element.style.setProperty('--fixture-sample-bottom', sampleBottom);
+    }
+    if (stampControl) {
+      const { x: centerX, y: capY, labelX, labelY } = stampControl;
+      const crossesBinder = binder && centerX + stampRadius > binder.x && centerX - stampRadius < binder.x + binder.w;
+      const belowBinder = crossesBinder ? binder.y + binder.h + 1 : 0;
+      const centerY = belowBinder <= capY ? Math.max(capY, belowBinder + stampRadius) : capY;
+      element.style.setProperty('--stamp-hit-radius', `${stampRadius.toFixed(2)}px`);
+      element.style.setProperty('--stamp-control-x', `${centerX.toFixed(1)}px`);
+      element.style.setProperty('--stamp-control-y', `${centerY.toFixed(1)}px`);
+      element.style.setProperty('--stamp-label-x', `${(labelX - centerX).toFixed(1)}px`);
+      element.style.setProperty('--stamp-label-y', `${(labelY - centerY).toFixed(1)}px`);
     }
   }
 }

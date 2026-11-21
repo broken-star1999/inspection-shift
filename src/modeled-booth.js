@@ -478,6 +478,14 @@ function projectBox(box, camera, width, height) {
   return { x: left, y: top, w: right - left, h: bottom - top };
 }
 
+function projectStampStation(station, camera, width, height) {
+  point.copy(station.center).project(camera);
+  const x = (point.x + 1) * width / 2;
+  const y = (1 - point.y) * height / 2;
+  point.copy(station.label).project(camera);
+  return { x, y, labelX: (point.x + 1) * width / 2, labelY: (1 - point.y) * height / 2 };
+}
+
 export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, onLayout, onReady, onUnavailable } = {}) {
   if (!host) return null;
   const ownerDocument = host.ownerDocument;
@@ -509,7 +517,11 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   scene.add(models.group);
   const shutter = makeWindowShutter(BOOTH_METRICS.window);
   scene.add(shutter.root);
-  const caps = Object.entries(models.caps ?? {}).map(([key, cap]) => ({ key, cap, baseY: cap.position.y }));
+  const { desktop: desktopStampDeck, compact: compactStampDeck } = models.stampDecks;
+  const caps = [
+    ...Object.entries(models.caps).map(([key, cap]) => ({ key, cap, axis: 'y', rest: cap.position.y })),
+    ...Object.entries(compactStampDeck.caps).map(([key, cap]) => ({ key, cap, axis: 'z', rest: cap.position.z })),
+  ];
   scene.add(new THREE.HemisphereLight('#e8eef4', '#4e3d31', 1.49));
   const daylight = new THREE.DirectionalLight('#eff3fb', 1.31);
   daylight.position.set(-2.8, 6.3, 4.6);
@@ -526,6 +538,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let raf = 0;
   let width = 0;
   let height = 0;
+  let compactStamps = false;
   let frame = initialFrame;
   let shutterSettled = false;
   let shutterFrom = 0;
@@ -657,6 +670,11 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   scene.updateMatrixWorld(true);
   const staticBounds = Object.fromEntries(Object.entries(models.anchors ?? {}).map(([key, object]) =>
     [key, new THREE.Box3().setFromObject(object)]));
+  const compactBounds = { ...staticBounds, findings: staticBounds.pass };
+  const stampStations = Object.entries(compactStampDeck.controls).map(([key, { station, center, label }]) => {
+    compactBounds[key] = new THREE.Box3().setFromObject(station);
+    return [key, { center: center.getWorldPosition(new THREE.Vector3()), label: label.getWorldPosition(new THREE.Vector3()) }];
+  });
   const shadowTexture = createContactTexture();
   const cat = makeFactoryCat(shadowTexture);
   scene.add(cat.root);
@@ -664,14 +682,20 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   for (const key of ['pass', 'fail', 'review']) {
     if (staticBounds[key]) stampBounds.union(staticBounds[key]);
   }
-  for (const bounds of [staticBounds.phone, staticBounds.sample, stampBounds]) {
-    if (!bounds || bounds.isEmpty()) continue;
+  function addFixtureShadow(bounds) {
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());
     const shadow = contactShadow(shadowTexture, size.x * 1.45, size.z * 1.6, .46);
     shadow.position.set(center.x + .075, BOOTH_METRICS.deskTop + .005, center.z + .055);
     scene.add(shadow);
+    return shadow;
   }
+  for (const bounds of [staticBounds.phone, staticBounds.sample]) {
+    if (bounds && !bounds.isEmpty()) addFixtureShadow(bounds);
+  }
+  const desktopStampShadow = addFixtureShadow(stampBounds);
+  const compactStampShadow = addFixtureShadow(new THREE.Box3().setFromObject(compactStampDeck.deck));
+  compactStampShadow.visible = false;
   const sampleBounds = staticBounds.sample;
   const sampleSize = sampleBounds?.getSize(new THREE.Vector3());
   const sampleCenter = sampleBounds?.getCenter(new THREE.Vector3());
@@ -974,9 +998,13 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   function refreshLayout() {
     if (!onLayout || !width || !height) return;
     const controls = {};
-    for (const [key, box] of Object.entries(staticBounds)) {
+    for (const [key, box] of Object.entries(compactStamps ? compactBounds : staticBounds)) {
       const rect = projectBox(box, camera, width, height);
       if (rect) controls[key] = rect;
+    }
+    if (compactStamps) {
+      controls.stampControls = Object.fromEntries(stampStations.map(([key, station]) =>
+        [key, projectStampStation(station, camera, width, height)]));
     }
     if (frame.phase === 'case' && cargo?.route === 'ready' && cargo.inspectable && models.cargo.visible) {
       const rect = projectBox(cargoBounds.setFromObject(models.cargo), camera, width, height);
@@ -1007,8 +1035,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     for (const x of [-1, 0, 1]) {
       for (const y of [-1, 0, 1]) {
         aimCamera(probe, x, y);
-        for (const [key, box] of Object.entries(staticBounds)) {
-          if (key === 'receiptSlot' || key === 'receiptPickup' || box.isEmpty()) continue;
+        for (const [key, box] of Object.entries(compactStamps ? compactBounds : staticBounds)) {
+          if (key === 'receiptSlot' || key === 'receiptPickup' || key === 'findings' || box.isEmpty()) continue;
           for (const px of [box.min.x, box.max.x]) {
             for (const py of [box.min.y, box.max.y]) {
               for (const pz of [box.min.z, box.max.z]) {
@@ -1033,6 +1061,9 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     width = w;
     height = h;
     if (!w || !h) return;
+    compactStamps = w <= 900 && h <= 540;
+    desktopStampDeck.visible = desktopStampShadow.visible = !compactStamps;
+    compactStampDeck.deck.visible = compactStampShadow.visible = compactStamps;
     camera.aspect = w / h;
     camera.fov = fitFieldOfView(camera.aspect);
     camera.updateProjectionMatrix();
@@ -1079,7 +1110,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const shutterMoving = coverage !== shutterTarget;
     const pressAge = now - pressedAt;
     const pressDepth = reduced.matches || pressAge >= 165 ? 0 : Math.sin(pressAge / 165 * Math.PI) * .073;
-    for (const { key, cap, baseY } of caps) cap.position.y = baseY - (pressed === key ? pressDepth : 0);
+    for (const { key, cap, axis, rest } of caps) cap.position[axis] = rest - (pressed === key ? pressDepth : 0);
     scene.updateMatrixWorld(true);
     renderer.render(scene, camera);
     if (renderer.getContext().isContextLost()) return;

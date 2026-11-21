@@ -59,6 +59,7 @@ function workshopMaterials() {
     work: mat('#73806b', .86, .15), tray: mat('#3d4a3c', .89), trayFelt: mat('#69715b', .99, 0, felt),
     machine: mat('#3d4e43', .69, .27), machineEdge: mat('#697b66', .68, .18),
     pass: mat('#718d57', .64, .09), fail: mat('#9c5948', .65, .09), review: mat('#b68a45', .66, .11),
+    verdictEnamel: { pass: mat('#304637', .72, .04), fail: mat('#513930', .72, .04), review: mat('#54432a', .72, .04) },
     stampMark: mat('#efe0ae', .77), graphite: mat('#3a322c', .89),
     pencil: mat('#dba939', .75), eraser: mat('#bb745e', .93),
     cargoTop: mat('#b38753', .97, 0, paint), cargoSide: mat('#94663b', .96, 0, paint),
@@ -486,11 +487,62 @@ function makeCargoLane(parent, m) {
   return { cargo, cargoLabels: { intact: label, torn: tornLabel } };
 }
 
+function stampMark(parent, m, key, y) {
+  if (key === 'pass') {
+    markStroke(parent, m.stampMark, -.103, -.006, -.034, .069, .032, y);
+    markStroke(parent, m.stampMark, -.037, .068, .109, -.087, .031, y);
+  } else if (key === 'fail') {
+    markStroke(parent, m.stampMark, -.079, -.079, .079, .079, .031, y);
+    markStroke(parent, m.stampMark, .079, -.079, -.079, .079, .031, y);
+  } else {
+    markStroke(parent, m.stampMark, -.082, -.052, .082, -.052, .027, y);
+    markStroke(parent, m.stampMark, -.082, .051, .082, .051, .027, y);
+  }
+}
+
+function makeCompactStampDeck(machine, m) {
+  const deck = place(machine, new THREE.Group(), .76, 0, 0);
+  rounded(deck, [m.seam, m.rail], 1.72, .245, .795, .78, .144, .015, .076, .027);
+  rounded(deck, [m.machine, m.rail], 3.24, .394, .742, 0, .406, -.04, .101, .034);
+  const face = place(deck, new THREE.Group(), 0, .894, .14);
+  face.rotation.x = -.22;
+  rounded(face, [m.machine, m.machineEdge], 3.34, .664, .487, 0, -.127, -.237, .083, .034);
+  rounded(face, m.rail, 3.251, .575, .039, 0, -.127, .016, .064, .017);
+  rounded(face, m.bronze, 3.14, .023, .032, 0, .161, .044, .010, .004);
+  for (const x of [-1.589, 1.589]) fastener(face, m.screw, x, -.334, .056, .029);
+
+  const controls = {};
+  const caps = {};
+  for (const [index, key] of ['pass', 'fail', 'review'].entries()) {
+    const station = place(face, new THREE.Group(), (index - 1) * 1.18, 0, 0);
+    rounded(station, [m.black, m.machineEdge], .721, .292, .062, 0, .026, .052, .058, .012);
+    const cap = place(station, new THREE.Group(), 0, .033, .094);
+    caps[key] = cap;
+    rounded(cap, [m[key], m.seam], .621, .212, .096, 0, 0, 0, .047, .017);
+    rounded(cap, m[key], .546, .161, .018, 0, .008, .058, .039, .007);
+    const glyph = place(cap, new THREE.Group(), 0, .008, .073);
+    glyph.rotation.x = halfPi;
+    stampMark(glyph, m, key, .007);
+
+    rounded(station, [m.machine, m.machineEdge], .977, .256, .039, 0, -.225, .051, .024, .009);
+    rounded(station, m.verdictEnamel[key], .937, .214, .013, 0, -.225, .075, .020, .004);
+    controls[key] = {
+      station,
+      center: place(station, new THREE.Group(), 0, 0, .075),
+      label: place(station, new THREE.Group(), 0, -.225, .087),
+    };
+  }
+  deck.visible = false;
+  return { deck, controls, caps };
+}
+
 function makeStampMachine(parent, m, anchors, caps) {
   const machine = place(parent, new THREE.Group(), 3.46, deskY, 1.04);
   flat(machine, [m.machine, m.seam], 2.12, 1.014, .146, 0, .125, 0, .128, .046);
   flat(machine, [m.machineEdge, m.rail], 2, .892, .070, 0, .231, -.017, .094, .029);
-  flat(machine, m.rail, 1.887, .137, .061, 0, .286, -.354, .041, .012);
+  const desktopDeck = place(machine, new THREE.Group(), 0, 0, 0);
+  flat(desktopDeck, m.rail, 1.887, .137, .061, 0, .286, -.354, .041, .012);
+  const compact = makeCompactStampDeck(machine, m);
   const receiptSlot = place(machine, new THREE.Group(), 0, .131, .529);
   anchors.receiptSlot = receiptSlot;
   rounded(receiptSlot, m.black, 1.42, .057, .042, 0, 0, 0, .022, .009);
@@ -501,23 +553,14 @@ function makeStampMachine(parent, m, anchors, caps) {
   }
 
   for (const [index, key] of ['pass', 'fail', 'review'].entries()) {
-    const anchor = place(machine, new THREE.Group(), (index - 1) * .597, 0, .004);
+    const anchor = place(desktopDeck, new THREE.Group(), (index - 1) * .597, 0, .004);
     anchors[key] = anchor;
     flat(anchor, [m.black, m.screw], .487, .488, .07, 0, .300, 0, .067, .018);
     const cap = place(anchor, new THREE.Group(), 0, .367, 0);
     caps[key] = cap;
     flat(cap, [m[key], m.rail], .401, .399, .102, 0, 0, 0, .066, .021);
     flat(cap, m[key], .332, .315, .022, 0, .066, -.007, .054, .011);
-    if (key === 'pass') {
-      markStroke(cap, m.stampMark, -.103, -.006, -.034, .069, .032, .092);
-      markStroke(cap, m.stampMark, -.037, .068, .109, -.087, .031, .092);
-    } else if (key === 'fail') {
-      markStroke(cap, m.stampMark, -.079, -.079, .079, .079, .031, .092);
-      markStroke(cap, m.stampMark, .079, -.079, -.079, .079, .031, .092);
-    } else {
-      markStroke(cap, m.stampMark, -.082, -.052, .082, -.052, .027, .092);
-      markStroke(cap, m.stampMark, -.082, .051, .082, .051, .027, .092);
-    }
+    stampMark(cap, m, key, .092);
   }
 
   const paper = place(machine, new THREE.Group(), 0, .139, .480);
@@ -530,7 +573,10 @@ function makeStampMachine(parent, m, anchors, caps) {
   const imprint = flat(paper, m.pass, .141, .067, .006, .143, .009, .106, .012, .002);
   imprint.rotateZ(.13);
   paper.visible = false;
-  return { paper, pickup, imprint, inks: { pass: m.pass, fail: m.fail, review: m.review } };
+  return {
+    outgoingSlip: { paper, pickup, imprint, inks: { pass: m.pass, fail: m.fail, review: m.review } },
+    stampDecks: { desktop: desktopDeck, compact },
+  };
 }
 
 export function createWorkbenchModels() {
@@ -549,7 +595,7 @@ export function createWorkbenchModels() {
   anchors.phone = phone.group;
   anchors.sample = makeTray(group, m);
   anchors.pencil = makePencil(group, m);
-  const outgoingSlip = makeStampMachine(group, m, anchors, caps);
+  const { outgoingSlip, stampDecks } = makeStampMachine(group, m, anchors, caps);
   const { cargo, cargoLabels } = makeCargoLane(group, m);
-  return { group, anchors, caps, cargo, cargoLabels, outgoingSlip, phone };
+  return { group, anchors, caps, stampDecks, cargo, cargoLabels, outgoingSlip, phone };
 }

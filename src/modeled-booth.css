@@ -291,24 +291,35 @@
 /* The outer bounds of adjacent caps overlap in perspective. Keep action areas centered on the caps and separate. */
 #game[data-modeled='true'] .booth-layout .stamp[data-fixture] {
   --stamp-hit-width: calc(var(--fixture-w, 0px) * .64);
+  --stamp-label-characters: 2;
+  --stamp-plaque: #293b33;
+  --stamp-plaque-ink: #f0deb4;
   inset-inline-start: calc(var(--fixture-x, 0px) + (var(--fixture-w, 0px) - var(--stamp-hit-width)) / 2);
   inline-size: var(--stamp-hit-width);
 }
 
+#game[data-modeled='true'] .booth-layout .stamp.pass { --stamp-plaque: #304637; --stamp-plaque-ink: #e5e9c4; }
+#game[data-modeled='true'] .booth-layout .stamp.fail { --stamp-label-characters: 3; --stamp-plaque: #513930; --stamp-plaque-ink: #f2d6bb; }
+#game[data-modeled='true'] .booth-layout .stamp.review { --stamp-label-characters: 4; --stamp-plaque: #54432a; --stamp-plaque-ink: #f2dfab; }
+
 #game[data-modeled='true'] .booth-layout .stamp[data-fixture] b {
-  inset: 100% auto auto 0;
+  inset: calc(100% - 1.05rem) auto auto 50%;
   display: grid;
-  align-content: center;
-  inline-size: 100%;
-  min-block-size: 2rem;
-  padding: .18rem .05rem;
-  translate: none;
-  background: #24271c;
-  line-height: 1.12;
+  place-content: center;
+  inline-size: max-content;
+  max-inline-size: 100%;
+  min-block-size: 1.2rem;
+  padding: .12rem;
+  translate: -50% 0;
+  border-radius: 2px;
+  background: var(--stamp-plaque);
+  box-shadow: inset 0 1px #ecd6a35c, 0 1px 2px #201e12bd;
+  color: var(--stamp-plaque-ink);
+  font-size: min(clamp(.65rem, 1.64cqh, .82rem), calc((var(--stamp-hit-width) - .25rem) / var(--stamp-label-characters)));
+  letter-spacing: 0;
+  line-height: 1.1;
   text-align: center;
-  text-wrap: balance;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 #game[data-modeled='true'] .booth-layout .stamp[data-fixture-visible]:not([data-fixture-visible='false']):enabled b {
@@ -320,11 +331,34 @@
   background: #262719d1;
 }
 
-@media (pointer: coarse) {
-  @container workstation (max-width: 900px) and (max-height: 440px) {
-    #game[data-modeled='true'] .booth-layout .stamp[data-fixture] b {
-      inset-block-start: max(100%, calc(var(--fixture-sample-bottom, 0px) - var(--fixture-y, 0px) + 2px));
-    }
+#game[data-modeled='true'] .booth-layout .stamp[data-fixture][data-stamp-control] {
+  inset: calc(var(--stamp-control-y) - var(--stamp-hit-radius)) auto auto calc(var(--stamp-control-x) - var(--stamp-hit-radius));
+  inline-size: calc(2 * var(--stamp-hit-radius));
+  block-size: calc(2 * var(--stamp-hit-radius));
+}
+
+#game[data-modeled='true'] .booth-layout .stamp[data-fixture][data-stamp-control] b {
+  inset: calc(var(--stamp-hit-radius) + var(--stamp-label-y)) auto auto calc(var(--stamp-hit-radius) + var(--stamp-label-x));
+  min-block-size: 0;
+  max-inline-size: none;
+  padding: 0;
+  translate: -50% -50%;
+  background: none;
+  box-shadow: none;
+  font-size: clamp(.65rem, 1.37cqw, .78rem);
+  text-shadow: 0 1px #211d15;
+}
+
+#game[data-modeled='true'] .booth-layout:has(.stamp[data-stamp-control]) .wall-tool[data-fixture='archive'] b {
+  inset-block: auto .18rem;
+  translate: -50% 0;
+}
+
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  #game[data-modeled='true'] .booth-layout:has(.stamp[data-stamp-control]) .room-hud .training {
+    --guide-position: calc(100% - 1.25rem) auto;
+    --guide-width: min(46cqw, 20rem);
+    inset-inline-start: calc(50% - 1.8rem);
   }
 }
 
@@ -489,7 +523,6 @@
   #game[data-modeled='true'] .booth-layout .room-status { gap: .08rem; padding: 0; }
   #game[data-modeled='true'] .booth-layout .room-status strong { font-size: .71rem; }
   #game[data-modeled='true'] .booth-layout .paper-card[data-fixture] h3 { font-size: clamp(.63rem, 1.3cqw, .73rem); }
-  #game[data-modeled='true'] .booth-layout .stamp[data-fixture] b { font-size: clamp(.66rem, 1.34cqw, .73rem); }
   #game[data-modeled='true'] .sample-surface .sample-findings { padding: .36rem .47rem .43rem; }
   #game[data-modeled='true'] :is(.documents-surface, .sample-surface) .modal-actions { margin-block-start: .44rem; }
 }
@@ -549,6 +582,10 @@
       translate: -50% -.08rem;
       opacity: 1;
       pointer-events: auto;
+    }
+
+    #game[data-modeled='true'] .booth-layout:has(.stamp[data-stamp-control]) [data-fixture='sample'][data-fixture-visible]:enabled:not([data-lifted])::after {
+      inset-block-start: calc(var(--fixture-h) - .53rem);
     }
   }
 }
