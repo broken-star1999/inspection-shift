@@ -1673,24 +1673,17 @@ function presentFinding(key, opener) {
   const item = windowCase();
   const finding = interaction.findings.find((entry) => entry.key === key);
   if (!finding || !canShowFinding(item, finding)) return;
+  const body = fromTool ? workspaceBody() : null;
   const scroll = desktop.querySelector('.bench-draft-body')?.scrollTop ?? 0;
-  if (!update({ type: 'show-finding', finding }, false)) {
-    if (fromTool) {
-      lastToolFocus = opener;
-      toggleWindowGlance();
-    }
-    return;
-  }
+  if (!update({ type: 'show-finding', finding }, false)) return;
   presentedEvidence = run.shownFinding;
-  if (fromTool) {
-    lastToolFocus = opener;
-    glancedPanel = panel;
-  }
   toast('');
   playSound('slide');
-  render();
-  if (fromTool) setGazeTarget(gaze.targetX, gaze.targetY);
-  else {
+  render(body?.scrollTop, body?.scrollLeft);
+  if (fromTool) {
+    const control = focusControl(modalLayer, opener.dataset);
+    control?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  } else {
     desktop.querySelector('.bench-draft-body')?.scrollTo(0, scroll);
     focusControl(desktop, { act: 'show-finding', key });
   }
@@ -2114,6 +2107,7 @@ function checkSample(act) {
   }
   playSound(sound);
   render();
+  if (act === 'sample-basis') modalLayer.querySelector('.sample-surface .evidence-show-control')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (act === 'sample-measure' && sample.gaugeLoaded) focusControl(modalLayer, { act: 'sample-gauge-clamp' });
   if (act === 'sample-gauge-clamp' && !sample.measured) focusControl(modalLayer, { act: 'sample-measure' });
   if (step?.key === 'sample') {

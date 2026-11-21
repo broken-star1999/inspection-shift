@@ -426,18 +426,20 @@ export function visitPaper(doc, visit) {
 
 function orderFieldActions(item, orderIndex, visible, selected) {
   const order = item.documents[orderIndex];
-  const actions = new Map();
+  const fieldActions = new Map();
+  const valueActions = new Map();
   const intakeField = order.fields.find(([key]) => key === '随货材料' || key === '随货要求')?.[0];
   const intake = intakeField && intakeComparison(item, orderIndex);
   if (intake) {
     const allInHand = item.documents.length === 2 && visible.includes(0) && visible.includes(1);
     const recorded = selected.has(intake.finding.key);
     const recordNow = allInHand && !recorded;
-    actions.set(intakeField, button(recordNow ? '记下点收' : recorded ? '看点收条' : '点收',
+    fieldActions.set(intakeField, button(recordNow ? '记下点收' : recorded ? '看点收条' : '点收',
       recordNow ? 'delivery-evidence' : 'delivery-check', 'secondary document-field-action delivery-check-action', `data-i="${orderIndex}"`));
   }
-  const projectField = order.fields.find(([key]) => key === '检验项目' || key === '必查项目')?.[0];
-  if (!projectField) return actions;
+  const requirement = order.fields.find(([key]) => key === '检验项目' || key === '必查项目');
+  if (!requirement) return { fieldActions, valueActions };
+  const [projectField, projectValue] = requirement;
   const reports = item.documents.flatMap((doc, index) => {
     const comparison = doc.type === 'report' && projectComparison(item, orderIndex, index);
     return comparison ? [{ index, comparison }] : [];
@@ -447,13 +449,20 @@ function orderFieldActions(item, orderIndex, visible, selected) {
   if (report) {
     const attributes = `data-i="${orderIndex}" data-key="${report.index}"`;
     const recorded = selected.has(report.comparison.finding.key);
-    const action = paired
-      ? button(recorded ? '取回对照' : '记下对照', 'project-evidence',
-        'secondary document-field-action project-field-action', attributes + active(recorded))
-      : button('对照报告', 'project-pair', 'secondary document-field-action project-field-action', attributes);
-    actions.set(projectField, action);
+    const show = paired && recorded && findingShowButton(report.comparison.finding, item, item.shownFinding, null, 'source');
+    if (show) {
+      valueActions.set(projectField, `<button type="button" class="field-value" data-act="project-evidence" ${attributes}${active(true)}
+        aria-label="取回${esc(projectField)}对照 ${esc(projectValue)}">${esc(projectValue)}</button>`);
+      fieldActions.set(projectField, show);
+    } else {
+      const action = paired
+        ? button(recorded ? '取回对照' : '记下对照', 'project-evidence',
+          'secondary document-field-action project-field-action', attributes + active(recorded))
+        : button('对照报告', 'project-pair', 'secondary document-field-action project-field-action', attributes);
+      fieldActions.set(projectField, action);
+    }
   }
-  return actions;
+  return { fieldActions, valueActions };
 }
 
 function intakeSlip(item, comparison, orderIndex, selected, supplement) {
@@ -623,7 +632,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     let fieldActions;
     let valueActions;
     if (!comparing) {
-      if (page.type === 'order') fieldActions = orderFieldActions(item, position, visible, inspection.selected);
+      if (page.type === 'order') ({ fieldActions, valueActions } = orderFieldActions(item, position, visible, inspection.selected));
       const register = relabelComparison(item, position);
       if (register) ({ fieldActions, valueActions } = relabelFieldActions(item, register, visible, inspection.selected));
       if (item.carton && ['label', 'order'].includes(page.type)) {
@@ -749,11 +758,12 @@ export function sample(item, inspection, tutorial, progress) {
   const show = recorded && !tutorial ? findingShowButton(observation, item, item.shownFinding, progress?.supplementRequest, 'source') : '';
   const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip',
     guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : `secondary sample-flip-control${cls('instructed', filmLesson && back)}`);
-  const sampleActions = (guidedFlip ? '' : flipAction) + show;
+  const sampleActions = (guidedFlip ? '' : flipAction) + (thicknessOpen ? show : '');
   const observationSide = inGauge ? '量规实测' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面';
   const observationCard = `<div class="sample-findings"${inGauge ? ' aria-live="polite"' : ''}><b>${observationSide}</b>
     <p${inGauge ? ' class="reading"' : ''}>${observationLine}</p>
-    ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}</div>`;
+    ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}
+    ${show ? `<div class="sample-evidence-action">${show}</div>` : ''}</div>`;
   const imageNotice = packaged || inGauge ? '' : `<div class="sample-image-notice" hidden><span role="status"></span>${button('重试加载', 'sample-image-retry', 'secondary', 'hidden disabled')}</div>`;
   const title = item.carton ? `${appearance.name} · 箱号待核` : `${item.batch} · ${appearance.name}`;
   const putDown = '放下检样';

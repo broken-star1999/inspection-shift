@@ -154,24 +154,26 @@
   box-shadow: 0 5px 0 #2a261f91, 5px 10px 18px #13160fb0, inset 0 1px #afad7a70;
 }
 
-.desk-dialogue { display: none; }
+.desk-dialogue {
+  display: none;
+  flex: none;
+  margin-block-start: .17rem;
+  padding: .18rem .48rem .22rem;
+  border: 1px solid #94825866;
+  background: #1b261ff5;
+  color: #eee0bd;
+  font-size: .8rem;
+  line-height: 1.42;
+}
+.desk-dialogue strong { margin-inline-end: .52rem; color: #f3ce94; white-space: nowrap; }
+.desk-dialogue p { display: inline; margin: 0; }
+.desk-dialogue .pressure-line { margin-inline-start: .32em; color: #efc489; }
+.desk-dialogue:has(.finding-reply) { display: block; }
+#game[data-phase='case']:not([data-window-glance]) .playfield:has(.desk-dialogue .finding-reply) .room-hud .speech { display: none; }
 
 @container workstation (max-width: 900px) and (max-height: 440px) {
   .desk-surface:has(> .desk-dialogue) { max-block-size: calc(100% - .6rem); }
-  .desk-dialogue {
-    display: block;
-    flex: none;
-    margin-block-start: .17rem;
-    padding: .18rem .48rem .22rem;
-    border: 1px solid #94825866;
-    background: #1b261ff5;
-    color: #eee0bd;
-    font-size: .8rem;
-    line-height: 1.42;
-  }
-  .desk-dialogue strong { margin-inline-end: .52rem; color: #f3ce94; white-space: nowrap; }
-  .desk-dialogue p { display: inline; margin: 0; }
-  .desk-dialogue .pressure-line { margin-inline-start: .32em; color: #efc489; }
+  .desk-dialogue { display: block; }
   #game[data-phase='case']:not([data-window-glance]) .playfield:has(.desk-dialogue) .room-hud .speech { display: none; }
   .first-documents .desk-surface-bar:has(> .desk-dialogue) {
     display: grid;
@@ -682,6 +684,7 @@
 .sample-surface .sample-stage { background: #43503f; border-color: #899278; border-radius: 3px; }
 .sample-surface .sample-stage img { transform-origin: 50% 52%; }
 .sample-surface .sample-findings { background: #222e25ab; border: 0; border-inline-start: 2px solid #9f9366; }
+.sample-evidence-action { margin-block-start: .23rem; }
 
 .sample-surface:has(.sample-workbench.with-reference) { inline-size: min(77cqw, 62rem); }
 
@@ -1799,7 +1802,7 @@
   min-block-size: 2.75rem;
 }
 :is(.bench-facing-visitor, .working-findings) .finding-show,
-:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface .modal-actions) .button.evidence-show-control {
+:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface) .button.evidence-show-control {
   flex: 0 0 auto;
   min-inline-size: 2.75rem;
   min-block-size: 2.75rem;
@@ -1813,11 +1816,11 @@
   white-space: nowrap;
 }
 :is(.bench-facing-visitor, .working-findings) .finding-show:is(:hover, :focus-visible),
-:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface .modal-actions) .evidence-show-control:is(:hover, :focus-visible) {
+:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface) .evidence-show-control:is(:hover, :focus-visible) {
   background: #ecd6a2;
 }
 :is(.bench-facing-visitor, .working-findings) .finding-show[aria-pressed='true'],
-:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface .modal-actions) .evidence-show-control[aria-pressed='true'] {
+:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface) .evidence-show-control[aria-pressed='true'] {
   background: #bfa36d;
 }
 
