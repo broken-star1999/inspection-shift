@@ -30,6 +30,7 @@ const ARRIVAL_PAUSE_MS = 1150;
 const NEXT_BATCH_PAUSE_MS = 2350;
 const VISIT_HANDOVER_MS = 760;
 const PAPER_PAIR_HOLD_MS = 250;
+const CARTON_TURN_TRAVEL = 28;
 const RECEIPT_LIFT_MS = 235;
 const cargoRoutes = new Set(['shipping', 'returned', 'held']);
 
@@ -1757,12 +1758,16 @@ function comparePrevious(opener) {
   openPanel('docs', opener);
 }
 
-function openSample(opener) {
-  const item = windowCase();
-  if (run?.phase !== 'case' || !item) return;
+function carryDocumentsToTool() {
   interaction.returnToDocs = panel === 'docs' && !tutorialStep();
   const papers = interaction.returnToDocs ? workspaceBody() : null;
   interaction.documentsScroll = papers ? { scrollTop: papers.scrollTop, scrollLeft: papers.scrollLeft } : null;
+}
+
+function openSample(opener) {
+  const item = windowCase();
+  if (run?.phase !== 'case' || !item) return;
+  carryDocumentsToTool();
   interaction.referenceDoc = null;
   if (interaction.returnToDocs) {
     const { lastReadDoc } = interaction;
@@ -1779,23 +1784,29 @@ function openSample(opener) {
   openPanel('sample', opener);
 }
 
-function checkCarton(action, opener) {
+function checkCarton(action, opener, rotationFrom) {
   const item = windowCase();
   if (run?.phase !== 'case' || !item?.carton) return;
   if (action === 'carton') {
     if (panel && panel !== 'docs') return;
+    carryDocumentsToTool();
+    if (interaction.returnToDocs) {
+      const source = Number(opener.dataset.i);
+      interaction.lastReadDoc = heldObjects(item).heldDocuments.includes(source) ? source : viewedDocument();
+    }
     playSound('slide');
     openPanel('carton', opener);
     return;
   }
   if (panel !== 'carton') return;
   if (action === 'carton-turn') {
+    const previous = modalLayer.querySelector('.carton-cube');
+    const from = rotationFrom ?? (previous && getComputedStyle(previous).transform);
     interaction.cartonBottom = !interaction.cartonBottom;
     playSound('slide');
     render();
-    animateOnDesk(modalLayer.querySelector('.carton-model'), [
-      { rotate: 'x -24deg', opacity: .7 }, { rotate: 'x 0deg', opacity: 1 },
-    ], 235);
+    const cube = modalLayer.querySelector('.carton-cube');
+    if (from && cube) animateOnDesk(cube, [{ transform: from }, { transform: getComputedStyle(cube).transform }], 235);
   } else {
     const finding = cartonFinding(item, interaction.cartonBottom);
     if (!finding) return;
@@ -2190,6 +2201,12 @@ function revealArchiveReceipt(revealIndex) {
 
 function closePanel() {
   captureCorrectionScroll();
+  if (panel === 'carton' && interaction.returnToDocs && windowCase()?.carton) {
+    playSound('paper');
+    openPanel('docs', null, interaction.documentsScroll);
+    focusControl(modalLayer, { act: 'carton', i: String(interaction.lastReadDoc) });
+    return;
+  }
   if (panel === 'archive' && reportIndex && archivePaper) {
     const { id, index, scrollTop, scrollLeft } = archivePaper;
     archivePaper = null;
@@ -2644,11 +2661,11 @@ document.addEventListener('keydown', (event) => {
 });
 
 modalLayer.addEventListener('pointerdown', (event) => {
-  const handle = event.target.closest('.sample-stage [data-drag]');
+  const handle = event.target.closest('.sample-stage [data-drag], .carton-model[data-drag]');
   if (!handle || event.button !== 0 || !event.isPrimary || toolDrag || drag) return;
-  const stage = handle.closest('.sample-stage');
-  const origin = stagePoint(root, event.clientX, event.clientY);
   const kind = handle.dataset.drag;
+  const stage = kind === 'carton' ? handle : handle.closest('.sample-stage');
+  const origin = stagePoint(root, event.clientX, event.clientY);
   toolDrag = {
     handle, stage, origin, pointerId: event.pointerId, distance: 0,
     kind, action: handle.dataset.act,
@@ -2675,6 +2692,12 @@ window.addEventListener('pointermove', (event) => {
   const dy = point.y - origin.y;
   const distance = Math.hypot(dx, dy);
   toolDrag.distance = Math.max(toolDrag.distance, distance);
+  if (kind === 'carton') {
+    const direction = stage.dataset.cartonFace === 'bottom' ? -1 : 1;
+    const turn = Math.min(1, Math.abs(dy) / CARTON_TURN_TRAVEL) * 56 * direction;
+    stage.style.setProperty('--carton-swipe', `${turn.toFixed(1)}deg`);
+    return;
+  }
   if (kind === 'clasp') stage.style.setProperty('--clasp-pull', `${Math.min(18, distance).toFixed(1)}px`);
   if (kind === 'wrapper') stage.style.setProperty('--wrap-pull', `${Math.min(26, distance).toFixed(1)}px`);
   if (kind === 'film') {
@@ -2697,6 +2720,19 @@ function endToolDrag(event) {
   const completedDrag = toolDrag;
   const { handle, stage, distance, kind, action, slot, loaded, filmTravel } = completedDrag;
   toolDrag = null;
+  if (kind === 'carton') {
+    const cube = stage.isConnected && stage.querySelector('.carton-cube');
+    const from = cube && getComputedStyle(cube).transform;
+    stage.style.removeProperty('--carton-swipe');
+    if (cube && event.type === 'pointerup' &&
+        Math.abs(stagePoint(root, event.clientX, event.clientY).y - completedDrag.origin.y) >= CARTON_TURN_TRAVEL) {
+      checkCarton('carton-turn', handle, from);
+    } else if (cube) {
+      animateOnDesk(cube, [{ transform: from }, { transform: getComputedStyle(cube).transform }], 160);
+    }
+    setGazeTarget(gaze.targetX, gaze.targetY);
+    return;
+  }
   delete stage.dataset.toolDrag;
   stage.removeAttribute('data-gauge-over');
   for (const property of ['--clasp-pull', '--wrap-pull', '--tool-dx', '--tool-dy']) stage.style.removeProperty(property);

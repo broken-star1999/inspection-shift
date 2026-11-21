@@ -565,9 +565,14 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     let fieldActions;
     if (!tutorial && !comparing) {
       if (page.type === 'order') fieldActions = orderFieldActions(item, position, visible, inspection.selected);
-      else if (item.carton && page.type === 'label') fieldActions = new Map([['批号', button('看外箱', 'carton', 'secondary document-field-action')]]);
       else if (relabelComparison(item, position)) fieldActions = new Map([['原箱批号',
         button('对批号', 'relabel-check', 'secondary document-field-action', `data-i="${position}"${active(false)}`)]]);
+      if (item.carton && ['label', 'order'].includes(page.type)) {
+        const codeField = page.fields.find(([field]) => field === '箱底喷码')?.[0];
+        fieldActions ??= new Map();
+        fieldActions.set(codeField ?? '批号', button(page.type === 'label' ? '看外箱' : '核对箱底',
+          'carton', 'secondary document-field-action', `data-i="${position}"`));
+      }
     }
     const thicknessField = gaugeFields[page.type];
     if (canMeasure && thicknessField && page.fields.some(([key]) => key === thicknessField)) {
@@ -695,10 +700,13 @@ export function carton(item, progress) {
   const finding = cartonFinding(item, bottom);
   const selected = finding && readFindings(progress).some(({ key }) => key === finding.key);
   const turn = button(bottom ? '翻回正面' : '翻看箱底', 'carton-turn', 'secondary carton-turn');
-  const note = finding ? button(selected ? '已记下' : '记下箱底观察', 'carton-note', 'secondary carton-note', active(selected)) : '';
+  const registered = order?.fields.some(([field]) => field === '箱底喷码');
+  const noteLabel = selected ? '取回箱底记录' : registered ? '记下实码对照' : '记下箱底观察';
+  const note = finding ? button(noteLabel, 'carton-note', 'secondary carton-note', active(selected)) : '';
   const empty = bottom && !item.carton.code ? '<p class="carton-no-ink">箱底没有可辨喷码。</p>' : '';
   const body = `<div class="carton-workbench"><div class="carton-inspect-object">${cartonModel(bottom ? item.carton.code : null, bottom)}${empty}</div>${reference}</div>`;
-  return deskSurface('外箱查验', body, 'carton-surface', '放下外箱', bottom ? 'bottom' : 'front', { footer: turn + note, closeLabel: '放下外箱' });
+  const close = progress.returnToDocs ? '回到单据' : '放下外箱';
+  return deskSurface('外箱查验', body, 'carton-surface', close, bottom ? 'bottom' : 'front', { footer: turn + note, closeLabel: close });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {

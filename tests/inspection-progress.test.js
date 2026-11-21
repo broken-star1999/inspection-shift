@@ -338,6 +338,25 @@ test('restores the open measured thickness comparison directly or on return from
   }
 });
 
+test('keeps the carton face and exact papers beneath it across a reload', () => {
+  const item = DAYS[4].cases.find(({ id }) => id === 17);
+  const workspace = { panel: 'carton', scrollTop: 16 };
+  for (const arrangement of [{ compare: 2 }, { spreadAll: true }]) {
+    const work = {
+      ...freshInteraction(),
+      ...arrangement,
+      cartonBottom: true,
+      lastReadDoc: 2,
+      returnToDocs: true,
+      documentsScroll: { scrollTop: 48, scrollLeft: 12 },
+    };
+    const saved = JSON.parse(JSON.stringify(captureInspectionProgress(item, work, workspace)));
+    assert.deepEqual(restoreInspectionProgress(saved, item, [17], {}), { ...work, workspace });
+    assert.deepEqual(captureInspectionProgress(item, { ...work, returnToDocs: false }, workspace).workspace, workspace);
+    assert.equal(captureInspectionProgress({ ...item, carton: null }, work, workspace).workspace, undefined);
+  }
+});
+
 test('restores comparison of a recorded reading while the instrument is released', () => {
   const item = DAYS[4].cases.find(({ id }) => id === 18);
   const work = {

@@ -99,7 +99,7 @@ function workspaceProgress(item, work, inspection, context = {}) {
   if (!['docs', 'sample', 'phone', 'carton'].includes(panel)) return null;
   const scrollTop = Number.isFinite(work.scrollTop) ? Math.max(0, work.scrollTop) : 0;
   const workspace = { panel, scrollTop };
-  if (panel === 'carton') return item.carton ? workspace : null;
+  if (panel === 'carton' && !item.carton) return null;
   if (panel === 'phone') {
     const source = work.returnTo;
     if (['docs', 'sample'].includes(source?.panel)) {
@@ -120,7 +120,8 @@ function workspaceProgress(item, work, inspection, context = {}) {
   const count = Array.isArray(item.documents) ? item.documents.length : 0;
   const doc = documentIndex(work.doc, count);
   if (panel === 'docs' && doc === null) return null;
-  const returnToDocs = panel === 'sample' && !guided && doc !== null && work.returnToDocs === true;
+  const returnToDocs = ['sample', 'carton'].includes(panel) && !guided && doc !== null && work.returnToDocs === true;
+  if (panel === 'carton' && !returnToDocs) return workspace;
   workspace.showFindings = work.showFindings === true;
 
   if (panel === 'docs' || returnToDocs) {
@@ -149,13 +150,15 @@ function workspaceProgress(item, work, inspection, context = {}) {
 
   if (panel === 'sample') {
     workspace.referenceDoc = guided ? null : documentIndex(work.referenceDoc, count);
+    if (!guided && work.thicknessOpen === true && thicknessComparison(item, inspection, context.findings)) {
+      workspace.thicknessOpen = true;
+    }
+  }
+  if (panel === 'sample' || returnToDocs) {
     workspace.returnToDocs = returnToDocs;
     const { scrollTop, scrollLeft } = work.documentsScroll ?? {};
     if (returnToDocs && Number.isFinite(scrollTop) && Number.isFinite(scrollLeft)) {
       workspace.documentsScroll = { scrollTop: Math.max(0, scrollTop), scrollLeft: Math.max(0, scrollLeft) };
-    }
-    if (!guided && work.thicknessOpen === true && thicknessComparison(item, inspection, context.findings)) {
-      workspace.thicknessOpen = true;
     }
   }
   return workspace;

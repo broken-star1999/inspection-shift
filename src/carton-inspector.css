@@ -3,6 +3,8 @@
   --carton-height: calc(var(--carton-width) * .57);
   --carton-depth: calc(var(--carton-width) * .65);
   --carton-board: repeating-linear-gradient(102deg, transparent 0 7px, #65472112 7px 8px, transparent 8px 13px);
+  --carton-pitch: -22deg;
+  --carton-yaw: -22deg;
   position: relative;
   display: grid;
   place-items: center;
@@ -10,7 +12,12 @@
   block-size: calc(var(--carton-width) * .91);
   isolation: isolate;
   perspective: 46rem;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
+
+.carton-model:active { cursor: grabbing; }
 
 .carton-model::before {
   content: '';
@@ -28,11 +35,12 @@
   inline-size: var(--carton-width);
   block-size: var(--carton-height);
   transform-style: preserve-3d;
-  transform: rotateY(-22deg) rotateX(-22deg);
+  transform: rotateY(var(--carton-yaw)) rotateX(calc(var(--carton-pitch) + var(--carton-swipe, 0deg)));
 }
 
-.carton-model[data-carton-face='bottom'] .carton-cube {
-  transform: rotateY(-12deg) rotateX(67deg);
+.carton-model[data-carton-face='bottom'] {
+  --carton-pitch: 67deg;
+  --carton-yaw: -12deg;
 }
 
 .carton-face {

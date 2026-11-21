@@ -5,7 +5,7 @@ const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => (
 export function cartonModel(code, bottom = false) {
   const ink = bottom && code ? escapeHtml(code) : '';
   const description = bottom ? `外箱底面，${ink ? `喷码 ${ink}` : '无可辨喷码'}` : '外箱正面，箱签只剩撕裂的底纸';
-  return `<div class="carton-model" data-carton-face="${bottom ? 'bottom' : 'front'}" role="img" aria-label="${description}">
+  return `<div class="carton-model" data-drag="carton" data-carton-face="${bottom ? 'bottom' : 'front'}" role="img" aria-label="${description}">
     <div class="carton-cube" aria-hidden="true">
       <div class="carton-face carton-face-front"><i class="carton-label-remnant"></i></div>
       <div class="carton-face carton-face-back"></div>
