@@ -925,6 +925,24 @@ function contactSlip(extension, number, phoneBottom, batchPaper = null, carry = 
   </button>`;
 }
 
+function dialDisplay(number) {
+  return number || '— — —';
+}
+
+function reportRedialPrompt(number, call) {
+  return number === call?.number ? '两张单已放好，再按「拨出」。' : '两张单已放好，再拨 204。';
+}
+
+export function updatePhoneNumber(phone, number, call) {
+  const display = phone.querySelector('.phone-screen');
+  if (display) display.textContent = dialDisplay(number);
+  const reminder = phone.querySelector('[data-report-redial]');
+  if (reminder) reminder.textContent = reportRedialPrompt(number, call);
+  for (const contact of phone.querySelectorAll('[data-act="phone-select"]')) {
+    contact.setAttribute('aria-pressed', String(contact.dataset.key === number));
+  }
+}
+
 export function phone(number, call, pinned, phoneBottom, current, { returnTo, incomingCall, reportLookup } = {}) {
   const order = current?.documents.findIndex(({ type, fields }) =>
     type === 'order' && fields.some((field) => documentExtension(field) === '204')) ?? -1;
@@ -933,8 +951,7 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
   const nightPaper = pinned.findLast(({ document }) => document?.fields.some((field) => documentExtension(field) === '107'));
   const reportNumberOf = (document) => document?.fields.find(([label]) => label === '报告编号' || label === '原报告编号')?.[1];
   const readyToAsk = reportLookup && pinned.filter(({ document }) => reportNumberOf(document) === reportLookup).length === 2;
-  const redialPrompt = number === call?.number ? '再按「拨出」。' : '再拨 204。';
-  const readyNote = readyToAsk ? `<p class="phone-redial" role="status" data-report-redial>两张单已放好，${redialPrompt}</p>` : '';
+  const readyNote = readyToAsk ? `<p class="phone-redial" role="status" data-report-redial>${reportRedialPrompt(number, call)}</p>` : '';
   const papers = pinned.length ? `<div class="phone-pinned phone-papers" aria-label="电话旁的单据"><b>电话旁</b><ul>
     ${pinned.map(({ id, index, batch, document }) => {
     const title = document?.title ?? '批次留底';
@@ -954,13 +971,13 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
     `data-key="${esc(reportLookup)}" aria-label="在交接簿查报告号 ${esc(reportLookup)}"`) : '';
   const face = phoneBottom
     ? `<div class="phone-face phone-face-bottom" role="group" aria-label="电话机底"><span class="phone-base-hardware" aria-hidden="true"></span><span class="phone-service-label"><span>内线</span><strong>880</strong><small>回铃自测</small></span></div>`
-    : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div>${readyNote}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
+    : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(dialDisplay(number))}</div>${readyNote}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
   const directory = `<section class="phone-directory" aria-label="窗口内线">
     ${nightPaper ? contactSlip('107', number, phoneBottom, { batch: nightPaper.batch, title: nightPaper.document.title }) : ''}
     ${contactSlip('204', number, phoneBottom, labOrder, canBring)}
     ${!phoneBottom && !call ? '<p class="phone-guide">点内线填号，再按「拨出」。若单据另写了经手窗口，可带那张纸来问。</p>' : ''}
   </section>`;
-  return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine" data-phone-face="${phoneBottom ? 'bottom' : 'front'}">${face}</div>
+  return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine" data-phone-face="${phoneBottom ? 'bottom' : 'front'}">${face}<span class="phone-turn-light" aria-hidden="true"></span></div>
     <div class="phone-side">${directory}
     ${papers}
     <div class="phone-log" aria-live="polite"${call ? '' : ' hidden'}>${call ? `<b>${caller}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : ''}${lookup}${registration}</div>

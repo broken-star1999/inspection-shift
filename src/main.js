@@ -2103,9 +2103,9 @@ function pinPhonePaper(id, index) {
 }
 
 function setPhoneNumber(value) {
-  if (interaction.phoneBottom) return;
+  if (panel !== 'phone' || interaction.phoneBottom || interaction.phoneNumber === value) return;
   interaction.phoneNumber = value;
-  renderModal();
+  view.updatePhoneNumber(modalLayer, value, run.phone);
   persistRun();
 }
 
@@ -2119,7 +2119,9 @@ function selectPhoneContact(number, caseId, docIndex) {
     if (displaced) toast(`${displaced} 已收回交接簿`);
     playSound('paper');
   }
-  setPhoneNumber(number);
+  interaction.phoneNumber = number;
+  renderModal();
+  persistRun();
   focusControl(modalLayer, { act: 'dial' });
 }
 
@@ -2130,10 +2132,10 @@ function flipPhone() {
   if (bottom && !run.flags.phoneBack) update({ type: 'explore', key: 'phone-back' }, false);
   playSound('slide');
   render();
-  animateOnDesk(modalLayer.querySelector('.phone-face'), [
-    { transform: `perspective(700px) rotateX(${bottom ? -66 : 66}deg)`, opacity: .72 },
-    { transform: 'perspective(700px) rotateX(0deg)', opacity: 1 },
-  ], 230);
+  animateOnDesk(modalLayer.querySelector('.phone-turn-light'), [
+    { transform: `perspective(700px) rotateX(${bottom ? -64 : 64}deg)`, opacity: .85 },
+    { transform: 'perspective(700px) rotateX(0deg)', opacity: 0 },
+  ], 205);
 }
 
 function openArchive(opener) {
