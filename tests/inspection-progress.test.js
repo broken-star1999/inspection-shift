@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress, tutorialActionComplete } from '../src/inspection-progress.js';
 
 const item = { id: 7, documents: [{ type: 'label' }, { type: 'report' }] };
+const deliveryPin = { id: 5, index: 1 };
+const reportPin = { id: 7, index: 1 };
+const nightPin = { id: 11, index: 2 };
 
 test('restores current inspection work after a JSON round trip', () => {
-  const pinned = [5, 7];
+  const pinned = [deliveryPin, reportPin];
   const work = Object.assign(freshInteraction({ pinned, phoneNumber: '0204' }), {
     note: '检样 · 白痕随薄膜掀起。下方的镜片平整。',
     findings: [
@@ -30,7 +33,7 @@ test('restores current inspection work after a JSON round trip', () => {
   });
 
   const saved = captureInspectionProgress(item, work);
-  const restored = restoreInspectionProgress(JSON.parse(JSON.stringify(saved)), item, pinned);
+  const restored = restoreInspectionProgress(JSON.parse(JSON.stringify(saved)), item, [5, 7]);
   assert.deepEqual(restored, {
     ...freshInteraction({ pinned, phoneNumber: '0204' }),
     note: work.note,
@@ -41,19 +44,22 @@ test('restores current inspection work after a JSON round trip', () => {
     orderSeen: true,
     benchFindingsOpen: true,
   });
-  saved.pinned.push(9);
+  saved.pinned[0].index = 0;
+  saved.pinned.push({ id: 9, index: 1 });
   saved.positions[1].x = 0;
   saved.inspection.film = false;
   saved.findings[0].text = '另一个批号';
   assert.deepEqual(work.pinned, pinned);
+  assert.deepEqual(restored.pinned, pinned);
   assert.equal(work.positions[1].x, 16.71);
   assert.equal(work.inspection.film, true);
   assert.equal(work.findings[0].text, '批号 · G-241');
   assert.equal(restored.findings[0].text, '批号 · G-241');
 });
 
-test('retains phone and valid pinned records when changing batches or ending a shift', () => {
-  const work = Object.assign(freshInteraction({ pinned: [5, 7], phoneNumber: '107' }), {
+test('retains phone and valid pinned papers when changing batches or ending a shift', () => {
+  const pinned = [deliveryPin, reportPin];
+  const work = Object.assign(freshInteraction({ pinned, phoneNumber: '107' }), {
     note: '检样 · 卡扣插片读数偏低。',
     findings: [{ key: 'sample:gauge', source: '量规', text: '1.80 mm' }],
     positions: { 0: { x: 22, y: -11 } },
@@ -63,9 +69,9 @@ test('retains phone and valid pinned records when changing batches or ending a s
   });
   const saved = captureInspectionProgress(item, work);
 
-  assert.deepEqual(freshInteraction(work), freshInteraction({ pinned: [5, 7], phoneNumber: '107' }));
+  assert.deepEqual(freshInteraction(work), freshInteraction({ pinned, phoneNumber: '107' }));
   for (const next of [{ id: 8, documents: item.documents }, null]) {
-    assert.deepEqual(restoreInspectionProgress(saved, next, [7]), freshInteraction({ pinned: [7], phoneNumber: '107' }));
+    assert.deepEqual(restoreInspectionProgress(saved, next, [7]), freshInteraction({ pinned: [reportPin], phoneNumber: '107' }));
   }
   assert.deepEqual(captureInspectionProgress(null, work), captureInspectionProgress(null, freshInteraction(work)));
   assert.equal(captureInspectionProgress(null, work).caseId, null);
@@ -86,11 +92,43 @@ test('loads legacy saves and accepts only usable values from a stored inspection
     pinned: [7, '3', 99, 5, 7],
     phoneNumber: '10A7',
   }, item, [5, 7]), {
-    ...freshInteraction({ pinned: [7, 5] }),
+    ...freshInteraction({ pinned: [deliveryPin, { id: 7, index: null }] }),
     positions: { 0: { x: 90, y: -35 } },
     inspection: { ...freshInteraction().inspection, film: true },
     orderSeen: true,
   });
+});
+
+test('upgrades known legacy papers and leaves ambiguous batch folders without evidence', () => {
+  const restorePins = (pinned, seen) => restoreInspectionProgress({ pinned }, item, seen).pinned;
+  assert.deepEqual(restorePins([5, 10], [5, 10]), [deliveryPin, { id: 10, index: 2 }]);
+  assert.deepEqual(restorePins([11, 14], [11, 14]), [nightPin, { id: 14, index: null }]);
+  assert.deepEqual(restorePins([7, 14], [7, 14]), [{ id: 7, index: null }, { id: 14, index: null }]);
+  assert.deepEqual(restorePins([5, nightPin, 7, 11], [5, 7, 11]), [{ id: 7, index: null }, nightPin]);
+  assert.deepEqual(freshInteraction({ pinned: [11, 14] }).pinned, [nightPin, { id: 14, index: null }]);
+});
+
+test('keeps the two most recent distinct papers, including both papers of one batch', () => {
+  const current = { ...item, id: 14 };
+  const newReport = { id: 14, index: 1 };
+  const oldSlip = { id: 14, index: 2 };
+  const pins = [newReport, reportPin, oldSlip, newReport];
+  const work = freshInteraction({ pinned: pins });
+  assert.deepEqual(work.pinned, [oldSlip, newReport]);
+  const saved = captureInspectionProgress(current, work, { seen: [7, 14] });
+  const restored = restoreInspectionProgress(JSON.parse(JSON.stringify(saved)), current, [7, 14]);
+  assert.deepEqual(restored.pinned, [oldSlip, newReport]);
+});
+
+test('drops unknown or unseen batches and invalid document indexes without inventing a paper', () => {
+  const label = { id: 14, index: 0 };
+  const folder = { id: 14, index: null };
+  const pinned = [label, folder, { id: 7, index: 1 }, { id: '14', index: 1 }, { id: 14 }, { id: 14, index: 3 },
+    { id: 14, index: -1 }, { id: 14, index: 1.5 }, { id: 14, index: '1' }, { id: 99, index: 0 }, null];
+  const seen = [14, 99];
+  assert.deepEqual(restoreInspectionProgress({ pinned }, item, seen).pinned, [label, folder]);
+  assert.deepEqual(captureInspectionProgress(item, { pinned }, { seen }).pinned, [label, folder]);
+  assert.deepEqual(freshInteraction({ pinned }).pinned, [folder, reportPin]);
 });
 
 test('keeps early first-batch actions across reload without completing uninspected steps', () => {
@@ -230,27 +268,28 @@ test('restores three spread papers directly or on return from the sample', () =>
 });
 
 test('phone saves only its surface and cannot open during a receipt, visitor or different case', () => {
-  const work = Object.assign(freshInteraction({ phoneNumber: '204', pinned: [5, 7] }), {
+  const pinned = [deliveryPin, reportPin];
+  const work = Object.assign(freshInteraction({ phoneNumber: '204', pinned }), {
     doc: 1, compare: 0, referenceDoc: 0, returnToDocs: true, note: '已选依据',
   });
   const progress = captureInspectionProgress(item, work, { panel: 'phone', scrollTop: 53 });
   assert.deepEqual(progress.workspace, { panel: 'phone', scrollTop: 53 });
   const live = restoreInspectionProgress(progress, item, [5, 7], {});
   assert.deepEqual(live, {
-    ...freshInteraction({ phoneNumber: '204', pinned: [5, 7] }),
+    ...freshInteraction({ phoneNumber: '204', pinned }),
     note: '已选依据', workspace: { panel: 'phone', scrollTop: 53 },
   });
   const { workspace, ...durable } = live;
   assert.deepEqual(restoreInspectionProgress(progress, item, [5, 7]), durable);
   assert.deepEqual(restoreInspectionProgress(progress, { ...item, id: 9 }, [7], {}),
-    freshInteraction({ phoneNumber: '204', pinned: [7] }));
+    freshInteraction({ phoneNumber: '204', pinned: [reportPin] }));
   assert.equal(captureInspectionProgress(null, work, { panel: 'phone', scrollTop: 53 }).workspace, undefined);
 });
 
 test('restores the exact sample and document comparison behind the phone after reload', () => {
   const sampleItem = { ...item, documents: [...item.documents, { type: 'order' }], sample: { kind: 'clip' } };
   const work = {
-    ...freshInteraction({ phoneNumber: '880', pinned: [7] }),
+    ...freshInteraction({ phoneNumber: '880', pinned: [reportPin] }),
     doc: 2, compare: 1, spreadAll: true, referenceDoc: 0, returnToDocs: true,
     inspection: { ...freshInteraction().inspection, measured: true },
   };
@@ -271,13 +310,13 @@ test('restores the exact sample and document comparison behind the phone after r
 test('a call started from a filed document can return to the same seen archive row after reload', () => {
   const current = { ...item, id: 14 };
   const seen = [11, 14];
-  const work = freshInteraction({ phoneNumber: '107', pinned: [11] });
+  const work = freshInteraction({ phoneNumber: '107', pinned: [nightPin] });
   const origin = { panel: 'archive', archiveFocus: 11, archiveQuery: 'G-211', scrollTop: 128 };
   const saved = captureInspectionProgress(current, work, { panel: 'phone', scrollTop: 17, returnTo: origin, seen });
   const reloaded = JSON.parse(JSON.stringify(saved));
   const valid = restoreInspectionProgress(reloaded, current, seen, {});
   assert.deepEqual(valid.workspace, { panel: 'phone', scrollTop: 17, returnTo: origin });
-  assert.deepEqual(valid.pinned, [11]);
+  assert.deepEqual(valid.pinned, [nightPin]);
   assert.equal(valid.phoneNumber, '107');
   const missing = restoreInspectionProgress(reloaded, current, [14], {});
   assert.deepEqual(missing.workspace, { panel: 'phone', scrollTop: 17 });

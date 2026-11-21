@@ -568,7 +568,10 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   if (panel === 'phone' && run) {
     const filed = archive(run);
-    const papers = pinned.map((id) => filed.find((row) => row.id === id)).filter(Boolean);
+    const papers = pinned.flatMap(({ id, index }) => {
+      const row = filed.find((item) => item.id === id);
+      return row ? [{ id, index, batch: row.batch, document: row.documents[index] ?? null }] : [];
+    });
     markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, run.flags.phoneBack, item, {
       returnTo: phoneReturn?.reportIndex ? 'report-index' : phoneReturn?.panel,
       incomingCall,
@@ -1401,7 +1404,7 @@ function dial() {
   if (!interaction.phoneNumber) return;
   const number = interaction.phoneNumber;
   playSound(number === '880' ? 'dialTone' : 'click');
-  update({ type: 'dial', number, caseIds: interaction.pinned });
+  update({ type: 'dial', number, papers: interaction.pinned });
   modalLayer.querySelector('.phone-log')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (run.phase === 'handoff' && activeVisit()) toast('有人到窗口递留底');
 }
@@ -1411,8 +1414,9 @@ function openPhone(opener) {
   if (incomingAtWindow()) update({ type: 'answer-call' }, false);
   else if (opener.dataset.key === 'bring-order' && panel === 'docs') {
     const item = windowCase();
-    if (PHONE['204'].requests[item?.id] && heldObjects(item).heldDocuments.some((index) => item.documents[index]?.type === 'order')) {
-      const displaced = pinPhonePaper(item.id);
+    const order = heldObjects(item).heldDocuments.find((index) => item?.documents[index]?.type === 'order');
+    if (PHONE['204'].requests[item?.id] && order !== undefined) {
+      const displaced = pinPhonePaper(item.id, order);
       if (displaced) toast(`${displaced} 已收回交接簿`);
     }
   }
@@ -1439,16 +1443,19 @@ function phoneFromDocument(caseId, index, field, opener) {
   const number = documentExtension(doc?.fields[field]);
   if (!number) return;
   interaction.phoneNumber = number;
-  const displaced = pinPhonePaper(caseId);
+  const displaced = pinPhonePaper(caseId, index);
   if (displaced) toast(`${displaced} 已收回交接簿`);
   openPhone(opener);
   focusControl(modalLayer, { act: 'dial' });
 }
 
-function pinPhonePaper(id) {
-  const retained = interaction.pinned.filter((key) => key !== id);
-  interaction.pinned = [...retained.slice(-1), id];
-  return retained.length === 2 ? archive(run).find((row) => row.id === retained[0])?.batch : null;
+function pinPhonePaper(id, index) {
+  const retained = interaction.pinned.filter((paper) => paper.id !== id || (paper.index !== index && paper.index !== null));
+  interaction.pinned = [...retained.slice(-1), { id, index }];
+  if (retained.length < 2) return null;
+  const [older] = retained;
+  const row = archive(run).find((item) => item.id === older.id);
+  return row ? `${row.batch} ${row.documents[older.index]?.title ?? '批次留底'}` : null;
 }
 
 function setPhoneNumber(value) {
@@ -1703,13 +1710,20 @@ root.addEventListener('click', (event) => {
         revealArchiveReceipt(true);
       }
       break;
-    case 'archive-receipt':
+    case 'archive-receipt': case 'phone-paper': {
       if (!run?.seen.includes(index)) break;
       focusArchiveRow(index);
       interaction.archiveQuery = '';
       openArchive(target);
       revealArchiveReceipt(true);
+      if (act === 'phone-paper' && target.dataset.doc !== undefined) {
+        const docIndex = Number(target.dataset.doc);
+        const sheet = modalLayer.querySelector(`.archive-detail .sheet[data-doc-index="${docIndex}"]`);
+        sheet?.scrollIntoView({ block: 'start', inline: 'nearest' });
+        if (sheet) focusControl(sheet, { act: 'archive-pin' });
+      }
       break;
+    }
     case 'archive-focus': case 'archive-followup': case 'archive-evidence':
       focusArchiveRow(act === 'archive-evidence' ? key : index);
       if (act === 'archive-followup' && !archive(run, interaction.archiveQuery).some((row) => row.id === index)) {
@@ -1721,16 +1735,19 @@ root.addEventListener('click', (event) => {
       break;
     case 'archive-pin': {
       if (!run?.seen.includes(index) || run.phase === 'ending') break;
+      const docIndex = Number(target.dataset.doc);
+      const row = archive(run).find(({ id }) => id === index);
+      if (!Number.isInteger(docIndex) || !row?.documents[docIndex]) break;
       const pinned = interaction.pinned;
-      const removing = pinned.includes(index);
-      const displaced = removing ? null : pinPhonePaper(index);
-      if (removing) interaction.pinned = pinned.filter((id) => id !== index);
+      const selected = pinned.find((paper) => paper.id === index && paper.index === docIndex);
+      const displaced = selected ? null : pinPhonePaper(index, docIndex);
+      if (selected) interaction.pinned = pinned.filter((paper) => paper !== selected);
       if (displaced) toast(`新单据已放到电话旁，${displaced} 已收回交接簿`);
-      else toast(removing ? '单据已收回交接簿' : '单据已放到电话旁');
+      else toast(selected ? '单据已收回交接簿' : '单据已放到电话旁');
       playSound('paper');
       render();
-      if (panel === 'phone' && !removing) {
-        focusControl(modalLayer, { act: 'archive-receipt', i: String(index) })?.scrollIntoView({ block: 'nearest' });
+      if (panel === 'phone' && !selected) {
+        focusControl(modalLayer, { act: 'phone-paper', i: String(index), doc: String(docIndex) })?.scrollIntoView({ block: 'nearest' });
       }
       break;
     }

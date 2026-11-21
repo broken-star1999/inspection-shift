@@ -468,6 +468,24 @@
 }
 .archive-surface .archive-visit-row { grid-template-columns: minmax(0, 1fr); }
 .archive-surface .archive-actions { margin-block: 0 .46rem; }
+.sheet-pin-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .2rem .5rem;
+}
+.sheet .archive-paper-pin {
+  min-block-size: 2.75rem;
+  padding: .22rem .48rem;
+  border-color: #91724f;
+  background: #e4cda1;
+  color: #513a26;
+  font: 760 .78rem / 1.24 var(--mono);
+  text-shadow: none;
+}
+.sheet .archive-paper-pin[aria-pressed='true'] { background: #ced0a4; border-color: #7b8458; }
+.sheet .archive-paper-pin:is(:hover, :focus-visible) { background: #f6e0b7; }
 .fields dd.report-number-value {
   display: flex;
   flex-wrap: wrap;

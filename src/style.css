@@ -1260,7 +1260,7 @@ button:disabled { opacity: .46; }
   align-items: center;
   gap: .5rem;
   inline-size: 100%;
-  min-block-size: 1.9rem;
+  min-block-size: 2.75rem;
   padding: .27rem .46rem;
   border: 1px solid #858467;
   border-inline-start: 3px solid #ba9b64;
@@ -1272,6 +1272,9 @@ button:disabled { opacity: .46; }
 }
 .phone-paper b { white-space: nowrap; }
 .phone-paper span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-paper:has(> small) { grid-template-columns: auto minmax(0, 1fr) auto; gap: .38rem; }
+.phone-paper:has(> small) span { white-space: normal; overflow-wrap: anywhere; }
+.phone-paper small { font: 750 .76rem / 1.25 var(--mono); color: #594527; white-space: nowrap; }
 .phone-paper:is(:hover, :focus-visible) { background: #f4e1b4; }
 
 .phone-modal > .phone-actions {

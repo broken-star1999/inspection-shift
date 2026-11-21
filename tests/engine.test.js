@@ -1259,6 +1259,72 @@ test('the G-248 inquiry follows the newest explicit order until both R-071 slips
   assert.deepEqual(inspected, [10, 14]);
 });
 
+test('204 distinguishes the current R-084 report from the two actual R-071 originals', () => {
+  const script = PHONE['204'];
+  const first = { id: 7, index: 1 };
+  const retest = { id: 14, index: 1 };
+  const withdrawn = { id: 14, index: 2 };
+  const state = receiptAt(14, 'pass');
+  const call = (papers) => act(state, 'dial', { number: '204', papers });
+
+  assert.equal(call([first]).phone.line, script.relatedHint);
+  assert.equal(call([withdrawn]).phone.line, script.archiveHint);
+  for (const papers of [[retest], [first, retest], [retest, first], [withdrawn, retest]]) {
+    const wrongPair = call(papers);
+    assert.equal(wrongPair.phone.line, script.retestHint);
+    assert.deepEqual(wrongPair.pending, []);
+  }
+  assert.equal(call([{ ...first, index: 0 }, withdrawn]).phone.line, script.archiveHint);
+  assert.equal(call([{ ...first, index: null }, { ...withdrawn, index: null }]).phone.line, script.greeting);
+  const empty = act(state, 'dial', { number: '204', papers: [], caseIds: [7, 14], report: true });
+  assert.equal(empty.phone.line, script.greeting);
+  assert.deepEqual(empty.pending, []);
+
+  const beforeArrival = act(receiptAt(10, 'review'), 'dial', { number: '204', papers: [first, withdrawn] });
+  assert.equal(beforeArrival.phone.line, script.relatedHint);
+  assert.deepEqual(beforeArrival.pending, []);
+  const paired = call([first, withdrawn, { id: 10, index: 2 }]);
+  assert.equal(paired.phone.kind, 'trace');
+  assert.deepEqual(paired.pending, ['trace']);
+  const delivered = act(JSON.parse(JSON.stringify(paired)), 'next');
+  assert.equal(delivered.event.key, 'trace');
+  assert.equal(delivered.flags.traceDocument, false);
+  assert.equal(act(delivered, 'ack-visit').flags.traceDocument, true);
+
+  let marked = act(state, 'explore', { key: 'r071-241' });
+  marked = act(marked, 'explore', { key: 'r071-248' });
+  const fromLegacySources = act(JSON.parse(JSON.stringify(marked)), 'dial', { number: '204', papers: [] });
+  assert.equal(fromLegacySources.phone.kind, 'trace');
+});
+
+test('204 routine requests and 107 follow-ups accept only the relevant pinned page', () => {
+  for (const [id, wrongIndex, orderIndex] of [[5, 0, 1], [10, 1, 2]]) {
+    const state = receiptAt(id, 'review');
+    const wrongPage = act(state, 'dial', { number: '204', papers: [{ id, index: wrongIndex }] });
+    assert.equal(wrongPage.phone.line, PHONE['204'].greeting);
+    const order = { id, index: orderIndex };
+    const requested = act(state, 'dial', { number: '204', papers: [order] });
+    assert.equal(requested.phone.kind, 'lab-request');
+    assert.equal(requested.phone.caseId, id);
+    if (id !== 10) continue;
+    const oldSlip = { id: 7, index: 1 };
+    assert.equal(act(state, 'dial', { number: '204', papers: [oldSlip, order] }).phone.kind, 'lab-request');
+    assert.equal(act(state, 'dial', { number: '204', papers: [order, oldSlip] }).phone.line, PHONE['204'].relatedHint);
+  }
+
+  const state = receiptAt(13, 'pass');
+  for (const papers of [[{ id: 11, index: 0 }], [{ id: 11, index: 1 }], [{ id: 11, index: null }], [{ id: 13, index: 2 }]]) {
+    const wrongPage = act(state, 'dial', { number: '107', papers, caseIds: [11] });
+    assert.equal(wrongPage.phone.line, PHONE['107'].greeting);
+    assert.deepEqual(wrongPage.pending, []);
+  }
+  const requested = act(state, 'dial', { number: '107', papers: [{ id: 11, index: 2 }] });
+  assert.equal(requested.phone.kind, 'night');
+  assert.deepEqual(requested.pending, ['night']);
+  const marked = act(state, 'explore', { key: 'g211' });
+  assert.equal(act(marked, 'dial', { number: '107', papers: [] }).phone.kind, 'night');
+});
+
 test('ordinary lab requests and answered calls remain in the limited phone log after unrelated calls', () => {
   let state = untilHandoff(21, { inspect: (state, item) => [5, 10].includes(item.id)
     ? act(state, 'dial', { number: '204', caseIds: [item.id] }) : state });

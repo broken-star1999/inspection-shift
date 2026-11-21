@@ -1,4 +1,4 @@
-import { DAYS, G202_RECHECK, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, TUTORIAL as tutorialContent } from './content.js';
+import { DAYS, G202_RECHECK, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, TUTORIAL as tutorialContent, documentExtension } from './content.js';
 import { normalizeFindings } from './inspection-findings.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
@@ -564,26 +564,72 @@ function answerCall(state) {
   return callResult(answered, number, npc, [...lines], 'incoming', { incomingKey: key, day: state.day });
 }
 
-function selectedRecords(state, action) {
-  const explicit = Array.isArray(action.caseIds) ? action.caseIds : [];
-  const ids = new Set(explicit.map(Number).filter((id) => state.seen.includes(id)));
+function selectedSourceFlags(state) {
+  const ids = new Set();
   if (state.flags.source241) ids.add(7);
   if (state.flags.source248) ids.add(14);
   if (state.flags.source211) ids.add(11);
+  return ids;
+}
+
+function explicitRecordIds(action) {
+  return Array.isArray(action.caseIds) ? action.caseIds.map(Number) : [];
+}
+
+function selectedRecords(state, action) {
+  const ids = selectedSourceFlags(state);
+  for (const id of explicitRecordIds(action)) {
+    if (state.seen.includes(id)) ids.add(id);
+  }
   const current = getCase(state)?.id;
   if (current === 14 && (action.report || action.context)) ids.add(14);
   return ids;
 }
 
+function selectedPapers(state, action) {
+  if (!Array.isArray(action.papers) || !action.papers.length) return [];
+  const visible = new Map(archive(state).map(({ id, documents }) => [id, documents]));
+  return action.papers.flatMap((paper) => {
+    if (!Number.isInteger(paper?.id) || !Number.isInteger(paper.index) || paper.index < 0) return [];
+    const document = visible.get(paper.id)?.[paper.index];
+    return document ? [{ id: paper.id, document }] : [];
+  });
+}
+
+function citesReport(document, field, number) {
+  return document.fields.some(([label, value]) => label === field && value === number);
+}
+
+function labSelection(state, action, script) {
+  if (!Object.hasOwn(action, 'papers')) return { ids: selectedRecords(state, action), explicit: explicitRecordIds(action) };
+  const ids = selectedSourceFlags(state);
+  const explicit = [];
+  for (const { id, document } of selectedPapers(state, action)) {
+    const oldSlip = (id === 7 && document.type === 'report' && citesReport(document, '报告编号', 'R-071')) ||
+      (id === 14 && document.type === 'archive' && citesReport(document, '原报告编号', 'R-071'));
+    if (oldSlip) {
+      ids.add(id);
+      explicit.push(id);
+    } else if (id === 14 && document.type === 'report' && citesReport(document, '报告编号', 'R-084')) {
+      explicit.push('retest');
+    } else if (script.requests?.[id] && document.type === 'order') {
+      explicit.push(id);
+    }
+  }
+  return { ids, explicit };
+}
+
 function dialLab(state, action, number) {
   const script = PHONE[number];
-  const ids = selectedRecords(state, action);
+  const { ids, explicit } = labSelection(state, action, script);
   const oldCase = ids.has(14) ? 14 : ids.has(7) ? 7 : null;
   const bothOldPapers = ids.has(7) && ids.has(14);
   if (!bothOldPapers) {
-    const explicit = Array.isArray(action.caseIds) ? action.caseIds.map(Number) : [];
-    const request = selectedLabRequest(state, script, explicit.slice(explicit.lastIndexOf(oldCase) + 1));
+    const retest = explicit.lastIndexOf('retest');
+    const latestPriorPaper = Math.max(explicit.lastIndexOf(oldCase), retest);
+    const request = selectedLabRequest(state, script, explicit.slice(latestPriorPaper + 1));
     if (request) return dialLabRequest(state, number, script.npc, request);
+    if (retest >= 0) return callResult(state, number, script.npc, [script.retestHint], 'hint');
   }
   if (!oldCase) return callResult(state, number, script.npc, [script.greeting]);
   if (state.flags.traceDocument) return callResult(state, number, script.npc, [script.received]);
@@ -620,7 +666,11 @@ function dialNight(state, action, number) {
   else if (state.phase === 'case') delivery = '你先把手上这批办完。我到窗口递给你。';
   else if (state.phase === 'handoff') delivery = '我这就到窗口。';
   if (isVisitQueued(state, 'night')) return callResult(state, number, script.npc, ['退回联已经找出来了。', delivery]);
-  if (!selectedRecords(state, action).has(11)) {
+  const hasNightRegister = Object.hasOwn(action, 'papers')
+    ? state.flags.source211 || selectedPapers(state, action).some(({ id, document }) => id === 11 &&
+      document.type === 'archive' && document.fields.some((field) => documentExtension(field) === '107'))
+    : selectedRecords(state, action).has(11);
+  if (!hasNightRegister) {
     return callResult(state, number, script.npc, [script.greeting]);
   }
   const called = callResult(state, number, script.npc, [script.found, delivery], 'night');

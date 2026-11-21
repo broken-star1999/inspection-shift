@@ -1,14 +1,34 @@
 import { normalizeFindings } from './inspection-findings.js';
 import { intakeComparison } from './document-comparison.js';
-import { EASTER_EGGS } from './content.js';
+import { DAYS, EASTER_EGGS, documentExtension } from './content.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const phoneCases = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
+
+function legacyPinIndex(item) {
+  const { id, documents } = item;
+  let index = -1;
+  if (id === 5 || id === 10) index = documents.findIndex(({ type }) => type === 'order');
+  if (id === 11) index = documents.findIndex(({ fields }) => fields.some((field) => documentExtension(field) === '107'));
+  return documentIndex(index, documents.length);
+}
 
 function carryProgress(carry, seen = null) {
   const seenIds = seen === null ? null : new Set(Array.isArray(seen) ? seen : []);
   const pins = Array.isArray(carry?.pinned) ? carry.pinned : [];
-  const eligible = pins.filter((id) => Number.isInteger(id) && id > 0 && (!seenIds || seenIds.has(id)));
-  const pinned = [...new Set(eligible)].slice(-2);
+  const pinnedByPaper = new Map();
+  for (const pin of pins) {
+    const legacy = Number.isInteger(pin);
+    const id = legacy ? pin : pin?.id;
+    const item = phoneCases.get(id);
+    if (!item || (seenIds && !seenIds.has(id))) continue;
+    const index = legacy ? legacyPinIndex(item) : pin.index;
+    if (index !== null && documentIndex(index, item.documents.length) === null) continue;
+    const key = `${id}:${index}`;
+    pinnedByPaper.delete(key);
+    pinnedByPaper.set(key, { id, index });
+  }
+  const pinned = [...pinnedByPaper.values()].slice(-2);
   const phoneNumber = typeof carry?.phoneNumber === 'string' && /^\d{0,5}$/.test(carry.phoneNumber) ? carry.phoneNumber : '';
   return { pinned, phoneNumber };
 }
@@ -143,7 +163,11 @@ export function freshInteraction(carry = {}) {
 
 export function captureInspectionProgress(item, interaction, context = {}) {
   const caseId = Number.isInteger(item?.id) && item.id > 0 ? item.id : null;
-  const progress = { caseId, ...caseProgress(item, caseId === null ? null : interaction), ...carryProgress(interaction) };
+  const progress = {
+    caseId,
+    ...caseProgress(item, caseId === null ? null : interaction),
+    ...carryProgress(interaction, context?.seen),
+  };
   if (caseId !== null && context?.panel) {
     const workspace = workspaceProgress(item, {
       ...interaction,
