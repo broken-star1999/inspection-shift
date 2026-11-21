@@ -111,6 +111,7 @@ let presentedEvidence = null;
 let interaction = freshInteraction();
 
 root.innerHTML = view.shell();
+const playfield = root.querySelector('.playfield');
 const status = root.querySelector('#top-status');
 const booth = root.querySelector('.booth-layout');
 const wallShift = root.querySelector('#wall-shift');
@@ -128,6 +129,7 @@ windowGlance.dataset.act = 'window-glance';
 const desktop = root.querySelector('#desk');
 const screenLayer = root.querySelector('#screen');
 const modalLayer = root.querySelector('#modal');
+const tutorialPointer = root.querySelector('.tutorial-pointer');
 const toastBox = root.querySelector('.game-toast');
 const roomHost = root.querySelector('.canvas-room');
 const cargoHost = root.querySelector('.booth-cargo');
@@ -143,6 +145,8 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const gaze = { x: 0, y: 0, targetX: 0, targetY: 0, frame: 0, time: 0 };
 let fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
 let fixtureLayout = {};
+let tutorialPointerFrame = 0;
+let tutorialPointerMotion = 0;
 
 bindViewport(root, ({ fullscreen, immersive, rotated }) => {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
@@ -152,6 +156,7 @@ bindViewport(root, ({ fullscreen, immersive, rotated }) => {
   fullscreenToggle.setAttribute('aria-pressed', String(expanded));
   fullscreenToggle.setAttribute('aria-label', expanded ? '退出全屏' : '全屏');
   if (rotated) resetGaze();
+  scheduleTutorialPointer();
 });
 
 function placeFixtures() {
@@ -190,6 +195,7 @@ function placeFixtures() {
       element.style.setProperty('--stamp-label-y', `${(labelY - centerY).toFixed(1)}px`);
     }
   }
+  scheduleTutorialPointer();
 }
 
 function canSwitchBooth() {
@@ -287,6 +293,7 @@ function drawGaze(x, y) {
   root.style.setProperty('--view-y', y.toFixed(4));
   root.style.setProperty('--view-distance', distance.toFixed(4));
   scenery?.setViewPose(x, y);
+  if (root.dataset.modeled !== 'true') scheduleTutorialPointer();
 }
 
 function resetGaze() {
@@ -351,7 +358,9 @@ root.addEventListener('pointerleave', () => setGazeTarget(0, 0));
 reducedMotion.addEventListener('change', resetGaze);
 
 function animateOnDesk(element, frames, duration) {
-  if (!reducedMotion.matches) element?.animate?.(frames, { duration, easing: 'cubic-bezier(.2,.78,.27,1)' });
+  if (reducedMotion.matches || !element?.animate) return;
+  element.animate(frames, { duration, easing: 'cubic-bezier(.2,.78,.27,1)' });
+  scheduleTutorialPointer(duration);
 }
 
 function stageBounds(element) {
@@ -359,6 +368,74 @@ function stageBounds(element) {
   const start = stagePoint(root, rect.left, rect.top);
   const end = stagePoint(root, rect.right, rect.bottom);
   return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), w: Math.abs(end.x - start.x), h: Math.abs(end.y - start.y) };
+}
+
+function tutorialPointerTarget() {
+  if (!run || run.day !== 0 || arrival || glancedPanel) return null;
+  if (run.phase === 'receipt' && !panel && run.records.at(-1)?.id === 1 && run.sampleSet !== 4) {
+    return modalLayer.querySelector('.receipt-surface [data-act="next"]');
+  }
+  if (!tutorialStep()) {
+    if (!view.filmLessonPending(windowCase(), { returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked })) return null;
+    if (!panel) return desktop.querySelector('.sample-preview.instructed:enabled');
+    return panel === 'sample' ? modalLayer.querySelector('.film-handle.instructed:enabled, .sample-flip-control.instructed:enabled') : null;
+  }
+  if (!panel) return desktop.querySelector('[data-fixture].instructed:enabled');
+  if (panel === 'docs') {
+    return modalLayer.querySelector('[data-tutorial-batch]');
+  }
+  if (panel === 'sample') return modalLayer.querySelector('.tutorial-next:enabled, .sample-hotspot.instructed:enabled');
+  return null;
+}
+
+function positionTutorialPointer() {
+  const target = tutorialPointerTarget();
+  tutorialPointer.hidden = true;
+  if (!target?.getClientRects().length || target.closest('[inert]') || getComputedStyle(target).visibility === 'hidden') return;
+  const { x, y, w, h } = stageBounds(target);
+  const middleX = x + w / 2;
+  const middleY = y + h / 2;
+  const clip = target.closest('.desk-surface-content');
+  if (clip) {
+    const bounds = stageBounds(clip);
+    if (middleY < bounds.y || middleY > bounds.y + bounds.h || middleX < bounds.x || middleX > bounds.x + bounds.w) return;
+  }
+  const view = stageBounds(playfield);
+  const screen = root.getBoundingClientRect();
+  const left = { x: x - 15, y: middleY, angle: 0 };
+  const above = { x: middleX, y: y - 15, angle: 90 };
+  const right = { x: x + w + 15, y: middleY, angle: 180 };
+  const below = { x: middleX, y: y + h + 15, angle: 270 };
+  const directions = target.matches('.guided-paper-value') ? [right, left, above, below]
+    : panel || run.phase === 'receipt' ? [above, left, right, below] : [left, above, right, below];
+  const guidance = [...playfield.querySelectorAll('.modal-guide, .room-hud .training')].map(stageBounds);
+  const choices = directions.filter(({ x, y }) => x > view.x + 11 && x < view.x + view.w - 11 &&
+    y > view.y + 11 && y < view.y + view.h - 11 && !guidance.some((bounds) =>
+      x + 11 > bounds.x && x - 11 < bounds.x + bounds.w && y + 11 > bounds.y && y - 11 < bounds.y + bounds.h));
+  const clear = ({ x, y }) => {
+    const hit = root.dataset.rotated === 'true'
+      ? document.elementFromPoint(screen.right - y, screen.top + x)
+      : document.elementFromPoint(screen.left + x, screen.top + y);
+    return !hit?.closest('button:enabled, input, a');
+  };
+  const anchor = choices.find(clear) ?? choices[0];
+  if (!anchor) return;
+  tutorialPointer.style.insetInlineStart = `${(anchor.x - view.x).toFixed(1)}px`;
+  tutorialPointer.style.insetBlockStart = `${(anchor.y - view.y).toFixed(1)}px`;
+  tutorialPointer.style.setProperty('--pointer-angle', `${anchor.angle}deg`);
+  tutorialPointer.hidden = false;
+}
+
+function scheduleTutorialPointer(duration = 0) {
+  if (tutorialPointer.hidden && !tutorialPointerTarget()) return;
+  tutorialPointerMotion = Math.max(tutorialPointerMotion, performance.now() + duration);
+  if (tutorialPointerFrame) return;
+  const updatePointer = (now) => {
+    tutorialPointerFrame = 0;
+    positionTutorialPointer();
+    if (now < tutorialPointerMotion && tutorialPointerTarget()) tutorialPointerFrame = requestAnimationFrame(updatePointer);
+  };
+  tutorialPointerFrame = requestAnimationFrame(updatePointer);
 }
 
 function animateFallbackDelivery() {
@@ -589,7 +666,7 @@ function heldObjects(item) {
     if (relabel) heldDocuments = [relabel.registerIndex, relabel.reportIndex, relabel.labelIndex];
     else if (interaction.deliveryCheck !== null) heldDocuments = [interaction.deliveryCheck];
     else if (interaction.previousDoc !== null) heldDocuments = [viewedDocument()];
-    else if (interaction.spreadAll && item?.documents.length === 3) heldDocuments = [0, 1, 2];
+    else if ((interaction.spreadAll || tutorialStep()) && item?.documents.length === 3) heldDocuments = [0, 1, 2];
     else heldDocuments = [interaction.doc, interaction.compare];
   }
   if (sampleHeld && !interaction.thicknessOpen && interaction.referenceDoc !== null) heldDocuments = [interaction.referenceDoc];
@@ -727,9 +804,7 @@ function render(resumeScroll, resumeScrollLeft = 0) {
   const step = item ? tutorialStep() : null;
   const filmCue = !panel && run?.phase === 'case' &&
     view.filmLessonPending(item, { returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked });
-  const deskGuide = step?.key === 'signature' && interaction.signed
-    ? { ...step, target: 'order', line: step.orderLine }
-    : step;
+  const deskGuide = step;
   const visit = arrival ? null : activeVisit();
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   hud.innerHTML = run && !arrival && !closingShot && (run.phase !== 'summary' || visit)
@@ -803,6 +878,7 @@ function syncWindowGlance() {
   }
   const looking = Boolean(glancedPanel);
   root.toggleAttribute('data-window-glance', looking);
+  scheduleTutorialPointer();
   waitingReceive.hidden = !waiting || !looking;
   arrivalStatus.classList.toggle('visually-hidden', waiting && !looking);
   if (content) content.inert = looking;
@@ -941,7 +1017,6 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const scroll = previousContent ? [previousContent.scrollLeft, previousContent.scrollTop] : null;
   const previousReference = previousSurface?.querySelector('.sample-reference');
   const previousPaper = previousSurface?.querySelector('.return-previous');
-  const wasShowingSignature = previousSurface?.querySelector('[data-tutorial-signature]');
   const archiveIndexScroll = previousSurface?.querySelector('.drawer-list')?.scrollTop;
   const previousSearch = glancedPanel === 'archive' ? previousSurface?.querySelector('#archive-query') : null;
   const searchDraft = previousSearch && {
@@ -977,8 +1052,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
-  const guidedProject = step?.key === 'signature' && surface?.querySelector('.project-field-action.instructed');
-  const firstAction = guidedProject || surface?.querySelector('.receipt-surface [data-act="next"]:enabled') || focusables.find((element) => element instanceof HTMLButtonElement &&
+  const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]:enabled') || focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
     !['close', 'toggle-findings', 'remove-finding'].includes(element.dataset.act));
   (glancedPanel ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
@@ -1011,9 +1085,6 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     if (reference && reference.dataset.referenceDoc !== previousReference?.dataset.referenceDoc) {
       animateOnDesk(reference.querySelector('.sheet'), [{ translate: '.85rem .3rem', opacity: .65 }, { translate: '0 0', opacity: 1 }], 180);
     }
-  }
-  if (!wasShowingSignature) {
-    surface?.querySelector('[data-tutorial-signature]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }
 
@@ -1109,6 +1180,7 @@ function persistWorkspaceScroll() {
 
 modalLayer.addEventListener('scroll', (event) => {
   if (event.target !== workspaceBody()) return;
+  scheduleTutorialPointer();
   clearTimeout(workspaceScrollTimer);
   workspaceScrollTimer = setTimeout(persistWorkspaceScroll, 150);
 }, { capture: true, passive: true });
@@ -1514,25 +1586,17 @@ function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready
   render(scrollTop, scrollLeft);
 }
 
-function advanceTutorial() {
+function advanceTutorial({ showSampleGuide = false } = {}) {
   const item = getCase(run);
   let step = tutorialStep();
-  while (step && tutorialActionComplete(step.key, interaction, item)) {
+  while (step && ((showSampleGuide && ['label', 'report', 'signature'].includes(step.key)) || tutorialActionComplete(step.key, interaction, item))) {
     if (!update({ type: 'tutorial', key: step.key }, false)) break;
     step = tutorialStep();
   }
 }
 
 function readDocument(doc) {
-  if (!tutorialStep()) return;
-  if (doc?.type === 'label') interaction.labelSeen = true;
-  if (doc?.type === 'order') interaction.orderSeen = true;
-  advanceTutorial();
-}
-
-function pairTutorialOrder(item, index) {
-  interaction.doc = item.documents.findIndex(({ type }) => type === 'report');
-  interaction.compare = index;
+  if (doc && tutorialStep()) advanceTutorial({ showSampleGuide: true });
 }
 
 function chooseDoc(index, opener) {
@@ -1549,9 +1613,7 @@ function chooseDoc(index, opener) {
   interaction.clipboardBack = false;
   interaction.deliveryCheck = null;
   interaction.relabelCheck = null;
-  if (tutorialStep()?.key === 'signature' && doc.type === 'order') {
-    pairTutorialOrder(item, index);
-  } else if (panel === 'docs' && interaction.previousDoc !== null) {
+  if (panel === 'docs' && interaction.previousDoc !== null) {
     interaction.previousCurrentDoc = index;
   } else if (panel === 'docs' && interaction.compare !== null && !interaction.spreadAll) {
     if (index !== interaction.doc) interaction.compare = index;
@@ -1640,22 +1702,9 @@ function checkBasis(index, field) {
   const finding = paperFieldFinding(doc, index, field);
   const recorded = toggleFinding(finding);
   if (panel === 'docs') interaction.lastReadDoc = index;
-  const step = tutorialStep();
-  if (step) {
-    if (label === '签发' && doc.type === 'report') interaction.signed = true;
-    advanceTutorial();
-  }
   playSound('click');
   toast(`${recorded ? '已记下' : '已移除'} · ${label}`);
   render();
-  if (step?.key === 'report' && tutorialStep()?.key === 'signature') {
-    const signature = modalLayer.querySelector('[data-tutorial-signature]');
-    if (signature) signature.focus({ preventScroll: true });
-    else {
-      const report = windowCase().documents.findIndex(({ type }) => type === 'report');
-      focusControl(modalLayer, { act: 'doc', i: String(report) });
-    }
-  }
 }
 
 function paperFieldFinding(doc, index, field) {
@@ -1766,25 +1815,15 @@ function editCorrectionFinding(key, { remove = false, field } = {}) {
   }
 }
 
-function compareDocs(hint) {
+function compareDocs() {
   const item = getCase(run);
   if (panel !== 'docs' || !item || item.documents.length < 2) return;
   const index = interaction.doc;
   const type = item.documents[index].type;
-  const guide = tutorialStep();
-  if (hint === 'batch' && guide?.key === 'report') {
-    const onReport = type === 'report';
-    interaction.doc = item.documents.findIndex(({ type }) => type === (onReport ? 'report' : 'label'));
-    interaction.compare = item.documents.findIndex(({ type }) => type === (onReport ? 'label' : 'report'));
-  } else if (hint === 'order' && guide?.key === 'signature') {
-    pairTutorialOrder(item, item.documents.findIndex(({ type }) => type === 'order'));
-  } else {
-    const hasOrder = item.documents.some(({ type }) => type === 'order');
-    const preferredType = type === 'report' ? (hasOrder && (!guide || guide.key === 'signature') ? 'order' : 'label') : 'report';
-    const preferred = item.documents.findIndex((doc, id) => id !== index && doc.type === preferredType);
-    interaction.compare = interaction.compare === null ? (preferred >= 0 ? preferred : (index + 1) % item.documents.length) : null;
-  }
-  readDocument(item.documents[interaction.compare]);
+  const hasOrder = item.documents.some(({ type }) => type === 'order');
+  const preferredType = type === 'report' ? (hasOrder ? 'order' : 'label') : 'report';
+  const preferred = item.documents.findIndex((doc, id) => id !== index && doc.type === preferredType);
+  interaction.compare = interaction.compare === null ? (preferred >= 0 ? preferred : (index + 1) % item.documents.length) : null;
   playSound('slide');
   render();
 }
@@ -1844,9 +1883,7 @@ function openDeskPair(left, right, opener) {
 }
 
 function recordDocumentComparison(kind, documentIndex, target) {
-  const guidedProjects = panel === 'docs' && kind === 'project-evidence' && tutorialStep()?.key === 'signature' &&
-    interaction.signed && interaction.orderSeen;
-  const item = guidedProjects ? windowCase() : documentCheckItem();
+  const item = documentCheckItem();
   if (!item) return;
   let comparison;
   if (kind === 'delivery-evidence') {
@@ -1865,11 +1902,9 @@ function recordDocumentComparison(kind, documentIndex, target) {
   if (!comparison) return;
   const recorded = toggleFinding(comparison.finding);
   interaction.lastReadDoc = documentIndex;
-  if (guidedProjects && recorded) advanceTutorial();
   playSound('paper');
   toast(recorded ? '已记下纸面记录' : '已取回纸面记录');
   render();
-  if (guidedProjects && recorded) focusControl(modalLayer, { act: 'sample' });
 }
 
 function comparePrevious(opener) {
@@ -1903,6 +1938,7 @@ function carryDocumentsToTool() {
 function openSample(opener) {
   const item = windowCase();
   if (run?.phase !== 'case' || !item) return;
+  if (tutorialStep()) advanceTutorial({ showSampleGuide: true });
   carryDocumentsToTool();
   interaction.referenceDoc = null;
   if (interaction.returnToDocs) {
@@ -2082,7 +2118,7 @@ function checkSample(act) {
       }
     }
   } else if (act === 'sample-flip') {
-    const face = spec.reading ? graphic?.querySelector('img') : graphic;
+    const face = spec.reading || item.id === 1 ? graphic?.querySelector('img') : graphic;
     animateOnDesk(face, [{ transform: 'perspective(600px) rotateY(-57deg)', opacity: .8 }, { transform: 'perspective(600px) rotateY(0deg)', opacity: 1 }], 220);
   } else if (act === 'sample-film' && previousFold) {
     const film = modalLayer.querySelector('.sample-film-sheet');
@@ -2110,7 +2146,7 @@ function stamp(value) {
     playSound('print');
     render();
     scenery?.setPressed?.(value);
-  } else toast('先跟老周把这箱查完');
+  }
 }
 
 function revealPhoneLog() {
@@ -2409,6 +2445,7 @@ function closePanel({ receiveWaiting = false } = {}) {
   }
   const toBoard = previousPanel?.panel === 'handoff';
   render(toBoard ? previousPanel.detailScroll : previousPanel?.scrollTop);
+  if (!panel && tutorialStep()?.key === 'stamp') focusControl(desktop, { act: 'stamp', key: 'pass' });
   if (panel === 'phone' && previousPanel?.opener?.act === 'report-search' && interaction.phoneNumber === run.phone?.number &&
       modalLayer.querySelector('[data-report-redial]')) {
     workspaceBody()?.scrollTo(0, 0);
@@ -2550,7 +2587,7 @@ root.addEventListener('click', (event) => {
       }
       break;
     }
-    case 'compare': compareDocs(key); break;
+    case 'compare': compareDocs(); break;
     case 'compare-all': spreadDocuments(); break;
     case 'delivery-check': toggleDeliveryCheck(index); break;
     case 'relabel-check': toggleRelabelCheck(index); break;

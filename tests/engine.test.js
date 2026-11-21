@@ -58,16 +58,15 @@ function tuesdayClosingReceipt() {
   return receipt;
 }
 
-test('first stamp stays at the desk until all four guided checks are done', () => {
+test('the first receipt can be issued without recording a finding or finishing optional coaching', () => {
   const initial = createRun(4);
   let state = act(initial, 'start-day');
   assert.equal(initial.records.length, 0);
   assert.equal(getCase(state).id, 1);
-  assert.equal(act(state, 'stamp', { value: 'pass' }), state);
   assert.equal(act(state, 'tutorial', { key: 'sample' }), state);
-  for (const { key } of TUTORIAL.slice(0, -1)) state = act(state, 'tutorial', { key });
   state = act(state, 'stamp', { value: 'pass' });
   assert.equal(state.phase, 'receipt');
+  assert.equal(state.tutorial, initial.tutorial);
   assert.equal(state.records[0].decision, 'pass');
   assert.equal(Object.hasOwn(state.records[0], 'findings'), false);
   assert.equal(act(state, 'stamp', { value: 'pass' }), state);

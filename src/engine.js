@@ -570,7 +570,7 @@ function currentSupplementProof(state, item, decision) {
 function stamp(state, action) {
   const item = getCase(state);
   const { value } = action;
-  if (!item || !DECISIONS.includes(value) || (item.id === 1 && state.tutorial < TUTORIAL.length - 1)) return state;
+  if (!item || !DECISIONS.includes(value)) return state;
   const findings = normalizeFindings(action.findings);
   const previous = previousSameLot(state.records, item);
   const supplementRequest = currentSupplementProof(state, item, value);

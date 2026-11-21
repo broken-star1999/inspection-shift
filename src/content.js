@@ -134,25 +134,20 @@ const glove = { kind: 'clear', appearance: 'glove', front: '掌面覆层平整�
 const earmuff = { kind: 'clear', appearance: 'earmuff', front: '双侧耳罩壳体完整，头带可以顺畅调节。', back: '两圈软垫都贴着壳沿，没有明显凹陷或脱开。' };
 
 export const TUTORIAL = [
-  { target: 'label', title: '先认箱', line: '点开箱签，找批号。' },
+  { target: 'label', title: '先看单据', line: '拿起箱签，和报告、送检联一起看。' },
   {
-    target: 'report', title: '对批号', line: '把箱签和报告并排放，先查批号。',
-    deskLine: '把箱签拖到报告上停一下，看到「松手并排」再放开。',
-    pairLine: '在两张纸上各点一次批号，看是不是同一批。',
+    target: 'report', title: '对批号', line: '看箱签和报告写的是不是同一批。',
   },
   {
-    target: 'order', title: '核对签发和项目', line: '点报告上的「已签发」。',
-    reportLine: '翻到检验报告，找签发栏。',
-    orderLine: '把送检联放到报告旁。',
-    projectsLine: '找到报告上的外观和扣合结果，再点「记下对照」。',
+    target: 'order', title: '核对签发和项目', line: '看报告有没有签发，检验项目齐不齐。',
   },
   {
-    target: 'sample', title: '动手检查', line: '两项都有结果。拿起检样，自己查一遍。',
+    target: 'sample', title: '看样品', line: '看过单据后，可以拿起检样继续查。',
     frontLine: '看看镜片有没有裂痕，然后翻面。',
     claspLine: '按合背面的扣件。',
     tugLine: '轻拉一下，看看扣件会不会松。',
   },
-  { target: 'pass', title: '把单交出去', line: '盖「通过」，把单交给小罗。', sampleLine: '镜片没有裂痕，扣件也没松。' },
+  { target: 'pass', title: '把单交出去', line: '这箱的单据和样品都齐，可以盖「通过」。', sampleLine: '镜片没有裂痕，扣件也没松。' },
 ];
 
 export const FILM_BENCH_TUTORIAL = '先拿起检样，看看白痕在什么地方。';

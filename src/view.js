@@ -69,6 +69,7 @@ export function shell() {
       <div class="paper-drag-cue" id="paper-drag-cue" role="status" hidden><strong></strong><span></span></div>
       <div class="screen-layer" id="screen"></div>
       <div class="modal-layer" id="modal"></div>
+      <span class="tutorial-pointer" aria-hidden="true" hidden></span>
       <div class="game-toast" aria-live="polite"></div>
     </main>
   </div>`;
@@ -143,7 +144,7 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCu
   const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? reply ?? item?.line ?? day.intro;
   const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
   const training = tutorial && !sceneEvent
-    ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.deskLine ?? tutorial.line)}</p></div>`
+    ? `<div class="training" aria-live="polite"><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>`
     : filmCue ? `<div class="training" id="film-bench-cue" aria-live="polite"><small>老周</small><p>${esc(FILM_BENCH_TUTORIAL)}</p></div>` : '';
   return `<div class="speech${cls('dispatch-event', sceneEvent)}${cls('pressure-exchange', exchange)}"${sceneEvent?.kind ? ` data-visit-kind="${esc(sceneEvent.kind)}"` : ''} aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
       <p${reply ? ' class="finding-reply"' : ''}>${esc(line)}</p>${exchange && !reply ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
@@ -221,7 +222,7 @@ export function desk(run, item, tutorial, interaction) {
   const appearance = sampleAppearance(item.sample);
   const sampleBack = inspection.back && (item.sample.kind !== 'yellow' || inspection.unpacked);
   const issued = run.phase === 'receipt';
-  const target = tutorial?.key === 'signature' && !interaction.signed ? 'report' : tutorial?.target;
+  const target = tutorial?.target;
   const findings = readFindings(interaction);
   const viewer = findings.some((finding) => canShowFinding(item, finding)) ? item : null;
   const shown = item.shownFinding;
@@ -236,7 +237,7 @@ export function desk(run, item, tutorial, interaction) {
       ${carton}
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
     <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample' || filmCue)}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="拿起检样，${appearance.name}"${filmCue ? ' aria-describedby="film-bench-cue"' : ''}${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
-    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${item.carton ? '申报 ' : ''}${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}<span class="booth-print-slot" aria-hidden="true"><i></i></span></div>
+    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${item.carton ? '申报 ' : ''}${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case')}<span class="booth-print-slot" aria-hidden="true"><i></i></span></div>
       ${benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
 
@@ -367,10 +368,10 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const signatureTarget = doc.type === 'report' && inspection?.signature && key === '签发';
     const batchTarget = inspection?.batch && key === '批号' && ['label', 'report'].includes(doc.type);
     const chosen = inspection?.selected.has(`doc:${index}:${field}`);
-    const highlight = signatureTarget || (batchTarget && !chosen) ||
-      (inspection?.projects && ((doc.type === 'report' && ['外观', '扣合'].includes(key)) || (doc.type === 'order' && key === '检验项目')));
-    const batchLabel = batchTarget ? ` data-tutorial-batch aria-label="${esc(`${doc.title}批号 ${value}`)}"` : '';
-    const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${signatureTarget ? ' data-tutorial-signature' : ''}${batchLabel}${active(chosen)}>${text}</button>` : text;
+    const projectTarget = inspection?.projects && ((doc.type === 'report' && ['外观', '扣合'].includes(key)) || (doc.type === 'order' && key === '检验项目'));
+    const fieldValue = batchTarget || projectTarget || signatureTarget ? `<mark class="guided-paper-value"${batchTarget ? ' data-tutorial-batch' : ''}>${text}</mark>`
+      : inspection && !inspection.guided
+      ? `<button class="field-value" data-act="${action}" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
     const lookup = reportLookup && (key === '报告编号' || key === '原报告编号') && value;
     const carry = reportCarry && lookup && /^R-\d{3}$/.test(value)
       ? button('问小陈', 'phone-document', 'secondary report-lookup',
@@ -403,11 +404,11 @@ export function visitPaper(doc, visit) {
     });
 }
 
-function orderFieldActions(item, orderIndex, visible, selected, guided = false) {
+function orderFieldActions(item, orderIndex, visible, selected) {
   const order = item.documents[orderIndex];
   const actions = new Map();
   const intakeField = order.fields.find(([key]) => key === '随货材料' || key === '随货要求')?.[0];
-  if (!guided && intakeField && intakeComparison(item, orderIndex)) {
+  if (intakeField && intakeComparison(item, orderIndex)) {
     actions.set(intakeField, button('点收', 'delivery-check', 'secondary document-field-action delivery-check-action', `data-i="${orderIndex}"`));
   }
   const projectField = order.fields.find(([key]) => key === '检验项目' || key === '必查项目')?.[0];
@@ -423,7 +424,7 @@ function orderFieldActions(item, orderIndex, visible, selected, guided = false) 
     const recorded = selected.has(report.comparison.finding.key);
     const action = paired
       ? button(recorded ? '取回对照' : '记下对照', 'project-evidence',
-        `secondary document-field-action project-field-action${cls('instructed', guided)}`, attributes + active(recorded))
+        'secondary document-field-action project-field-action', attributes + active(recorded))
       : button('对照报告', 'project-pair', 'secondary document-field-action project-field-action', attributes);
     actions.set(projectField, action);
   }
@@ -525,6 +526,14 @@ function returnComparison(item, index, previous, previousIndex, activeSheet) {
 }
 
 export function documents(item, index, compare, tutorial, progress, previous) {
+  if (tutorial) {
+    const guide = tutorialGuide('比一比批号，再看签发和检验项目。正常的地方看清就好。');
+    const inspection = { guided: true, batch: true, signature: true, projects: true, selected: new Set() };
+    const papers = item.documents.map((document, position) => sheet(document, position, inspection)).join('');
+    return deskSurface('桌面单据', `${guide}<div class="doc-grid spread">${papers}</div>`, 'documents-surface first-documents', '回台面开单', 'training', {
+      headerActions: button('拿起检样', 'sample', 'reference-control'),
+    });
+  }
   const doc = item.documents[index];
   if (!doc) return '';
   const clipboardIndex = EASTER_EGGS.cat.documents[item.id];
@@ -533,65 +542,36 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   }
   const extras = item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
   const other = item.documents[compare];
-  const matchBatch = tutorial?.key === 'report';
-  const signature = tutorial?.key === 'signature';
-  const sampleReady = tutorial?.key === 'sample';
-  const visibleTypes = [doc.type, other?.type];
-  const reportVisible = visibleTypes.includes('report');
-  const labelVisible = visibleTypes.includes('label');
-  const batchPairVisible = matchBatch && labelVisible && reportVisible;
-  const projectsPaired = signature && progress.signed && reportVisible && visibleTypes.includes('order');
-  let target = tutorial?.target;
-  if (matchBatch && reportVisible) target = labelVisible ? null : 'label';
-  if (signature && !progress.signed) target = 'report';
   const findings = readFindings(progress);
-  const inspection = {
-    batch: batchPairVisible,
-    signature: signature && !progress.signed,
-    projects: projectsPaired,
-    selected: new Set(findings.map(({ key }) => key)),
-  };
-  const draft = findingsDraft(findings, progress.showFindings, tutorial ? null : item, progress.supplementRequest);
-  let guide = tutorial?.line;
-  if (batchPairVisible) guide = tutorial.pairLine;
-  else if (signature && progress.signed) guide = projectsPaired ? tutorial.projectsLine : tutorial.orderLine;
-  else if (signature && !reportVisible) guide = tutorial.reportLine;
-  let guidedCompare = '';
-  if (matchBatch && !batchPairVisible) {
-    guidedCompare = button(doc.type === 'report' ? '并排箱签' : '并排报告', 'compare', 'primary tutorial-next', 'data-key="batch"');
-  } else if (signature && progress.signed && !projectsPaired) {
-    guidedCompare = button('并排送检联', 'compare', 'primary tutorial-next', 'data-key="order"');
-  }
-  const sampleAction = sampleReady ? button('拿起检样', 'sample', 'primary tutorial-next')
-    : tutorial ? '' : button('拿起检样', 'sample', 'reference-control');
-  const canCompare = !tutorial && previous?.documents?.length;
+  const inspection = { selected: new Set(findings.map(({ key }) => key)) };
+  const draft = findingsDraft(findings, progress.showFindings, item, progress.supplementRequest);
+  const sampleAction = button('拿起检样', 'sample', 'reference-control');
+  const canCompare = previous?.documents?.length;
   const previousIndex = progress.previousDoc;
   const comparing = Boolean(canCompare && Number.isInteger(previousIndex) && previous.documents[previousIndex]);
   const previousAction = canCompare ? button(previous.sameLot
     ? (comparing ? '收起旧单' : '对照前次单据')
     : (comparing ? '收起原批' : '对照原批单据'), 'previous-compare', 'reference-control', active(comparing)) : '';
-  const canSpread = !tutorial && !comparing && item.documents.length === 3;
+  const canSpread = !comparing && item.documents.length === 3;
   const spreading = canSpread && progress.spreadAll === true;
   const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
   const visible = spreading ? item.documents.map((_, position) => position) : [index, compare];
-  const relabel = !tutorial && !comparing && relabelComparison(item, progress.relabelCheck);
+  const relabel = !comparing && relabelComparison(item, progress.relabelCheck);
   const phoneSources = relabel ? [relabel.registerIndex] : progress.deliveryCheck == null ? visible : [progress.deliveryCheck];
   const contactPaper = phoneSources.find((position) => item.documents[position]?.fields.some(documentExtension));
   const contactDocument = item.documents[contactPaper];
   const contactIndex = contactDocument?.fields.findIndex(documentExtension);
   const extension = !comparing && !progress.incomingCall && documentExtension(contactDocument?.fields[contactIndex]);
-  const phoneAction = tutorial ? '' : extension
+  const phoneAction = extension
     ? button(`问${esc(CHARACTERS[PHONE[extension].npc].name)} ${extension}`, 'phone-document', 'reference-control phone-work-tool phone-bring-order',
       `data-i="${contactPaper}" data-field="${contactIndex}" data-key="${item.id}" aria-label="带${esc(contactDocument.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`)
     : button(progress.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
-  const headerActions = guidedCompare + draft.header + previousAction + spreadAction + sampleAction + phoneAction;
-  const canMeasure = !tutorial && !comparing && item.sample.reading;
+  const headerActions = draft.header + previousAction + spreadAction + sampleAction + phoneAction;
+  const canMeasure = !comparing && item.sample.reading;
   const thickness = canMeasure && thicknessComparison(item, progress.inspection, findings);
   const activeSheet = (page, position) => {
     let fieldActions;
-    if (projectsPaired && page.type === 'order') {
-      fieldActions = orderFieldActions(item, position, visible, inspection.selected, true);
-    } else if (!tutorial && !comparing) {
+    if (!comparing) {
       if (page.type === 'order') fieldActions = orderFieldActions(item, position, visible, inspection.selected);
       else if (relabelComparison(item, position)) fieldActions = new Map([['原箱批号',
         button('对批号', 'relabel-check', 'secondary document-field-action', `data-i="${position}"${active(false)}`)]]);
@@ -609,10 +589,10 @@ export function documents(item, index, compare, tutorial, progress, previous) {
         `data-key="thickness" data-i="${position}"`));
     }
     return sheet(page, position, inspection, { clipboardFront: position === clipboardIndex,
-      reportLookup: !tutorial, reportCarry: !tutorial, phoneSource: !tutorial ? item.id : null, fieldActions });
+      reportLookup: true, reportCarry: true, phoneSource: item.id, fieldActions });
   };
   const intakeIndex = progress.deliveryCheck;
-  const intake = !tutorial && intakeComparison(item, intakeIndex);
+  const intake = intakeComparison(item, intakeIndex);
   if (intake) {
     const closeIntake = button('收起点收条', 'delivery-check', 'secondary intake-close', `data-i="${intakeIndex}"${active(true)}`);
     return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair intake-comparison">${sheet(item.documents[intakeIndex], intakeIndex, inspection, { phoneSource: item.id })}
@@ -630,16 +610,16 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
   if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread">${item.documents.map(activeSheet).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
     'documents-surface', '放回台面', 'spread', { headerActions });
-  const tabs = item.documents.map(({ title, type }, position) => {
+  const tabs = item.documents.map(({ title }, position) => {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
-    return `<button class="button tab${cls('instructed', target === type)}" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
+    return `<button class="button tab" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
   }).join('');
-  const compareAction = !guidedCompare && item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : '';
+  const compareAction = item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : '';
   const footerActions = compareAction + extras;
   const orderIndex = doc.type === 'order' ? index : other?.type === 'order' ? compare : null;
   const reportIndex = doc.type === 'report' ? index : other?.type === 'report' ? compare : null;
-  const projectPair = !tutorial && projectComparison(item, orderIndex, reportIndex);
-  return deskSurface('桌面单据', `${guide ? tutorialGuide(guide) : ''}${draft.list}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
+  const projectPair = projectComparison(item, orderIndex, reportIndex);
+  return deskSurface('桌面单据', `${draft.list}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
     <div class="doc-grid${cls('pair', other)}${cls('project-comparison', projectPair)}">${activeSheet(doc, index)}${other ? activeSheet(other, compare) : ''}</div>
     ${footerActions ? `<div class="modal-actions">${footerActions}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions });
 }
@@ -676,7 +656,7 @@ export function sample(item, inspection, tutorial, progress) {
   const thicknessRecorded = comparison && findings.some(({ key }) => key === comparison.finding.key);
   const thicknessLabel = thicknessOpen ? '收起对照' : measured ? '核对厚度' : '核对实测记录';
   const thicknessAction = comparison ? button(thicknessLabel, 'sample-thickness', 'secondary thickness-check', `aria-expanded="${thicknessOpen}"${thicknessOpen ? ' aria-controls="thickness-comparison"' : ''}`) : '';
-  const draft = findingsDraft(findings, progress?.showFindings, tutorial ? null : item, progress?.supplementRequest);
+  const draft = tutorial ? { header: '', list: '' } : findingsDraft(findings, progress?.showFindings, item, progress?.supplementRequest);
   const referenceIndex = progress?.referenceDoc;
   const reference = !tutorial && !thicknessOpen && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
   const leadField = spec.reading && gaugeFields[reference?.type];
@@ -688,7 +668,7 @@ export function sample(item, inspection, tutorial, progress) {
   const hasMoldSketch = item.documents.some(({ kind }) => kind === 'mold-sketch');
   const compareLabel = hasMoldSketch ? '对照工艺图' : '对照单据';
   const referenceActions = canCompare
-    ? `${progress?.returnToDocs ? button('回到单据', 'reference-back', 'reference-control') : ''}${button(reference ? '收起单据' : compareLabel, 'reference', 'reference-control' + cls('mold-reference-action', hasMoldSketch), active(Boolean(reference)))}`
+    ? `${progress?.returnToDocs ? button('回原单', 'reference-back', 'reference-control') : ''}${button(reference ? '收起对照' : compareLabel, 'reference', 'reference-control' + cls('mold-reference-action', hasMoldSketch), active(Boolean(reference)))}`
     : '';
   const phoneAction = tutorial ? '' : button(progress?.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
   let control = '';
@@ -705,9 +685,8 @@ export function sample(item, inspection, tutorial, progress) {
   const observation = sampleFinding(spec, inspection);
   const recorded = findings.some(({ key }) => key === observation.key);
   const basisLabel = measured && spec.reading ? (recorded ? '取回实测' : '记下实测')
-    : packaged ? '记下包装' : !back && film ? (recorded ? '取回揭膜记录' : '记下揭膜结果')
-      : stampReady ? (recorded ? '取回检样记录' : '记下检样结果') : '记为查验依据';
-  const basis = !thicknessOpen && !(measured && thicknessRecorded) && (packaged || !tutorial || tug || film || measured || back || unpacked)
+    : packaged ? '记下包装' : !back && film ? (recorded ? '取回揭膜记录' : '记下揭膜结果') : '记为查验依据';
+  const basis = !tutorial && !thicknessOpen && !(measured && thicknessRecorded)
     ? button(basisLabel, 'sample-basis', 'secondary sample-basis-control',
       active(recorded) + (inGauge && !measured ? ' disabled' : '')) : '';
   const gaugeBasis = inGauge && measured ? basis : '';
@@ -720,12 +699,13 @@ export function sample(item, inspection, tutorial, progress) {
       ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}</div>`;
   const imageNotice = packaged || inGauge ? '' : `<div class="sample-image-notice" hidden><span role="status"></span>${button('重试加载', 'sample-image-retry', 'secondary', 'hidden disabled')}</div>`;
   const title = item.carton ? `${appearance.name} · 箱号待核` : `${item.batch} · ${appearance.name}`;
+  const putDown = '回台面开单';
   return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}"${gaugeStyle}>
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${gaugeCue}${thicknessAction}</div>
     ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured) : observationCard}</div>
-    <div class="modal-actions">${guidedFlip ? '' : flipAction}${gaugeBasis ? '' : basis}${show}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
+    <div class="modal-actions">${guidedFlip ? '' : flipAction}${gaugeBasis ? '' : basis}${show}</div></div>${referencePicker}</div>`, 'sample-surface', putDown, undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions + phoneAction,
-    closeLabel: stampReady ? '回台面开单' : '放下检样', closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
+    closeLabel: putDown, closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
   });
 }
 
