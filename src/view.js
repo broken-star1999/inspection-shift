@@ -21,6 +21,7 @@ const batchPaperLabels = {
   rework: { tab: '复核联', original: '查看周一原单', open: '查看周二复核联' },
   acceptance: { tab: '验收联', original: '查看对应出货单', open: '查看到货验收联' },
   exception: { tab: '到货复核联', original: '查看原批出货单', open: '查看到货复核联' },
+  recall: { tab: '收货方回签', original: '查看原出货回执', open: '查看收货方回执' },
   trace: { tab: '实验室原件', original: '查看 G-241 原单', open: '查看 R-071 原件' },
   supplement: { tab: '补件联', original: '查看周二原单', open: '查看补件登记联' },
 };
@@ -239,11 +240,11 @@ export function desk(run, item, tutorial, interaction) {
       ${benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
 
-function endingReceipt(record, detail, section = '') {
+function endingReceipt(record, detail, { section = '', evidence } = {}) {
   const day = DAYS[record.day]?.title;
   const lot = record.batch === 'G-204' ? (record.id === 4 ? '原批' : '留厂件') : '';
   const label = [day, lot].filter(Boolean).join(' · ');
-  return `<button type="button" class="summary-record ending-receipt" data-act="archive-receipt" data-i="${esc(record.id)}"${section ? ` data-key="${esc(section)}"` : ''}>
+  return `<button type="button" class="summary-record ending-receipt" data-act="${evidence ? 'archive-evidence' : 'archive-receipt'}" data-i="${esc(record.id)}"${evidence || section ? ` data-key="${esc(evidence || section)}"` : ''}>
     <span class="ending-receipt-batch"><b>${esc(record.batch)}</b><small>${esc(label)}</small></span><span class="ending-receipt-detail">${esc(detail)}</span><span class="ending-receipt-arrow" aria-hidden="true">›</span>
   </button>`;
 }
@@ -251,38 +252,49 @@ function endingReceipt(record, detail, section = '') {
 function endingRecallGroup(records, kind, title, detail) {
   if (!records.length) return '';
   return `<section class="ending-recall ending-recall-${kind}"><h3>${title}</h3><ul class="ending-receipts">
-    ${records.map((record) => `<li>${endingReceipt(record, detail)}</li>`).join('')}</ul></section>`;
+    ${records.map((record) => `<li>${endingReceipt(record, detail, { evidence: kind === 'confirmed' ? `recall:${record.id}` : null })}</li>`).join('')}</ul></section>`;
 }
 
 function endingView(ending, historyLabel) {
-  const { delayedReceipts = [], heldReceipts = [], traceReceipt, traceDisposition, pendingRecalls = [], confirmedRecalls = [], acceptedReceipt } = ending;
+  const { delayedReceipts = [], heldReceipts = [], traceReceipt, traceFiled, traceDisposition, pendingRecalls = [], confirmedRecalls = [], acceptedReceipt } = ending;
   const pendingText = '已申请召回 · 尚未回签';
   const pendingIds = new Set(pendingRecalls.map(({ id }) => id));
-  const inIssueOrTrace = new Set([...ending.issues.map(({ id }) => id), traceReceipt?.id]);
+  const traceBatch = traceReceipt ?? traceFiled?.record;
+  const inIssueOrTrace = new Set([...ending.issues.map(({ id }) => id), traceBatch?.id]);
   const pending = pendingRecalls.filter(({ id }) => !inIssueOrTrace.has(id));
   const confirmed = confirmedRecalls.filter(({ id }) => !inIssueOrTrace.has(id) && !pendingIds.has(id));
   const shown = new Set([...inIssueOrTrace, ...pendingIds, ...confirmedRecalls.map(({ id }) => id)]);
-  const delayed = delayedReceipts.filter(({ id }) => !shown.has(id));
+  const held = heldReceipts.filter(({ id }) => !shown.has(id));
+  const heldLabel = held.length === 1 ? esc(held[0].batch) : `${held.length} 批`;
+  const heldIds = new Set(held.map(({ id }) => id));
+  const delayedIds = new Set(delayedReceipts.map(({ id }) => id));
+  const delayed = delayedReceipts.filter(({ id }) => !shown.has(id) && !heldIds.has(id));
   let note = esc(ending.detail);
   if (ending.issues.length) {
     note = `<ul class="ending-receipts">${ending.issues.map((record) => {
       const { action, reason } = shipmentIssueFeedback(record, ending.exceptionCaseId);
-      return `<li>${endingReceipt(record, `${action} · ${reason}`)}</li>`;
+      const evidence = record.id === ending.exceptionCaseId && record.status !== 'recallPending' ? `exception:${record.id}` : null;
+      return `<li>${endingReceipt(record, `${action} · ${reason}`, { evidence })}</li>`;
     }).join('')}</ul>`;
   }
-  const trace = traceReceipt ? endingReceipt(traceReceipt, traceDisposition.replace(`${traceReceipt.batch} `, '')) : esc(traceDisposition);
+  const traceText = traceReceipt ? traceDisposition.replace(`${traceReceipt.batch} `, '')
+    : traceBatch ? `${traceFiled.cited ? '已引用实验室原件' : '实验室原件已归档'} · ${dispositionLabel(traceBatch)}` : traceDisposition;
+  const trace = traceBatch ? `<div class="ending-trace">${endingReceipt(traceBatch, traceText, {
+    evidence: traceBatch.status === 'recalled' && traceBatch.recallReceipt ? `recall:${traceBatch.id}` : null,
+  })}${traceFiled ? button('核对随货联和原件', 'archive-evidence', 'secondary ending-evidence', 'data-key="trace"') : ''}</div>` : esc(traceText);
   if (ending.id === 'trace' && trace) note = trace;
+  const traceGroup = ending.id !== 'trace' && trace ? `<div class="ending-note">${trace}</div>` : '';
+  const heldGroup = held.length ? `<details class="ending-held"><summary>黄线隔离 · ${heldLabel}</summary>
+    <ul class="ending-receipts">${held.map((record) => `<li>${endingReceipt(record, delayedIds.has(record.id) ? '留厂隔离 · 已符合放行要求' : '留厂隔离', { section: 'held' })}</li>`).join('')}</ul></details>` : '';
   return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}${cls('ending-history', historyLabel)}">
     <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · ${historyLabel ? `${esc(historyLabel)} <span class="ending-history-label">只读</span>` : '交班存根'}</div><h2>${esc(ending.title)}</h2></header>
     <div class="ending-body"><p>${esc(ending.line)}</p><div class="ending-note">${note}</div>
-      ${ending.id === 'issue' && trace ? `<div class="ending-note">${trace}</div>` : ''}
-      ${acceptedReceipt ? `<section class="ending-recall ending-acceptance"><h3>到货验收</h3>${endingReceipt(acceptedReceipt, '已签收，验收联已归档')}</section>` : ''}
-      ${ending.id === 'routine' && heldReceipts.length ? `<details class="ending-held"><summary>翻黄线隔离回执</summary>
-        <ul class="ending-receipts">${heldReceipts.map((record) => `<li>${endingReceipt(record, '留厂隔离', 'held')}</li>`).join('')}</ul></details>` : ''}
+      ${ending.id === 'issue' ? heldGroup + traceGroup : traceGroup + heldGroup}
+      ${acceptedReceipt ? `<section class="ending-recall ending-acceptance"><h3>到货验收</h3>${endingReceipt(acceptedReceipt, '已签收，验收联已归档', { evidence: `acceptance:${acceptedReceipt.id}` })}</section>` : ''}
       ${endingRecallGroup(pending, 'pending', '待召回回执', pendingText)}
       ${endingRecallGroup(confirmed, 'confirmed', '召回确认', '已收下收货方回执')}
       ${delayed.length ? `<details class="ending-delay"><summary><b>仍未放行</b> ${delayed.length} 批来件已符合放行要求</summary>
-        <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, dispositionLabel(record), 'delayed')}</li>`).join('')}</ul></details>` : ''}
+        <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, dispositionLabel(record), { section: 'delayed' })}</li>`).join('')}</ul></details>` : ''}
       <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
     </div>
     <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(historyLabel ? '返回首页' : '返回窗口', 'home')}${historyLabel ? button('返回交班记录', 'history-index', 'primary') : button('再接一周', 'new', 'primary')}</footer>
@@ -856,12 +868,14 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   let footer = '';
   if (visit) {
     const attached = batchPapers.find(({ key }) => key === focus);
+    const traceRow = finished && visit.kind === 'trace' && rows.find(({ id }) => id === attached?.caseId);
     const original = visit.kind === 'trace-inquiry'
       ? button('摊开通话单据', 'report-search', 'secondary', `data-key="${esc(visit.reportNumber)}"`) +
         (visit.originalFiled ? button('查看已收原件', 'archive-evidence', 'secondary', 'data-key="trace"') : '')
       : attached ? button(batchPaperLabels[visit.kind].original, 'archive-followup', 'secondary', `data-i="${esc(attached.caseId)}"`)
       : visit.kind === 'lab-request' ? button('查看当时的单据', 'archive-followup', 'secondary registration-source', `data-i="${esc(visit.caseId)}"`) : '';
-    details = (original ? `<div class="modal-actions archive-actions">${original}</div>` : '') + sheet(visit);
+    details = (original ? `<div class="modal-actions archive-actions">${original}</div>` : '') +
+      (traceRow ? traceEvidencePair(traceRow, visit, visit.fields.map(([name]) => name)) : sheet(visit));
   }
   if (row) {
     const { latestReceipt, previousReceipt } = row;
@@ -889,7 +903,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
         pinAction: !finished && !editing ? phonePinButton(row.id, index, doc.title, selected, 'archive-paper-pin') : '',
       })).join('')}</div>`;
   }
-  const navigation = { phone: '回到电话', handoff: '回到交接板', receipt: '回到回执' }[returnTo];
+  const navigation = { phone: '回到电话', handoff: '回到交接板', receipt: '回到回执', ending: '回到交班存根' }[returnTo];
   const suggestion = reportSuggestion && !editing ? button(`并排核对 ${esc(reportSuggestion)}`, 'report-search', 'secondary report-index-suggestion', `data-key="${esc(reportSuggestion)}"`) : '';
   const heading = historyLabel ? `交接簿 · ${historyLabel}` : '交接簿';
   return deskSurface(heading, `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
@@ -906,7 +920,7 @@ function phonePinButton(id, index, title, pinned, className) {
 }
 
 export function archiveReportPanel(number, sources, pinned, { returnTo, finished, historyLabel, fromInquiry, fromPhoneLookup } = {}) {
-  const closeText = { phone: '回到电话', docs: '回到单据', sample: '回到检样', receipt: '回到回执' }[returnTo] ?? '合上簿子';
+  const closeText = { phone: '回到电话', docs: '回到单据', sample: '回到检样', receipt: '回到回执', ending: '回到交班存根' }[returnTo] ?? '合上簿子';
   const back = button(fromInquiry ? '回到电话登记' : '返回交接簿', 'report-index-back', 'secondary report-index-back');
   const phoneAction = !finished && returnTo !== 'phone' ? button('拿电话', 'phone', 'secondary report-index-phone') : '';
   const papers = sources.map(({ id, batch, day, document, index }) => {
@@ -1056,12 +1070,12 @@ function traceExcerpt(document, names) {
     `<div><dt>${esc(name)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl></article>`;
 }
 
-function traceEvidencePair(row, original) {
+function traceEvidencePair(row, original, originalFields = ['样品来源', '检验范围']) {
   const copy = row.documents.find(({ type, fields }) => type === 'report' &&
     fields.some(([label, number]) => label === '报告编号' && number === 'R-071'));
   if (!copy) return sheet(original);
   return `<div class="trace-evidence-pair" aria-label="随货核验联与实验室原件">${traceExcerpt(copy, ['批号', '报告编号'])}
-    ${traceExcerpt(original, ['样品来源', '检验范围'])}</div>`;
+    ${traceExcerpt(original, originalFields)}</div>`;
 }
 
 export function handoffPanel(run, evidence, rows, { focus, documentIndex, correctionFindings = null, batchPapers = [], supportingBasis, comparison = null, canCompare = false, traceReview = null } = {}) {

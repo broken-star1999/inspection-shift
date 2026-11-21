@@ -1427,12 +1427,12 @@
   align-items: start;
   gap: .36rem;
 }
-.handoff-detail-scroll .trace-paper {
+:is(.handoff-detail-scroll, .archive-detail) .trace-paper {
   margin: 0;
   padding: .34rem .43rem;
 }
 .trace-paper h4 { margin: 0 0 .17rem; font-size: .85rem; line-height: 1.2; }
-.handoff-detail-scroll .trace-paper .fields > div {
+:is(.handoff-detail-scroll, .archive-detail) .trace-paper .fields > div {
   grid-template-columns: minmax(3rem, auto) minmax(0, 1fr);
   gap: .22rem;
   padding-block: .14rem;
@@ -1769,6 +1769,17 @@
 .ending-recall > h3 { margin: 0 0 .26rem; color: #6e4628; font: 780 .82rem / 1.35 var(--mono); }
 :is(.ending-recall-confirmed, .ending-acceptance) > h3 { color: #3f5734; }
 .ending-recall .ending-receipt-detail { overflow-wrap: anywhere; }
+.ending-trace { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: .3rem; }
+.ending-card .ending-evidence {
+  min-block-size: 44px;
+  padding-inline: .58rem;
+  border-color: #a08860;
+  background: #d9c297;
+  color: #46351e;
+  text-shadow: none;
+  white-space: nowrap;
+}
+.ending-card .ending-evidence:is(:hover, :focus-visible) { background: #ecdbb2; }
 
 @container workstation (max-height: 540px) {
   .desk-surface { inset-block-end: .38rem; max-block-size: calc(100cqh - 3.5rem); }

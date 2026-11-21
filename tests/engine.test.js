@@ -4,6 +4,7 @@ import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
 import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPhoneReportLookup, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceHandoffReview, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, nightRegisterForReceipt, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 import { sampleFinding } from '../src/samples.js';
+import { overlay } from '../src/view.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -620,8 +621,22 @@ test('the ending attributes a receiving hold only to the batch with the actual f
   const ending = getEnding(finished);
   assert.equal(ending.exceptionCaseId, 4);
   assert.deepEqual(ending.issues.map(({ id }) => id), [4, 17]);
-  assert.match(ending.detail, /G-204 · 收货方暂缓入库/u);
+  assert.match(ending.detail, /G-204 · 已出库 · 收货方暂缓入库/u);
   assert.match(ending.detail, /G-217 · 已出库 · 待核材料/u);
+  const recap = overlay(finished, ending);
+  assert.match(recap, /data-act="archive-evidence" data-i="4" data-key="exception:4"/u);
+  assert.match(recap, /data-act="archive-receipt" data-i="17"/u);
+});
+
+test('the issue ending still links the actual held batches, and a confirmed recall links its receipt', () => {
+  const week = untilHandoff(21, { decisions: { 4: 'pass' } });
+  const finished = act(week, 'finish');
+  assert.equal(getEnding(finished).id, 'issue');
+  assert.match(overlay(finished, getEnding(finished)), /data-act="archive-receipt" data-i="17" data-key="held"/u);
+
+  const corrected = act(week, 'recheck', { id: 4, value: 'review' });
+  const confirmed = act(takeRecallReceipt(corrected, 4), 'finish');
+  assert.match(overlay(confirmed, getEnding(confirmed)), /data-act="archive-evidence" data-i="4" data-key="recall:4"/u);
 });
 
 test('Friday exception prioritizes earlier missing proof and skips a same-lot release that was verified later', () => {
@@ -629,7 +644,7 @@ test('Friday exception prioritizes earlier missing proof and skips a same-lot re
   const missing = arrive({ 5: 'pass', 9: 'review', 10: 'pass', 14: 'review', 17: 'pass' });
   const first = getShipmentException(missing, missing.event);
   assert.equal(first.caseId, 5);
-  assert.deepEqual(shipmentIssueFeedback(first.record, first.caseId), { action: '收货方暂缓入库', reason: first.record.reason });
+  assert.deepEqual(shipmentIssueFeedback(first.record, first.caseId), { action: '已出库 · 收货方暂缓入库', reason: first.record.reason });
 
   const verified = arrive({ 5: 'pass', 9: 'pass', 10: 'pass', 14: 'review', 17: 'pass' });
   assert.equal(getShipmentException(verified, verified.event).caseId, 10);
@@ -961,6 +976,14 @@ test('trace needs both archived records, the lab visit and submission at handoff
     return state;
   } });
   assert.equal(getEnding(state).id, 'routine');
+  const filedOnly = act(state, 'finish');
+  const filedEnding = getEnding(filedOnly);
+  assert.equal(filedEnding.id, 'routine');
+  assert.equal(filedEnding.traceFiled.record.status, 'shipped');
+  assert.equal(filedEnding.traceFiled.cited, false);
+  const recap = overlay(filedOnly, filedEnding);
+  assert.match(recap, /实验室原件已归档 · 已出库/u);
+  assert.match(recap, /data-act="archive-evidence" data-key="trace"/u);
   state = act(state, 'attach', { key: 'trace' });
   assert.equal(getEnding(state).id, 'trace');
   assert.match(getEnding(state).traceDisposition, /尚未登记召回/);

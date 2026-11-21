@@ -266,7 +266,7 @@ export const SHIPMENT_EXCEPTION = {
 export const HANDOFF = {
   normal: { title: '周五交班', line: '老周把交接单翻到最后一页。「该留下一班的都在这儿。行，你下班吧。」', stamp: '本周交班完成' },
   investigation: { title: '第二张复检单', line: '老周把两份原件摊在交接板上，圈住二四一。「这批单独复检。货在哪儿，按交接回执办。」', stamp: 'G-241 追加复检' },
-  escaped: { title: '车已经走了', line: '电话又响了一声。老周用手背按住要卷起来的回执。「你把那箱的号再说一遍。」', stamp: '待接收方确认' },
+  escaped: { title: '车已经走了', line: '老周按住要卷起来的出货回执。「把批号和去向记上，下一班接着查。」', stamp: '待接收方确认' },
 };
 
 export const EASTER_EGGS = {

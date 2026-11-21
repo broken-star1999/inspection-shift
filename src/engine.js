@@ -983,8 +983,8 @@ export function dispatch(state, action) {
 export function shipmentIssueFeedback(record, exceptionCaseId) {
   const { id, reason, status, answer } = record;
   if (status === 'recallPending') return { action: '已申请召回，尚未回签', reason };
-  if (id === exceptionCaseId) return { action: '收货方暂缓入库', reason };
   const destination = status === 'shipping' ? '排车待发' : '已出库';
+  if (id === exceptionCaseId) return { action: `${destination} · 收货方暂缓入库`, reason };
   const nextStep = answer === 'review' ? '待核材料' : '待复核';
   const action = `${destination} · ${nextStep}`;
   return { action, reason };
@@ -996,6 +996,11 @@ export function getEnding(state) {
   const confirmedRecalls = [];
   const heldReceipts = [];
   const traceReceipt = state.flags.traceAttached ? getRecord(state, TRACE_CASE_ID) ?? null : null;
+  const filedTraceRecord = state.flags.traceDocument ? getRecord(state, TRACE_CASE_ID) : null;
+  const traceFiled = filedTraceRecord ? {
+    record: filedTraceRecord,
+    cited: filedTraceRecord.amendments?.some(({ findings }) => normalizeFindings(findings).some((finding) => sameFinding(finding, TRACE_FINDING))) ?? false,
+  } : null;
   const exceptionCaseId = getShipmentException(state)?.caseId ?? null;
   const acceptance = getShipmentAcceptance(state);
   const acceptedReceipt = isAcceptedShipment(state.records, acceptance?.record, acceptance?.day) ? acceptance.record : null;
@@ -1027,13 +1032,17 @@ export function getEnding(state) {
   const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
   const delayedReceipts = [...delayedByBatch.values()];
   const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已登记追加复检，去向待核。');
-  const shared = { issues, exceptionCaseId, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
+  const shared = { issues, exceptionCaseId, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceFiled, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
   if (issues.length) {
     const detail = issues.map((record) => {
       const { action, reason } = shipmentIssueFeedback(record, exceptionCaseId);
       return `${record.batch} · ${action} · ${reason}`;
     }).join('\n');
-    return { id: 'issue', ...HANDOFF.escaped, detail, ...shared };
+    const line = issues.some(({ id }) => id === exceptionCaseId)
+      ? '老周把到货复核联压在出货单上。「收货方写的处置，夹到这一批后头。」' : HANDOFF.escaped.line;
+    const stamp = issues.some(({ id, status }) => id === exceptionCaseId || status === 'recallPending')
+      ? HANDOFF.escaped.stamp : '出货待查';
+    return { id: 'issue', ...HANDOFF.escaped, line, stamp, detail, ...shared };
   }
   if (state.flags.traceAttached) {
     return { id: 'trace', ...HANDOFF.investigation, detail: traceDetail, ...shared };

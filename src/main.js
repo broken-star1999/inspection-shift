@@ -499,7 +499,10 @@ function filedWindowSupplement() {
 function filedBatchPapers() {
   const trace = run.flags.traceDocument
     ? { caseId: TRACE_CASE_ID, key: 'trace', document: { ...EVIDENCE.trace, kind: 'trace' } } : null;
-  return [filedRework(), acceptancePaper(run), exceptionPaper(run), trace, filedWindowSupplement()].filter(Boolean);
+  const recalls = run.records.filter((record) => record.recallReceipt).map((record) => ({
+    caseId: record.id, key: `recall:${record.id}`, document: recallPaper(record, record.recallReceipt.day),
+  }));
+  return [filedRework(), acceptancePaper(run), exceptionPaper(run), trace, filedWindowSupplement(), ...recalls].filter(Boolean);
 }
 
 function labRegistrationKey(caseId) {
@@ -543,10 +546,7 @@ function filedSupportingPapers(query, batchPapers = filedBatchPapers()) {
     ...Object.entries(EVIDENCE).filter(([key]) => run.flags[`${key}Document`] && !batchPapers.some((paper) => paper.key === key)),
     ...batchPapers.map(({ key, document }) => [key, document]),
   ];
-  const recalls = run.records.filter((record) => record.recallReceipt).map((record) => [
-    `recall:${record.id}`, recallPaper(record, record.recallReceipt.day),
-  ]);
-  return [...visits, ...recalls, ...filedPhonePapers()].filter(([, doc]) =>
+  return [...visits, ...filedPhonePapers()].filter(([, doc]) =>
     !term || [doc.title, ...doc.fields.flat(), doc.note].some((text) => text?.toLowerCase().includes(term)));
 }
 
@@ -865,8 +865,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'carton' && item?.carton) markup = view.carton(item, work);
   if (panel === 'archive' && run) {
     const sources = matchingReportSources(reportIndex ?? archiveQuery);
-    const returnTo = archiveReturn?.panel;
     const finished = run.phase === 'ending';
+    const returnTo = archiveReturn?.panel ?? (finished ? 'ending' : null);
     const historyLabel = reviewedWeekLabel();
     const original = archivePaper && archivedPaper(archivePaper.id, archivePaper.index);
     markup = original ? view.archiveSourcePaper(original, pinned, {
@@ -2616,8 +2616,11 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'archive-focus': case 'archive-followup': case 'archive-evidence':
-      if (act === 'archive-evidence' && !panel && target.closest('.receipt-surface')) {
-        if (filedWindowSupplement()?.key !== key) break;
+      if (act === 'archive-evidence' && !panel) {
+        const fromReceipt = target.closest('.receipt-surface') && filedWindowSupplement()?.key === key;
+        const fromEnding = run?.phase === 'ending' && target.closest('.ending-card') &&
+          filedSupportingPapers('').some(([source]) => source === key);
+        if (!fromReceipt && !fromEnding) break;
         focusArchiveRow(key);
         interaction.archiveQuery = '';
         openArchive(target);
