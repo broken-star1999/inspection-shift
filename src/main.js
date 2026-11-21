@@ -10,7 +10,7 @@ import { freshInteraction, captureInspectionProgress, restoreInspectionProgress,
 import { readFindings } from './inspection-findings.js';
 import { reportWorkspace, TRACE_INQUIRY_KEY } from './report-workspace.js';
 import { completedShiftHistory, collectedEndingIds, createWeekId } from './completed-shifts.js';
-import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
+import { cartonFinding, intakeComparison, modelComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { handoffComparison } from './handoff-comparison.js';
 import { handoffWorkspace, hasHandoffDocument } from './handoff-workspace.js';
 import * as view from './view.js';
@@ -2000,7 +2000,8 @@ function checkCarton(action, opener, rotationFrom) {
 
 function toggleReference() {
   if (panel !== 'sample') return;
-  const documents = getCase(run)?.documents;
+  const item = getCase(run);
+  const documents = item?.documents;
   if (!documents?.length) return;
   const fromThickness = interaction.thicknessOpen;
   interaction.thicknessOpen = false;
@@ -2010,7 +2011,8 @@ function toggleReference() {
     const report = documents.findIndex((doc) => doc.type === 'report');
     const sketch = documents.findIndex((doc) => doc.kind === 'mold-sketch');
     const order = documents.findIndex((doc) => doc.type === 'order');
-    interaction.referenceDoc = interaction.returnToDocs ? viewedDocument() : [sketch, report, order, 0].find((index) => index >= 0);
+    const references = item.sample.model ? [sketch, order, report] : [sketch, report, order];
+    interaction.referenceDoc = interaction.returnToDocs ? viewedDocument() : references.find((index) => index >= 0) ?? 0;
   }
   playSound('paper');
   render();
@@ -2076,6 +2078,14 @@ function checkSample(act) {
       interaction.thicknessOpen = !interaction.thicknessOpen;
       sound = 'paper';
       break;
+    case 'sample-model-basis': {
+      const comparison = !step && modelComparison(item, sample);
+      if (!comparison) return;
+      const recorded = toggleFinding(comparison.finding);
+      sound = 'paper';
+      toast(recorded ? '已记下型号对照' : '已取回型号对照');
+      break;
+    }
     case 'sample-thickness-basis': {
       if (tutorialStep() || !interaction.thicknessOpen) return;
       const comparison = thicknessComparison(item, sample, interaction.findings);

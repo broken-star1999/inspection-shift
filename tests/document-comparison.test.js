@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DAYS, PRESSURE, documentExtension } from '../src/content.js';
-import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
+import { cartonFinding, intakeComparison, modelComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
 import { createRun, dispatch, getCase, getDay } from '../src/engine.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress } from '../src/inspection-progress.js';
 import { sampleFinding } from '../src/samples.js';
@@ -20,6 +20,47 @@ test('records the actual carton face only after turning it, independently of the
   assert.deepEqual(cartonFinding({ ...mismatch, answer: 'pass' }, true), {
     key: 'box:17:bottom', source: '外箱底面 / 送检联', text: '箱底实码 · C-271-03；送检登记 · C-217-03',
   });
+});
+
+test('model comparison records the engraving and the specified model only after flipping either sample variant', () => {
+  const original = cases.get(8);
+  const alternate = original.variants[1];
+  const mismatch = { ...original, ...alternate, sample: { ...original.sample, ...alternate.sample } };
+  for (const [item, engraving] of [[original, 'A'], [mismatch, 'B']]) {
+    assert.equal(modelComparison(item), null);
+    assert.equal(modelComparison(item, { back: false }), null);
+    assert.equal(modelComparison(item, { back: 'true' }), null);
+    const comparison = {
+      rows: [
+        { title: '通风护目镜', field: '内框刻字', value: engraving },
+        { title: '送检联', field: '指定型号', value: 'A' },
+      ],
+      finding: {
+        key: 'compare:8:model:2',
+        source: '通风护目镜 · 内框 / 送检联',
+        text: `内框刻字 · 型号 ${engraving}；送检指定型号 · A`,
+      },
+    };
+    assert.deepEqual(modelComparison(item, { back: true }), comparison);
+    assert.deepEqual(modelComparison({ ...item, answer: 'hold' }, { back: true }), comparison);
+  }
+});
+
+test('model comparison requires an unpacked sample and one exact specified model on a unique order', () => {
+  const item = cases.get(8);
+  const [label, report, order] = item.documents;
+  const back = { back: true };
+  for (const attributes of [{ kind: 'yellow' }, { unwrapped: '拆袋后的样品' }]) {
+    const packaged = { ...item, sample: { ...item.sample, ...attributes } };
+    assert.equal(modelComparison(packaged, back), null);
+    assert.deepEqual(modelComparison(packaged, { ...back, unpacked: true }), modelComparison(item, back));
+  }
+  assert.equal(modelComparison({ ...item, sample: { ...item.sample, model: ' ' } }, back), null);
+  assert.equal(modelComparison({ ...item, documents: [label, report] }, back), null);
+  assert.equal(modelComparison({ ...item, documents: [label, report, order, order] }, back), null);
+  for (const fields of [[['发货型号', 'A']], [['指定型号', ' ']], [...order.fields, ['指定型号', 'A']]]) {
+    assert.equal(modelComparison({ ...item, documents: [label, report, { ...order, fields }] }, back), null);
+  }
 });
 
 test('thickness compares the actual gauge value with the two original paper fields', () => {

@@ -21,8 +21,11 @@
   min-block-size: 2.75rem;
 }
 
+.sample-surface > .desk-surface-footer:has(.sample-flip-control) { gap: .28rem; }
+.sample-surface > .desk-surface-footer .sample-flip-control { padding-inline: .5rem; font-size: .8rem; white-space: nowrap; }
+
 @media (pointer: coarse) {
-  .sample-surface .modal-actions .sample-flip-control,
+  .sample-surface .sample-flip-control,
   .sample-surface .desk-surface-tools :is(.reference-control, .findings-toggle),
   .sample-surface .surface-close {
     min-block-size: 2.75rem;
@@ -30,7 +33,7 @@
 }
 
 @container workstation (max-width: 900px) and (max-height: 440px) {
-  .sample-surface .modal-actions .sample-flip-control,
+  .sample-surface .sample-flip-control,
   .sample-surface .desk-surface-tools :is(.reference-control, .findings-toggle),
   .sample-surface .surface-close,
   .sample-surface .sample-findings .sample-basis-control { min-block-size: 2.25rem; }
@@ -299,7 +302,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(12rem, 1fr);
 }
 
-.thickness-comparison {
+.sample-comparison {
   display: grid;
   gap: .36rem;
   padding: .38rem .56rem;
@@ -310,11 +313,11 @@
   color: #3d2e20;
 }
 
-.thickness-comparison dl {
+.sample-comparison dl {
   margin: 0;
 }
 
-.thickness-field {
+.sample-comparison-field {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -323,9 +326,11 @@
   border-block-end: 1px solid #a7895c80;
 }
 
-.thickness-field dt { color: #5a422c; font-size: .76rem; font-weight: 700; }
-.thickness-field small { font-size: inherit; font-weight: 480; }
-.thickness-field dd { margin: 0; font: 720 .86rem / 1.28 var(--mono); white-space: nowrap; }
+.sample-comparison-field dt { color: #5a422c; font-size: .76rem; font-weight: 700; }
+.sample-comparison-field small { font-size: inherit; font-weight: 480; }
+.sample-comparison-field dd { margin: 0; font: 720 .86rem / 1.28 var(--mono); white-space: nowrap; }
+.model-comparison .sample-comparison-field dd { font-size: 1.15rem; }
+.sample-reference .model-comparison { margin-block-end: .35rem; }
 
 .thickness-field .thickness-reading {
   min-block-size: 2.25rem;
@@ -343,7 +348,7 @@
 .thickness-field .thickness-reading:is(:hover, :focus-visible) { background: #f7e5bd; }
 .thickness-field .thickness-reading[aria-pressed='true'] { border-color: #7a8458; background: #d7dab0; }
 
-.thickness-comparison .thickness-basis {
+.sample-comparison > .button {
   min-block-size: 2.2rem;
   justify-self: end;
   padding-inline: .58rem;

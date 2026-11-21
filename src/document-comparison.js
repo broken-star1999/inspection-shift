@@ -1,4 +1,4 @@
-import { sampleFinding } from './samples.js';
+import { sampleAppearance, sampleFinding } from './samples.js';
 
 const reportMetadata = new Set(['批号', '原批号', '品名', '型号', '报告编号', '原报告编号', '报告日期', '签发', '签发人', '签发时间', '签发日期']);
 
@@ -81,6 +81,25 @@ function numberedField(document, field) {
   const title = cleanText(document?.title);
   const value = matches.length === 1 ? cleanText(matches[0][1]) : '';
   return title && value ? { title, field, value } : null;
+}
+
+export function modelComparison(item, inspection) {
+  if (inspection?.back !== true || !Number.isInteger(item?.id) || item.id < 1 || !Array.isArray(item.documents)) return null;
+  const sample = item.sample;
+  const observed = cleanText(sample?.model);
+  if (!observed || ((sample.kind === 'yellow' || sample.unwrapped) && inspection.unpacked !== true)) return null;
+  const orderIndex = uniqueDocumentIndex(item.documents, 'order');
+  const required = numberedField(item.documents[orderIndex], '指定型号');
+  if (!required) return null;
+  const title = sampleAppearance(sample).name;
+  return {
+    rows: [{ title, field: '内框刻字', value: observed }, required],
+    finding: {
+      key: `compare:${item.id}:model:${orderIndex}`,
+      source: `${title} · 内框 / ${required.title}`,
+      text: `内框刻字 · 型号 ${observed}；送检指定型号 · ${required.value}`,
+    },
+  };
 }
 
 export function thicknessComparison(item, inspection, findings = []) {
