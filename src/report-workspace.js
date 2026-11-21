@@ -1,4 +1,6 @@
-import { archive, archivedReportSources, getCase } from './engine.js';
+import { archive, archivedReportSources, getCase, getTraceInquiry } from './engine.js';
+
+export const TRACE_INQUIRY_KEY = 'call:trace:R-071';
 
 const openerKeys = ['act', 'i', 'key', 'doc', 'field', 'fixture'];
 const offset = (value) => Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -33,10 +35,14 @@ function exactPaper(value, filed, report, fromPhone = false) {
   return { id, index, ...scroll(value) };
 }
 
-function phoneOrigin(run, value, filed) {
+function selectedArchiveFocus(focus, filed, hasTraceInquiry) {
+  return filed.has(focus) || (focus === TRACE_INQUIRY_KEY && hasTraceInquiry) ? focus : null;
+}
+
+function phoneOrigin(run, value, filed, hasTraceInquiry) {
   if (value?.panel !== 'archive') return parent(value, ['docs', 'sample']);
   const report = indexEntry(run, value.reportIndex);
-  const archiveFocus = filed.has(value.archiveFocus) ? value.archiveFocus : null;
+  const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry);
   if (!report && archiveFocus === null) return null;
   const archivePaper = exactPaper(value.archivePaper, filed, report);
   return {
@@ -54,18 +60,23 @@ export function reportWorkspace(run, value) {
       !['archive', 'phone'].includes(value?.panel) || !Number.isInteger(value.caseId) || getCase(run)?.id !== value.caseId) return null;
 
   const filed = new Map(archive(run).map((item) => [item.id, item]));
+  const hasTraceInquiry = (value.archiveFocus === TRACE_INQUIRY_KEY || value.phoneReturn?.archiveFocus === TRACE_INQUIRY_KEY) &&
+    Boolean(getTraceInquiry(run));
+  const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry);
   const report = indexEntry(run, value.reportIndex);
   const archiveReturn = parent(value.archiveReturn, ['docs', 'sample', 'phone']);
   const archivePaper = exactPaper(value.archivePaper, filed, report, archiveReturn?.panel === 'phone');
-  const phoneReturn = phoneOrigin(run, value.phoneReturn, filed);
-  const newView = value.panel === 'archive' ? report || archivePaper : phoneReturn?.reportIndex;
+  const phoneReturn = phoneOrigin(run, value.phoneReturn, filed, hasTraceInquiry);
+  const newView = value.panel === 'archive'
+    ? report || archivePaper || archiveFocus === TRACE_INQUIRY_KEY
+    : phoneReturn?.reportIndex || phoneReturn?.archiveFocus === TRACE_INQUIRY_KEY;
   if (!newView) return null;
 
   return {
     caseId: value.caseId, panel: value.panel,
     reportIndex: report?.number ?? null,
     archivePaper,
-    archiveFocus: filed.has(value.archiveFocus) ? value.archiveFocus : null,
+    archiveFocus,
     archiveQuery: query(value.archiveQuery),
     archiveReturn,
     phoneReturn,

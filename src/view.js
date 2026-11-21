@@ -3,6 +3,7 @@ import { cartonFinding, intakeComparison, projectComparison, relabelComparison, 
 import { cartonModel } from './carton-inspector.js';
 import { canShowFinding, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
 import { readFindings } from './inspection-findings.js';
+import { TRACE_INQUIRY_KEY } from './report-workspace.js';
 import { CUFF_SPLIT_PATCHES, cuffSplitVisible, earCupMark, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
 
 export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
@@ -335,7 +336,7 @@ function moldSketch() {
   </figure>`;
 }
 
-function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, fieldActions, phoneSource, pinAction = '', showTitle = true } = {}) {
+function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, reportCarry = false, fieldActions, phoneSource, pinAction = '', showTitle = true } = {}) {
   const action = inspection?.action ?? 'basis';
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
@@ -345,14 +346,17 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const chosen = inspection?.selected.has(`doc:${index}:${field}`);
     const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${signatureTarget ? ' data-tutorial-signature' : ''}${active(chosen)}>${text}</button>` : text;
     const lookup = reportLookup && (key === '报告编号' || key === '原报告编号') && value;
+    const carry = reportCarry && lookup && /^R-\d{3}$/.test(value)
+      ? button('带这张问', 'phone-document', 'secondary report-lookup',
+        `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}到电话旁"`) : '';
     const extension = phoneSource && documentExtension([key, value]);
     const extraAction = extension ? button('带这张拨号', 'phone-document', 'secondary document-field-action',
       `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}拨内线 ${extension}"`) : fieldActions?.get(key);
     const layout = lookup ? 'report-number-value' : extraAction ? 'document-action-value' : '';
-    return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${extraAction ?? ''}</dd></div>`;
+    return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${carry}${extraAction ?? ''}</dd></div>`;
   }).join('');
   const heading = showTitle ? `<h3>${esc(doc.title)}</h3>` : '';
-  return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}"${Number.isInteger(index) ? ` data-doc-index="${index}"` : ''}><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small>${pinAction ? `<div class="sheet-pin-heading">${heading}${pinAction}</div>` : heading}${clipboardFront ? clipboardFlip(false) : ''}${doc.kind === 'mold-sketch' ? moldSketch() : ''}<dl class="fields">
+  return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}${cls('trace-inquiry-sheet', doc.kind === 'trace-inquiry')}"${Number.isInteger(index) ? ` data-doc-index="${index}"` : ''}><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small>${pinAction ? `<div class="sheet-pin-heading">${heading}${pinAction}</div>` : heading}${clipboardFront ? clipboardFlip(false) : ''}${doc.kind === 'mold-sketch' ? moldSketch() : ''}<dl class="fields">
     ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
 }
 
@@ -531,7 +535,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
         button('对批号', 'relabel-check', 'secondary document-field-action', `data-i="${position}"${active(false)}`)]]);
     }
     return sheet(page, position, inspection, { clipboardFront: position === clipboardIndex,
-      reportLookup: !tutorial, phoneSource: !tutorial ? item.id : null, fieldActions });
+      reportLookup: !tutorial, reportCarry: !tutorial, phoneSource: !tutorial ? item.id : null, fieldActions });
   };
   const intakeIndex = progress.deliveryCheck;
   const intake = !tutorial && intakeComparison(item, intakeIndex);
@@ -601,7 +605,7 @@ export function sample(item, inspection, tutorial, progress) {
   const reference = !tutorial && !thicknessOpen && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
   const referencePicker = reference ? `<aside class="sample-reference" data-reference-doc="${referenceIndex}"><nav class="doc-tabs reference-tabs" aria-label="对照单据">
     ${item.documents.map(({ title }, index) => button(esc(title), 'reference-doc', 'tab', `data-i="${index}"${active(index === referenceIndex)}`)).join('')}
-    </nav>${sheet(reference, referenceIndex, { selected: new Set(findings.map(({ key }) => key)) }, { reportLookup: true, phoneSource: item.id })}</aside>` : '';
+    </nav>${sheet(reference, referenceIndex, { selected: new Set(findings.map(({ key }) => key)) }, { reportLookup: true, reportCarry: true, phoneSource: item.id })}</aside>` : '';
   const canCompare = !tutorial && item.documents.length > 0;
   const hasMoldSketch = item.documents.some(({ kind }) => kind === 'mold-sketch');
   const compareLabel = hasMoldSketch ? '对照工艺图' : '对照单据';
@@ -768,7 +772,10 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   let footer = '';
   if (visit) {
     const attached = batchPapers.find(({ key }) => key === focus);
-    const original = attached ? button(batchPaperLabels[visit.kind].original, 'archive-followup', 'secondary', `data-i="${esc(attached.caseId)}"`)
+    const original = visit.kind === 'trace-inquiry'
+      ? button('摊开通话单据', 'report-search', 'secondary', `data-key="${esc(visit.reportNumber)}"`) +
+        (visit.originalFiled ? button('查看已收原件', 'archive-evidence', 'secondary', 'data-key="trace"') : '')
+      : attached ? button(batchPaperLabels[visit.kind].original, 'archive-followup', 'secondary', `data-i="${esc(attached.caseId)}"`)
       : visit.kind === 'lab-request' ? button('查看当时的单据', 'archive-followup', 'secondary registration-source', `data-i="${esc(visit.caseId)}"`) : '';
     details = (original ? `<div class="modal-actions archive-actions">${original}</div>` : '') + sheet(visit);
   }
@@ -812,9 +819,9 @@ function phonePinButton(id, index, title, pinned, className) {
     `data-i="${id}" data-doc="${index}"${active(selected)} aria-label="${text} · ${esc(title)}"`);
 }
 
-export function archiveReportPanel(number, sources, pinned, { returnTo, finished, historyLabel } = {}) {
+export function archiveReportPanel(number, sources, pinned, { returnTo, finished, historyLabel, fromInquiry } = {}) {
   const closeText = { phone: '回到电话', docs: '回到单据', sample: '回到检样', receipt: '回到回执' }[returnTo] ?? '合上簿子';
-  const back = button('返回交接簿', 'report-index-back', 'secondary report-index-back');
+  const back = button(fromInquiry ? '回到电话登记' : '返回交接簿', 'report-index-back', 'secondary report-index-back');
   const phoneAction = !finished && returnTo !== 'phone' ? button('拿电话', 'phone', 'secondary report-index-phone') : '';
   const papers = sources.map(({ id, batch, day, document, index }) => {
     const pin = finished ? '' : phonePinButton(id, index, `${batch} ${document.title}`, pinned, 'report-index-pin');
@@ -850,7 +857,9 @@ export function phone(number, call, pinned, numberGuide, phoneBack, current, { r
   const closeText = returnLabel || '放下听筒';
   const closeLabel = returnLabel ? `放下听筒，${returnLabel}` : closeText;
   const caller = call ? [call.kind === 'incoming' ? '来电' : '', CHARACTERS[call.npc]?.name ?? '内线', call.number].filter(Boolean).map(esc).join(' · ') : '';
-  const registration = PHONE['204'].requests[call?.caseId] ? button('查看登记留底', 'archive-call', 'secondary phone-registration', `data-i="${esc(call.caseId)}"`) : '';
+  const registration = call?.kind === 'trace'
+    ? button('查看本次登记', 'archive-call', 'secondary phone-registration', `data-key="${TRACE_INQUIRY_KEY}"`)
+    : PHONE['204'].requests[call?.caseId] ? button('查看登记留底', 'archive-call', 'secondary phone-registration', `data-i="${esc(call.caseId)}"`) : '';
   return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine"><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>
     <div class="phone-side">${numberGuide ? '<div class="phone-directory"><button class="button secondary" data-act="phone-select" data-key="204">实验室 204</button></div>' : ''}
     ${papers}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
-import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
+import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -1816,11 +1816,15 @@ test('204 distinguishes the current R-084 report from the two actual R-071 origi
   const state = receiptAt(14, 'pass');
   const call = (papers) => act(state, 'dial', { number: '204', papers });
 
+  assert.equal(getTraceInquiry(state), null);
   assert.equal(call([first]).phone.line, script.relatedHint);
+  assert.equal(getTraceInquiry(call([first])), null);
   assert.equal(call([withdrawn]).phone.line, script.archiveHint);
+  assert.equal(getTraceInquiry(call([withdrawn])), null);
   for (const papers of [[retest], [first, retest], [retest, first], [withdrawn, retest]]) {
     const wrongPair = call(papers);
     assert.equal(wrongPair.phone.line, script.retestHint);
+    assert.equal(getTraceInquiry(wrongPair), null);
     assert.deepEqual(wrongPair.pending, []);
   }
   assert.equal(call([{ ...first, index: 0 }, withdrawn]).phone.line, script.archiveHint);
@@ -1831,6 +1835,7 @@ test('204 distinguishes the current R-084 report from the two actual R-071 origi
 
   const beforeArrival = act(receiptAt(10, 'review'), 'dial', { number: '204', papers: [first, withdrawn] });
   assert.equal(beforeArrival.phone.line, script.relatedHint);
+  assert.equal(getTraceInquiry(beforeArrival), null);
   assert.deepEqual(beforeArrival.pending, []);
   const paired = call([first, withdrawn, { id: 10, index: 2 }]);
   assert.equal(paired.phone.kind, 'trace');
@@ -1844,6 +1849,57 @@ test('204 distinguishes the current R-084 report from the two actual R-071 origi
   marked = act(marked, 'explore', { key: 'r071-248' });
   const fromLegacySources = act(JSON.parse(JSON.stringify(marked)), 'dial', { number: '204', papers: [] });
   assert.equal(fromLegacySources.phone.kind, 'trace');
+  assert.deepEqual(fromLegacySources.phone.papers, [first, withdrawn]);
+  const explicitRetest = act(marked, 'dial', { number: '204', papers: [retest] });
+  assert.equal(explicitRetest.phone.line, script.retestHint);
+  assert.equal(getTraceInquiry(explicitRetest), null);
+});
+
+test('the exact R-071 inquiry records both real sources and survives unrelated calls and handoff', () => {
+  const state = receiptAt(14, 'pass');
+  const papers = [{ id: 7, index: 1 }, { id: 14, index: 2 }];
+  let called = act(state, 'dial', { number: '204', papers: papers.toReversed() });
+  assert.deepEqual(called.phone.papers, papers);
+  assert.equal(called.phone.day, 3);
+  const inquiry = getTraceInquiry(called);
+  assert.equal(inquiry.day, 3);
+  assert.equal(inquiry.number, '204');
+  assert.deepEqual(inquiry.sources, archivedReportSources(called, 'R-071'));
+  assert.deepEqual(inquiry.sources.map(({ batch, document }) => [batch, document.title]), [
+    ['G-241', '随货核验联'], ['G-248', '作废随货联'],
+  ]);
+
+  called = act(called, 'dial', { number: '204', papers });
+  for (let i = 0; i < 25; i++) called = act(called, 'dial', { number: '555' });
+  assert.equal(called.phoneLog.length, 20);
+  assert.equal(called.phoneLog.filter(({ kind }) => kind === 'trace').length, 1);
+  assert.equal(called.phone.kind, 'unavailable');
+  assert.deepEqual(called.pending, ['trace']);
+  const restored = restoreRun(JSON.parse(JSON.stringify(called)));
+  assert.deepEqual(getTraceInquiry(restored), inquiry);
+  const delivered = act(restored, 'next');
+  assert.equal(delivered.flags.traceDocument, false);
+  const filed = act(delivered, 'ack-visit');
+  assert.equal(filed.flags.traceDocument, true);
+  const handoff = untilHandoff(21, { initialState: filed });
+  const finished = restoreRun(JSON.parse(JSON.stringify(act(handoff, 'finish'))));
+  assert.deepEqual(getTraceInquiry(finished), inquiry);
+  assert.equal(finished.flags.traceDocument, true);
+});
+
+test('saved legacy R-071 calls require real source papers and do not invent their call date', () => {
+  const legacyCall = { kind: 'trace', number: '204', lines: [PHONE['204'].inquiry, PHONE['204'].found] };
+  const oldSave = restoreRun(JSON.parse(JSON.stringify({ ...receiptAt(14, 'pass'), phoneLog: [legacyCall] })));
+  const inquiry = getTraceInquiry(oldSave);
+  assert.equal(inquiry.day, null);
+  assert.deepEqual(inquiry.sources, archivedReportSources(oldSave, 'R-071'));
+  const pruned = Array.from({ length: 25 }).reduce((state) => act(state, 'dial', { number: '555' }), oldSave);
+  assert.deepEqual(getTraceInquiry(pruned), inquiry);
+
+  const earlySave = { ...receiptAt(10, 'review'), phoneLog: [legacyCall] };
+  assert.equal(getTraceInquiry(earlySave), null);
+  const wrongSource = { ...legacyCall, papers: [{ id: 7, index: 1 }, { id: 14, index: 1 }] };
+  assert.equal(getTraceInquiry({ ...oldSave, phoneLog: [wrongSource] }), null);
 });
 
 test('204 routine requests and 107 follow-ups accept only the relevant pinned page', () => {

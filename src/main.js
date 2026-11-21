@@ -1,11 +1,11 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
-import { reportWorkspace } from './report-workspace.js';
+import { reportWorkspace, TRACE_INQUIRY_KEY } from './report-workspace.js';
 import { completedShiftHistory, collectedEndingIds, createWeekId } from './completed-shifts.js';
 import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { handoffComparison } from './handoff-comparison.js';
@@ -333,11 +333,22 @@ function labRegistrationKey(caseId) {
 function filedPhonePapers() {
   const hasRegistration = run.phoneLog.some((call) => call?.kind === 'lab-request');
   const filed = hasRegistration ? archive(run) : [];
+  const inquiry = getTraceInquiry(run);
   return run.phoneLog.flatMap((call) => {
     if (call?.kind === 'incoming') {
       return [[`call:${call.incomingKey}`, {
         type: 'archive', title: call.incomingKey === 'ringback' ? '回铃录音' : '实验室收班来电',
         fields: [['内线', call.number], ['接听', DAYS[call.day]?.title ?? '已登记'], ['通话内容', call.lines.join(' ')]],
+      }]];
+    }
+    if (call?.kind === 'trace' && inquiry) {
+      const reportNumber = inquiry.sources[0].number;
+      const sources = inquiry.sources.map(({ batch, document }) => `${batch} ${document.title}`);
+      return [[TRACE_INQUIRY_KEY, {
+        type: 'archive', kind: 'trace-inquiry', title: `实验室通话登记 · ${reportNumber}`, reportNumber,
+        originalFiled: Boolean(run.flags.traceDocument),
+        fields: [['通话单据', sources.join(' / ')], ['实验室原件', run.flags.traceDocument ? '已收进交接簿' : '待到窗口领取'],
+          ['内线', `${inquiry.number} · 小陈`], ...(inquiry.day === null ? [] : [['登记日', DAYS[inquiry.day]?.title ?? '值班周内']])],
       }]];
     }
     if (call?.kind !== 'lab-request') return [];
@@ -618,14 +629,14 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, work);
   if (panel === 'carton' && item?.carton) markup = view.carton(item, work);
   if (panel === 'archive' && run) {
-    const sources = archivedReportSources(run, reportIndex ?? archiveQuery);
+    const sources = matchingReportSources(reportIndex ?? archiveQuery);
     const returnTo = archiveReturn?.panel;
     const finished = run.phase === 'ending';
     const historyLabel = reviewedWeekLabel();
     const original = archivePaper && archivedPaper(archivePaper.id, archivePaper.index);
     markup = original ? view.archiveSourcePaper(original, pinned, { returnTo: reportIndex ? 'report-index' : returnTo, finished, historyLabel })
       : reportIndex && sources.length
-      ? view.archiveReportPanel(reportIndex, sources, pinned, { returnTo, finished, historyLabel })
+      ? view.archiveReportPanel(reportIndex, sources, pinned, { returnTo, finished, historyLabel, fromInquiry: archiveFocus === TRACE_INQUIRY_KEY })
       : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
         returnTo, historyLabel,
@@ -1656,6 +1667,7 @@ function dial() {
   if (!interaction.phoneNumber) return;
   const number = interaction.phoneNumber;
   playSound(number === '880' ? 'dialTone' : 'click');
+  toast('');
   update({ type: 'dial', number, papers: interaction.pinned });
   modalLayer.querySelector('.phone-log')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (run.phase === 'handoff' && activeVisit()) toast('有人到窗口递留底');
@@ -1693,9 +1705,12 @@ function phoneFromDocument(caseId, index, field, opener) {
     const previous = previousInspection(item);
     if (previous?.record.id === caseId) doc = previous.documents[index];
   }
-  const number = documentExtension(doc?.fields[field]);
-  if (!number) return;
-  interaction.phoneNumber = number;
+  const reference = doc?.fields[field];
+  const number = documentExtension(reference);
+  const holdReport = ['docs', 'sample'].includes(panel) && reference &&
+    ['报告编号', '原报告编号'].includes(reference[0]) && /^R-\d{3}$/.test(reference[1]);
+  if (!number && !holdReport) return;
+  if (number) interaction.phoneNumber = number;
   const displaced = pinPhonePaper(caseId, index);
   if (displaced) toast(`${displaced} 已收回交接簿`);
   openPhone(opener);
@@ -1729,12 +1744,20 @@ function openArchive(opener) {
   openPanel('archive', opener);
 }
 
+function matchingReportSources(number) {
+  if (interaction.archiveFocus === TRACE_INQUIRY_KEY) {
+    const inquiry = getTraceInquiry(run);
+    if (inquiry?.sources[0]?.number === number) return inquiry.sources;
+  }
+  return archivedReportSources(run, number);
+}
+
 function openReportIndex(number, opener) {
-  const sources = archivedReportSources(run, number);
+  const sources = matchingReportSources(number);
   if (!sources.length) return;
   const current = panel === 'docs' || panel === 'sample' ? windowCase()?.id : interaction.archiveFocus;
   const target = sources.find(({ id }) => id === current) ?? sources.at(-1);
-  focusArchiveRow(target.id);
+  if (current !== TRACE_INQUIRY_KEY || target.number !== getTraceInquiry(run)?.sources[0]?.number) focusArchiveRow(target.id);
   reportIndex = target.number;
   interaction.archiveQuery = reportIndex;
   playSound('paper');
@@ -1753,7 +1776,7 @@ function archivedPaper(id, index) {
 function openArchivePaper(id, index, opener) {
   if (!run || !Number.isInteger(index)) return;
   if (panel === 'archive' && reportIndex && !archivePaper) {
-    if (!archivedReportSources(run, reportIndex).some((source) => source.id === id && source.index === index)) return;
+    if (!matchingReportSources(reportIndex).some((source) => source.id === id && source.index === index)) return;
     const body = workspaceBody();
     archivePaper = { id, index, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0 };
     playSound('paper');
@@ -2043,7 +2066,7 @@ root.addEventListener('click', (event) => {
     case 'report-index-paper': openArchivePaper(index, Number(target.dataset.doc), target); break;
     case 'archive-call': {
       if (panel !== 'phone') break;
-      const registration = labRegistrationKey(index);
+      const registration = key === TRACE_INQUIRY_KEY ? key : labRegistrationKey(index);
       if (!filedPhonePapers().some(([entry]) => entry === registration)) break;
       focusArchiveRow(registration);
       interaction.archiveQuery = '';
@@ -2053,11 +2076,14 @@ root.addEventListener('click', (event) => {
     }
     case 'report-index-back':
       if (panel === 'archive' && reportIndex) {
+        const fromInquiry = interaction.archiveFocus === TRACE_INQUIRY_KEY;
+        const number = reportIndex;
         reportIndex = null;
         archivePaper = null;
         playSound('paper');
         render();
         revealArchiveReceipt(true);
+        if (fromInquiry) focusControl(modalLayer, { act: 'report-search', key: number });
       }
       break;
     case 'archive-receipt': case 'phone-paper': {

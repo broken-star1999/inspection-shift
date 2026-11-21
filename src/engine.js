@@ -22,6 +22,8 @@ export const EVIDENCE = {
 };
 
 export const TRACE_CASE_ID = 7;
+const TRACE_WITHDRAWAL_ID = 14;
+const TRACE_REPORT_NUMBER = 'R-071';
 export const TRACE_FINDING = {
   key: 'trace:source',
   source: EVIDENCE.trace.title,
@@ -627,6 +629,7 @@ function labRequest(state, caseId) {
 function retainedCallKey(call) {
   if (call?.kind === 'incoming' && isIncomingKey(call.incomingKey)) return `incoming:${call.incomingKey}`;
   if (call?.kind === 'lab-request' && Number.isInteger(call.caseId) && PHONE['204'].requests?.[call.caseId]) return `lab-request:${call.caseId}`;
+  if (call?.kind === 'trace' && call.number === '204') return 'trace';
   return null;
 }
 
@@ -712,17 +715,39 @@ function citesReport(document, field, number) {
   return document.fields.some(([label, value]) => label === field && value === number);
 }
 
+function isTraceSource(id, document) {
+  if (id === TRACE_CASE_ID) return document.type === 'report' && citesReport(document, '报告编号', TRACE_REPORT_NUMBER);
+  return id === TRACE_WITHDRAWAL_ID && document.type === 'archive' && citesReport(document, '原报告编号', TRACE_REPORT_NUMBER);
+}
+
+function traceInquirySources(state) {
+  const matches = archivedReportSources(state, TRACE_REPORT_NUMBER).filter(({ id, document }) => isTraceSource(id, document));
+  const shippingSlip = matches.find(({ id }) => id === TRACE_CASE_ID);
+  const withdrawal = matches.find(({ id }) => id === TRACE_WITHDRAWAL_ID);
+  return shippingSlip && withdrawal ? [shippingSlip, withdrawal] : [];
+}
+
+export function getTraceInquiry(state) {
+  const call = state?.phoneLog?.findLast((entry) => retainedCallKey(entry) === 'trace');
+  if (!call) return null;
+  const sources = traceInquirySources(state);
+  if (sources.length !== 2) return null;
+  const { day, number, papers } = call;
+  if (Object.hasOwn(call, 'papers') && (!Array.isArray(papers) || papers.length !== sources.length ||
+      !sources.every((source) => papers.some((paper) => paper?.id === source.id && paper.index === source.index)))) return null;
+  const hasDate = Number.isInteger(day) && day >= sources.at(-1).day && day < DAYS.length && day <= state.day;
+  return { day: hasDate ? day : null, number, sources };
+}
+
 function labSelection(state, action, script) {
   if (!Object.hasOwn(action, 'papers')) return { ids: selectedRecords(state, action), explicit: explicitRecordIds(action) };
-  const ids = selectedSourceFlags(state);
+  const ids = Array.isArray(action.papers) && action.papers.length ? new Set() : selectedSourceFlags(state);
   const explicit = [];
   for (const { id, document } of selectedPapers(state, action)) {
-    const oldSlip = (id === 7 && document.type === 'report' && citesReport(document, '报告编号', 'R-071')) ||
-      (id === 14 && document.type === 'archive' && citesReport(document, '原报告编号', 'R-071'));
-    if (oldSlip) {
+    if (isTraceSource(id, document)) {
       ids.add(id);
       explicit.push(id);
-    } else if (id === 14 && document.type === 'report' && citesReport(document, '报告编号', 'R-084')) {
+    } else if (id === TRACE_WITHDRAWAL_ID && document.type === 'report' && citesReport(document, '报告编号', 'R-084')) {
       explicit.push('retest');
     } else if (script.requests?.[id] && document.type === 'order') {
       explicit.push(id);
@@ -734,8 +759,8 @@ function labSelection(state, action, script) {
 function dialLab(state, action, number) {
   const script = PHONE[number];
   const { ids, explicit } = labSelection(state, action, script);
-  const oldCase = ids.has(14) ? 14 : ids.has(7) ? 7 : null;
-  const bothOldPapers = ids.has(7) && ids.has(14);
+  const oldCase = ids.has(TRACE_WITHDRAWAL_ID) ? TRACE_WITHDRAWAL_ID : ids.has(TRACE_CASE_ID) ? TRACE_CASE_ID : null;
+  const bothOldPapers = ids.has(TRACE_CASE_ID) && ids.has(TRACE_WITHDRAWAL_ID);
   if (!bothOldPapers) {
     const retest = explicit.lastIndexOf('retest');
     const latestPriorPaper = Math.max(explicit.lastIndexOf(oldCase), retest);
@@ -747,10 +772,13 @@ function dialLab(state, action, number) {
   if (state.flags.traceDocument) return callResult(state, number, script.npc, [script.received]);
   if (isVisitQueued(state, 'trace')) return callResult(state, number, script.npc, ['原件已经留出来了。我们在窗口交接一下。']);
   if (bothOldPapers) {
-    const called = callResult(state, number, script.npc, [script.inquiry, script.found], 'trace');
-    return queueVisit(called, 'trace');
+    const papers = traceInquirySources(state).map(({ id, index }) => ({ id, index }));
+    if (papers.length === 2) {
+      const called = callResult(state, number, script.npc, [script.inquiry, script.found], 'trace', { day: state.day, papers });
+      return queueVisit(called, 'trace');
+    }
   }
-  return callResult(state, number, script.npc, [oldCase === 14 ? script.archiveHint : script.relatedHint], 'hint');
+  return callResult(state, number, script.npc, [oldCase === TRACE_WITHDRAWAL_ID ? script.archiveHint : script.relatedHint], 'hint');
 }
 
 function selectedLabRequest(state, script, explicit) {

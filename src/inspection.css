@@ -1625,6 +1625,10 @@
   background: #a36d4412;
 }
 .archive-receipt .receiving-facts dt { color: #75492f; }
+@container workstation (max-height: 440px) {
+  .archive-detail .trace-inquiry-sheet > small { display: none; }
+  .archive-detail .trace-inquiry-sheet .fields > div { grid-template-columns: 5.2em minmax(0, 1fr); }
+}
 .receipt-amendments { display: grid; gap: .28rem; list-style: none; margin: .48rem 0 0; padding: 0; }
 .receipt-amendments > li {
   display: flex;
