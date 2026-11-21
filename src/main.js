@@ -5,6 +5,7 @@ import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMute
 import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
+import { reportWorkspace } from './report-workspace.js';
 import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { handoffComparison } from './handoff-comparison.js';
 import * as view from './view.js';
@@ -94,6 +95,7 @@ let suppressPaperClick = false;
 let modalOpener = null;
 let archiveReturn = null;
 let reportIndex = null;
+let archivePaper = null;
 let correctionDraft = null;
 let handoffFocus = null;
 let handoffDocument = null;
@@ -568,7 +570,9 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const sources = archivedReportSources(run, reportIndex ?? archiveQuery);
     const returnTo = archiveReturn?.panel;
     const finished = run.phase === 'ending';
-    markup = reportIndex && sources.length
+    const original = archivePaper && archivedPaper(archivePaper.id, archivePaper.index);
+    markup = original ? view.archiveSourcePaper(original, pinned, { returnTo: reportIndex ? 'report-index' : returnTo, finished })
+      : reportIndex && sources.length
       ? view.archiveReportPanel(reportIndex, sources, pinned, { returnTo, finished })
       : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
@@ -587,7 +591,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       return row ? [{ id, index, batch: row.batch, document: row.documents[index] ?? null }] : [];
     });
     markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, run.flags.phoneBack, item, {
-      returnTo: phoneReturn?.reportIndex ? 'report-index' : phoneReturn?.panel,
+      returnTo: phoneReturn?.archivePaper ? 'archive-paper' : phoneReturn?.reportIndex ? 'report-index' : phoneReturn?.panel,
       incomingCall,
     });
   }
@@ -723,11 +727,18 @@ function persistRun() {
   if (!run || reviewingHistory) return;
   captureCorrectionScroll();
   const body = workspaceBody();
-  const archivedPanel = panel === 'archive' && ['phone', 'docs', 'sample'].includes(archiveReturn?.panel) ? archiveReturn.panel : null;
-  const context = body || archivedPanel ? workspaceContext() : undefined;
-  const workspacePanel = archivedPanel ?? panel;
+  const item = getCase(run);
+  const lookup = reportWorkspace(run, {
+    caseId: item?.id, panel, reportIndex, archivePaper, archiveFocus: interaction.archiveFocus,
+    archiveQuery: interaction.archiveQuery, archiveReturn, phoneReturn, scrollTop: body?.scrollTop, scrollLeft: body?.scrollLeft,
+  });
+  const originalWork = lookup && [lookup.archiveReturn, lookup.phoneReturn?.archiveReturn, lookup.phoneReturn]
+    .find((origin) => ['docs', 'sample'].includes(origin?.panel));
+  const archived = originalWork ?? (panel === 'archive' && ['phone', 'docs', 'sample'].includes(archiveReturn?.panel) ? archiveReturn : null);
+  const context = body || archived ? workspaceContext() : undefined;
+  const workspacePanel = archived?.panel ?? panel;
   const workspace = context ? {
-    ...context, panel: workspacePanel, scrollTop: archivedPanel ? archiveReturn.scrollTop : body?.scrollTop ?? 0,
+    ...context, panel: workspacePanel, scrollTop: archived ? archived.scrollTop : body?.scrollTop ?? 0,
     returnTo: workspacePanel === 'phone' ? phoneReturn : undefined,
   } : undefined;
   const pairWorkspace = recallPairReturn ?? handoffPairWorkspace();
@@ -736,7 +747,8 @@ function persistRun() {
     ...(arrival ? { arrivalAction: arrival.action } : {}),
     ...(run.phase === 'handoff' && correctionDraft ? { correctionDraft } : {}),
     ...(pairWorkspace ? { handoffPair: pairWorkspace } : {}),
-    inspectionProgress: captureInspectionProgress(getCase(run), interaction, workspace),
+    ...(lookup ? { reportWorkspace: lookup } : {}),
+    inspectionProgress: captureInspectionProgress(item, interaction, workspace),
   };
   writeStorage(SAVE_KEY, saved);
 }
@@ -746,9 +758,13 @@ function persistWorkspaceScroll() {
   const body = workspaceBody();
   const workspace = saved?.inspectionProgress?.workspace;
   let scrollTop = workspace?.panel === panel ? workspace?.scrollTop : undefined;
+  const lookup = saved?.reportWorkspace?.panel === panel ? saved.reportWorkspace : null;
+  if (lookup) scrollTop = lookup.scrollTop;
   if (panel === 'handoff' && handoffPairOpen) scrollTop = saved?.handoffPair?.scrollTop;
   else if (activeCorrection()) scrollTop = saved?.correctionDraft?.scrollTop;
-  if (!body || scrollTop === undefined || Math.abs(body.scrollTop - scrollTop) < 1) return;
+  if (!body || scrollTop === undefined) return;
+  const sameColumn = !lookup || Math.abs(body.scrollLeft - lookup.scrollLeft) < 1;
+  if (Math.abs(body.scrollTop - scrollTop) < 1 && sameColumn) return;
   // Passive scroll saves must not replace newer progress from another tab.
   if (JSON.stringify(readStorage(SAVE_KEY)) === JSON.stringify(saved)) persistRun();
 }
@@ -784,7 +800,7 @@ function openPanel(name, opener) {
   if (name === 'phone' && (panel === 'docs' || panel === 'sample' || archiveOrigin)) {
     const body = workspaceBody();
     phoneReturn = { panel, opener: { ...opener.dataset }, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0,
-      ...(archiveOrigin ? { reportIndex, archiveReturn, archiveFocus: interaction.archiveFocus, archiveQuery: interaction.archiveQuery } : {}) };
+      ...(archiveOrigin ? { reportIndex, archivePaper, archiveReturn, archiveFocus: interaction.archiveFocus, archiveQuery: interaction.archiveQuery } : {}) };
   } else if (panel === 'phone' && name !== 'archive' && name !== 'phone') {
     update({ type: 'hang-up' }, false);
     phoneReturn = null;
@@ -813,32 +829,40 @@ function enter(restore) {
   let arrivalAction;
   let savedCorrection;
   let savedPair;
+  let lookup;
   if (restore && saved) {
-    const { inspectionProgress, arrivalAction: savedArrival, correctionDraft: draft, handoffPair: pair, ...savedRun } = saved;
+    const { inspectionProgress, arrivalAction: savedArrival, correctionDraft: draft, handoffPair: pair, reportWorkspace: savedLookup, ...savedRun } = saved;
     arrivalAction = savedArrival;
     savedCorrection = draft;
     savedPair = pair;
     run = restoreRun(savedRun);
     const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
+    lookup = reportWorkspace(run, savedLookup);
   } else {
     const lastCompleted = saved?.phase === 'ending' ? saved : completedShifts.values().next().value;
     run = endings.length ? createFollowingRun(lastCompleted) : createRun();
     interaction = freshInteraction();
   }
-  panel = workspace?.panel ?? null;
+  panel = lookup?.panel ?? workspace?.panel ?? null;
   if (tutorialStep() && (panel === 'docs' || workspace?.returnTo?.panel === 'docs')) {
     const documents = getCase(run)?.documents;
     readDocument(documents?.[viewedDocument()]);
     readDocument(documents?.[interaction.compare]);
   }
   advanceTutorial();
-  phoneReturn = workspace?.returnTo ? { ...workspace.returnTo, opener: { act: workspace.returnTo.panel === 'archive' ? 'phone-document' : 'phone' } } : null;
+  phoneReturn = lookup ? lookup.phoneReturn : workspace?.returnTo
+    ? { ...workspace.returnTo, opener: { act: workspace.returnTo.panel === 'archive' ? 'phone-document' : 'phone' } } : null;
   if (panel !== 'phone') run = dispatch(run, { type: 'hang-up' });
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
-  archiveReturn = null;
-  reportIndex = null;
+  archiveReturn = lookup?.archiveReturn ?? null;
+  reportIndex = lookup?.reportIndex ?? null;
+  archivePaper = lookup?.archivePaper ?? null;
+  if (lookup) {
+    interaction.archiveFocus = lookup.archiveFocus;
+    interaction.archiveQuery = lookup.archiveQuery;
+  }
   handoffFocus = null;
   handoffDocument = null;
   handoffPairOpen = false;
@@ -868,7 +892,11 @@ function enter(restore) {
   const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
   if (resumeSound) playSound(resumeSound);
   else if (run.phase !== 'summary') playSound(run.phase === 'ending' ? 'paper' : 'shutter');
-  render(workspace?.scrollTop);
+  render(lookup?.scrollTop ?? workspace?.scrollTop);
+  if (lookup) {
+    const body = workspaceBody();
+    if (body) body.scrollLeft = lookup.scrollLeft;
+  }
   if (restore && interaction.benchFindingsOpen) {
     desktop.querySelector('.finding-show[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
@@ -886,6 +914,7 @@ function reviewCompletedShift(id) {
   modalOpener = null;
   archiveReturn = null;
   reportIndex = null;
+  archivePaper = null;
   correctionDraft = null;
   phoneReturn = null;
   playSound('paper');
@@ -1224,6 +1253,7 @@ function captureCorrectionScroll() {
 function focusArchiveRow(id) {
   captureCorrectionScroll();
   reportIndex = null;
+  archivePaper = null;
   interaction.archiveFocus = id;
 }
 
@@ -1509,7 +1539,8 @@ function phoneFromDocument(caseId, index, field, opener) {
   if (!run || reviewingHistory) return;
   let doc;
   const item = windowCase();
-  if (panel === 'archive' && interaction.archiveFocus === caseId && !activeCorrection()) {
+  const activeArchivePaper = archivePaper ? archivePaper.id === caseId && archivePaper.index === index : interaction.archiveFocus === caseId;
+  if (panel === 'archive' && activeArchivePaper && !activeCorrection()) {
     doc = archive(run).find(({ id }) => id === caseId)?.documents[index];
   } else if (item?.id === caseId && heldObjects(item).heldDocuments.includes(index)) {
     doc = item.documents[index];
@@ -1543,6 +1574,7 @@ function setPhoneNumber(value) {
 
 function openArchive(opener) {
   reportIndex = null;
+  archivePaper = null;
   if (toolsAvailableBetweenBatches() && !panel && opener === booth.querySelector('.wall-archive')) {
     focusArchiveRow(run.records.at(-1)?.id ?? null);
     interaction.archiveQuery = '';
@@ -1563,6 +1595,31 @@ function openReportIndex(number, opener) {
   playSound('paper');
   openPanel('archive', opener);
   modalLayer.querySelector('.report-index-surface .desk-surface-content')?.scrollTo(0, 0);
+}
+
+function archivedPaper(id, index) {
+  const row = archive(run).find((item) => item.id === id);
+  const document = row?.documents[index];
+  if (!document) return null;
+  const day = row.record?.day ?? DAYS.findIndex(({ cases }) => cases.some((item) => item.id === id));
+  return { id, index, batch: row.batch, day, document };
+}
+
+function openArchivePaper(id, index, opener) {
+  if (!run || !Number.isInteger(index)) return;
+  if (panel === 'archive' && reportIndex && !archivePaper) {
+    if (!archivedReportSources(run, reportIndex).some((source) => source.id === id && source.index === index)) return;
+    const body = workspaceBody();
+    archivePaper = { id, index, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0 };
+    playSound('paper');
+    render(0);
+  } else if (panel === 'phone' && interaction.pinned.some((paper) => paper.id === id && paper.index === index) && archivedPaper(id, index)) {
+    focusArchiveRow(id);
+    interaction.archiveQuery = '';
+    archivePaper = { id, index, scrollTop: 0, scrollLeft: 0 };
+    playSound('paper');
+    openPanel('archive', opener);
+  }
 }
 
 function openHandoff(opener) {
@@ -1652,6 +1709,15 @@ function revealArchiveReceipt(revealIndex) {
 
 function closePanel() {
   captureCorrectionScroll();
+  if (panel === 'archive' && reportIndex && archivePaper) {
+    const { id, index, scrollTop, scrollLeft } = archivePaper;
+    archivePaper = null;
+    playSound('paper');
+    render(scrollTop);
+    workspaceBody()?.scrollTo(scrollLeft, scrollTop);
+    focusControl(modalLayer, { act: 'report-index-paper', i: String(id), doc: String(index) });
+    return;
+  }
   let previousPanel = run && panel === 'archive' ? archiveReturn : null;
   if (panel === 'phone') {
     update({ type: 'hang-up' }, false);
@@ -1663,6 +1729,7 @@ function closePanel() {
   if (toReceipt) modalOpener = null;
   archiveReturn = previousPanel?.archiveReturn ?? null;
   reportIndex = previousPanel?.reportIndex ?? null;
+  archivePaper = previousPanel?.archivePaper ?? null;
   if (panel === 'archive' && previousPanel.archiveFocus != null) {
     interaction.archiveFocus = previousPanel.archiveFocus;
     interaction.archiveQuery = previousPanel.archiveQuery;
@@ -1680,7 +1747,7 @@ function closePanel() {
       if (body) body.scrollLeft = previousPanel.scrollLeft ?? 0;
       else modalLayer.querySelector('.modal-body')?.scrollTo(0, previousPanel.scrollTop);
     }
-    const opener = focusControl(modalLayer, previousPanel.opener);
+    const opener = previousPanel.opener && focusControl(modalLayer, previousPanel.opener);
     if (opener?.dataset.act === 'phone-document') opener.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   } else if (run?.phase === 'summary' && document.activeElement === document.body) focusControl(screenLayer, { act: 'advance-day' });
 }
@@ -1802,6 +1869,7 @@ root.addEventListener('click', (event) => {
     case 'stamp': stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
     case 'report-search': openReportIndex(key, target); break;
+    case 'report-index-paper': openArchivePaper(index, Number(target.dataset.doc), target); break;
     case 'archive-call': {
       if (panel !== 'phone') break;
       const registration = labRegistrationKey(index);
@@ -1815,6 +1883,7 @@ root.addEventListener('click', (event) => {
     case 'report-index-back':
       if (panel === 'archive' && reportIndex) {
         reportIndex = null;
+        archivePaper = null;
         playSound('paper');
         render();
         revealArchiveReceipt(true);
@@ -1822,16 +1891,14 @@ root.addEventListener('click', (event) => {
       break;
     case 'archive-receipt': case 'phone-paper': {
       if (!run?.seen.includes(index)) break;
+      if (act === 'phone-paper' && target.dataset.doc !== undefined) {
+        openArchivePaper(index, Number(target.dataset.doc), target);
+        break;
+      }
       focusArchiveRow(index);
       interaction.archiveQuery = '';
       openArchive(target);
       revealArchiveReceipt(true);
-      if (act === 'phone-paper' && target.dataset.doc !== undefined) {
-        const docIndex = Number(target.dataset.doc);
-        const sheet = modalLayer.querySelector(`.archive-detail .sheet[data-doc-index="${docIndex}"]`);
-        sheet?.scrollIntoView({ block: 'start', inline: 'nearest' });
-        if (sheet) focusControl(sheet, { act: 'archive-pin' });
-      }
       break;
     }
     case 'archive-focus': case 'archive-followup': case 'archive-evidence':

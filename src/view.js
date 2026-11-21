@@ -742,12 +742,20 @@ export function archiveReportPanel(number, sources, pinned, { returnTo, finished
   const phoneAction = !finished && returnTo !== 'phone' ? button('拿电话', 'phone', 'secondary report-index-phone') : '';
   const papers = sources.map(({ id, batch, day, document, index }) => {
     const pin = finished ? '' : phonePinButton(id, index, `${batch} ${document.title}`, pinned, 'report-index-pin');
-    const original = button('查看原单', 'archive-followup', 'secondary', `data-i="${esc(id)}" aria-label="查看 ${esc(batch)} 原单"`);
+    const original = button('查看原单', 'report-index-paper', 'secondary', `data-i="${esc(id)}" data-doc="${esc(index)}" aria-label="查看 ${esc(batch)} ${esc(document.title)} 原单"`);
     return `<section class="report-index-paper" aria-label="${esc(batch)} ${esc(document.title)}"><div class="report-index-source"><b>${esc(batch)}</b><small>${esc(DAYS[day]?.title)}</small></div>
       <div class="modal-actions report-index-actions">${pin}${original}</div>${sheet(document, index)}</section>`;
   }).join('');
   return deskSurface(`报告号 ${number}`, papers ? `<div class="report-index-papers">${papers}</div>` : '<p class="archive-empty">交接簿里还没有这个报告号的留底。</p>',
     'archive-surface report-index-surface', closeText, number, { headerActions: back + phoneAction, closeLabel: closeText });
+}
+
+export function archiveSourcePaper({ id, index, batch, day, document }, pinned, { returnTo, finished } = {}) {
+  const closeText = { phone: '回到电话', 'report-index': '回到编号索引' }[returnTo] ?? '合上单据';
+  const pin = finished ? '' : phonePinButton(id, index, document.title, pinned, 'archive-source-pin');
+  const heading = [batch, DAYS[day]?.title].filter(Boolean).join(' · ');
+  const paper = sheet(document, index, null, { phoneSource: !finished ? id : null });
+  return deskSurface(heading, paper, 'archive-surface archive-source-surface', closeText, `${id}:${index}`, { closeLabel: closeText, headerActions: pin });
 }
 
 export function phone(number, call, pinned, numberGuide, phoneBack, current, { returnTo, incomingCall } = {}) {
@@ -761,7 +769,7 @@ export function phone(number, call, pinned, numberGuide, phoneBack, current, { r
   }).join('')}
   </ul></div>` : '';
   const actions = `<footer class="modal-actions phone-actions">${incomingCall ? button('接电话', 'phone-answer', 'secondary phone-answer') : ''}${canBring ? button('带本批送检联', 'archive-pin', 'secondary', `data-i="${current.id}" data-doc="${order}"`) : ''}${button('交接簿', 'archive')}${button(phoneBack ? '机底贴纸 · 880' : '翻看机底', 'phone-back')}</footer>`;
-  const returnLabel = { docs: '回到单据', sample: '回到检样', archive: '回到交接簿', 'report-index': '回到编号索引' }[returnTo];
+  const returnLabel = { docs: '回到单据', sample: '回到检样', archive: '回到交接簿', 'report-index': '回到编号索引', 'archive-paper': '回到原单' }[returnTo];
   const closeText = returnLabel || '放下听筒';
   const closeLabel = returnLabel ? `放下听筒，${returnLabel}` : closeText;
   const caller = call ? [call.kind === 'incoming' ? '来电' : '', CHARACTERS[call.npc]?.name ?? '内线', call.number].filter(Boolean).map(esc).join(' · ') : '';
