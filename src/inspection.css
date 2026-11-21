@@ -910,7 +910,7 @@
 }
 .archive-surface .archive-correction .stamp { min-block-size: 2.75rem; }
 .archive-surface .archive-actions .button.window-edit-current,
-.archive-surface:has(.window-edit-current) .correction-original-options .correction-original { min-block-size: 2.75rem; }
+.window-correction-surface .correction-original-options .correction-original { min-block-size: 2.35rem; }
 .correction-target {
   display: grid;
   flex: 0 0 auto;
@@ -1612,6 +1612,20 @@
   box-shadow: 3px 5px 9px #171912c4;
   rotate: -1.15deg;
 }
+.receipt-batch {
+  display: block;
+  inline-size: fit-content;
+  margin: .24em 0 .18em;
+  padding: 0 .1em;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 870 1.86rem / 1.2 var(--mono);
+  text-decoration: underline .07em #886746;
+  text-underline-offset: .14em;
+  cursor: pointer;
+}
+.receipt-batch:is(:hover, :focus-visible) { background: #fff0cc; }
 .receipt-surface .receipt-disposition {
   margin: .46rem 0 0;
   padding: .26rem .44rem;
@@ -2087,7 +2101,7 @@
   }
   .receipt-surface .receipt-slip > .eyebrow { display: none; }
   .receipt-surface .receipt-slip > :is(.receipt-basis-link, .receipt-disposition, .receipt-facts, .receipt-window-change) { grid-column: 1 / -1; }
-  .receipt-surface .receipt-slip > b { margin: 0; font-size: 1.35rem; }
+  .receipt-batch { margin: 0; font-size: 1.35rem; }
   .receipt-surface .desk-surface-footer .button { min-block-size: 2.35rem; }
 }
 

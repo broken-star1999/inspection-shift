@@ -959,7 +959,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const returnTo = archiveReturn?.panel ?? (finished ? 'ending' : null);
     const historyLabel = reviewedWeekLabel();
     const original = archivePaper && archivedPaper(archivePaper.id, archivePaper.index);
-    markup = original ? view.archiveSourcePaper(original, pinned, {
+    markup = correction && run.phase === 'receipt' ? view.windowCorrection(correction, correctionFindings, supportingBasis)
+      : original ? view.archiveSourcePaper(original, pinned, {
       returnTo: reportIndex ? 'report-index' : returnTo, finished, historyLabel,
       fromDesk: toolsAvailableBetweenBatches() && !reportIndex && !returnTo,
     })
@@ -1095,7 +1096,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   } else if (surface && scroll) {
     const content = surface.querySelector('.desk-surface-content');
     [content.scrollLeft, content.scrollTop] = scroll;
-    if (archiveIndexScroll !== undefined) surface.querySelector('.drawer-list').scrollTop = archiveIndexScroll;
+    const archiveIndex = surface.querySelector('.drawer-list');
+    if (archiveIndex && archiveIndexScroll !== undefined) archiveIndex.scrollTop = archiveIndexScroll;
     const reference = surface.querySelector('.sample-reference');
     if (reference && reference.dataset.referenceDoc !== previousReference?.dataset.referenceDoc) {
       animateOnDesk(reference.querySelector('.sheet'), [{ translate: '.85rem .3rem', opacity: .65 }, { translate: '0 0', opacity: 1 }], 180);
@@ -1340,7 +1342,7 @@ function enter(restore) {
       focusArchiveRow(correctionDraft.id);
       if (run.phase === 'receipt') {
         archiveReturn = {
-          panel: 'receipt', opener: { act: 'archive-receipt', i: String(correctionDraft.id) },
+          panel: 'receipt', opener: { act: 'edit-receipt', i: String(correctionDraft.id) },
           scrollTop: correctionDraft.receiptScrollTop,
         };
       }
@@ -2451,6 +2453,7 @@ function closePanel({ receiveWaiting = false } = {}) {
     phoneReturn = null;
   }
   const toReceipt = previousPanel?.panel === 'receipt';
+  if (toReceipt && activeCorrection()) correctionDraft = null;
   panel = toReceipt ? null : previousPanel?.panel ?? null;
   if (toReceipt) modalOpener = null;
   archiveReturn = previousPanel?.archiveReturn ?? null;
@@ -2715,6 +2718,14 @@ root.addEventListener('click', (event) => {
       }
       break;
     }
+    case 'edit-receipt':
+      if (!panel && target.closest('.receipt-surface') && !arrival && canRecheckReceipt(run, index)) {
+        focusArchiveRow(index);
+        interaction.archiveQuery = '';
+        correctionDraft = { id: index, keys: [], fromBoard: false, documentIndex: null, scrollTop: 0 };
+        openArchive(target);
+      }
+      break;
     case 'edit-record': {
       if (panel === 'handoff' && handoffPairOpen) break;
       const citeTrace = key === 'trace' && panel === 'handoff' && (handoffFocus === 'attachments' ||
@@ -2744,14 +2755,6 @@ root.addEventListener('click', (event) => {
         revealHandoffSelection();
         focusControl(modalLayer, { act: 'correction-remove', key: citation.finding.key });
       }
-      if (!editing && run.phase === 'receipt') {
-        const finding = modalLayer.querySelector('.correction-original');
-        if (finding) {
-          finding.focus({ preventScroll: true });
-          finding.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-          persistRun();
-        }
-      }
       break;
     }
     case 'correction-basis': editCorrectionFinding(`doc:${index}:${Number(target.dataset.field)}`, { field: target }); break;
@@ -2769,6 +2772,7 @@ root.addEventListener('click', (event) => {
           beginReceiptPrint(row.id);
           toast('');
           closePanel();
+          if (!receiptPrintTimer) focusControl(modalLayer, { act: 'next' });
           scenery?.setPressed?.(key);
         } else if (panel === 'handoff') {
           handoffDocument = null;

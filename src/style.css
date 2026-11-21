@@ -1239,7 +1239,6 @@ button:disabled { opacity: .46; }
 .sample-mark { position: absolute; pointer-events: none; }
 .sample-stage[data-kind='broken'].turned .sample-mark { inset: 57% 19% auto auto; inline-size: 11%; block-size: 10%; border-block-end: 2px dashed #ffc78a; transform: rotate(-14deg); }
 
-.receipt-slip > b { display: block; margin: .24em 0 .18em; font: 870 1.86rem / 1.2 var(--mono); }
 .receipt-slip p { margin: .7rem 0 0; color: #715538; font-size: .91rem; }
 .receipt-slip { min-block-size: clamp(6.5rem, 24cqh, 12rem); }
 .receipt-result { display: inline-block; padding: .22rem .45rem; border: 3px double currentColor; transform: rotate(-6deg); color: #776026; font-weight: 850; }

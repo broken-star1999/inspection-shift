@@ -849,7 +849,7 @@ export function receipt(record, previous, nextPhase, { supplementKey, canCorrect
   const original = previous && previous.id === record.priorShipmentId
     ? button('原出货回执', 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}" aria-label="查看原出货回执 · ${esc(DAYS[previous.day]?.title)}"`)
     : '';
-  const copy = button(canCorrect ? '留底与更正' : '翻本批留底', 'archive-receipt', 'receipt-origin', `data-i="${esc(record.id)}"`);
+  const correction = canCorrect ? button('更正本单', 'edit-receipt', 'receipt-origin', `data-i="${esc(record.id)}"`) : '';
   const supplement = supplementKey ? button('补件登记联', 'archive-evidence', 'receipt-origin', `data-key="${esc(supplementKey)}"`) : '';
   const next = nextPhase === 'summary' ? '递单收工' : nextPhase === 'handoff' ? '递单交班' : '递回执';
   const amendment = record.amendments?.at(-1);
@@ -863,8 +863,9 @@ export function receipt(record, previous, nextPhase, { supplementKey, canCorrect
   const findingCount = findings.length + (shownSeparately ? 1 : 0);
   const basis = findingCount ? button(`查看依据 <b>${findingCount} 条</b> <span aria-hidden="true">↓</span>`, 'receipt-basis', 'receipt-basis-link') : '';
   const batch = record.id === 17 ? `申报 ${esc(record.batch)}` : esc(record.batch);
-  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${batch}</b><span class="receipt-result">${labels[record.decision]}</span>${change}${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(currentSlip, '去向', correctedHere || record.decision === 'review', correctedHere ? '更正依据' : '开单依据')}</div>`;
-  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + supplement + copy + button(next, 'next', 'primary') });
+  const copy = `<button type="button" class="receipt-batch" data-act="archive-receipt" data-i="${esc(record.id)}" aria-label="查看 ${batch} 留底">${batch}</button>`;
+  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div>${copy}<span class="receipt-result">${labels[record.decision]}</span>${change}${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(currentSlip, '去向', correctedHere || record.decision === 'review', correctedHere ? '更正依据' : '开单依据')}</div>`;
+  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + supplement + correction + button(next, 'next', 'primary') });
 }
 
 function correctionPanel(record, findings, selected, supportingBasis) {
@@ -887,6 +888,14 @@ function correctionStamps(row, followup, effect) {
       : followup?.previousReceipt?.sameLot === false ? '原批' : '出货回执';
   return `<p id="correction-target" class="correction-target"><b>${esc(record.batch)}</b><small>${esc(DAYS[record.day]?.title)} · ${source}</small>${effect ? `<small>${effect}</small>` : ''}</p>
     <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, false, 'recheck', record.decision)}</div>`;
+}
+
+export function windowCorrection(row, findings, supportingBasis) {
+  const selected = new Set(findings.map(({ key }) => key));
+  const correction = { action: 'correction-basis', selected };
+  const papers = row.documents.map((doc, index) => sheet(doc, index, correction)).join('');
+  const body = `<div class="archive-detail">${correctionPanel(row.record, findings, selected, supportingBasis)}<div class="doc-grid">${papers}</div></div>`;
+  return deskSurface('当场更正', body, 'archive-surface window-correction-surface', '取消更正', String(row.id), { footer: correctionStamps(row) });
 }
 
 export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel, windowCorrection, unresolvedIssue } = {}) {
