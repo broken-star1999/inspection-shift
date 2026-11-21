@@ -34,6 +34,7 @@ const COLLECTION_KEY = 'nandu-inspection-endings-v1';
 const COMPLETED_KEY = 'nandu-inspection-completed-v1';
 const ARRIVAL_PAUSE_MS = 1150;
 const NEXT_BATCH_PAUSE_MS = 2350;
+const FIRST_BATCH_PAUSE_MS = 3200;
 const VISIT_HANDOVER_MS = 760;
 const PAPER_PAIR_HOLD_MS = 250;
 const PAPER_TOUCH_DRAG_PX = 8;
@@ -115,6 +116,7 @@ const booth = root.querySelector('.booth-layout');
 const wallShift = root.querySelector('#wall-shift');
 const hud = root.querySelector('#room-hud');
 const arrivalStatus = root.querySelector('#arrival-status');
+const waitingReceive = root.querySelector('.waiting-window-receive');
 const windowReadback = root.querySelector('#window-readback');
 const paperDragCue = root.querySelector('#paper-drag-cue');
 const utility = root.querySelector('.topbar .utility');
@@ -756,14 +758,17 @@ function render(resumeScroll, resumeScrollLeft = 0) {
 function renderArrivalStatus() {
   const handingReceipt = Boolean(arrival?.handingReceipt);
   const someoneWaiting = arrival?.ready && arrival.stage === 'waiting';
+  const idleTools = !panel && toolsAvailableBetweenBatches();
+  const firstBreak = idleTools && run.day === 0 && run.index === 0;
   const message = handingReceipt ? '递出回执…'
     : someoneWaiting ? '窗口有人等候'
     : arrival?.stage === 'approach' ? '窗口递件…'
     : arrival?.action?.type === 'receive-recall' ? '等收货方回执…'
     : arrival?.action === 'next' && !arrival.hasVisitor ? (arrival.nextPhase === 'handoff' ? '去交班…' : '本班收工…')
-    : arrival ? '等下一位…' : '';
+    : firstBreak ? '等下一批 · 可翻交接簿或打电话'
+    : arrival ? '等下一批…' : '';
   root.toggleAttribute('data-receipt-handover', handingReceipt);
-  root.toggleAttribute('data-between-batches', Boolean(!panel && toolsAvailableBetweenBatches()));
+  root.toggleAttribute('data-between-batches', idleTools);
   arrivalStatus.toggleAttribute('data-visitor-waiting', Boolean(someoneWaiting));
   if (arrivalStatus.textContent !== message) arrivalStatus.textContent = message;
 }
@@ -784,7 +789,8 @@ function syncWindowGlance() {
   }
   const looking = Boolean(glancedPanel);
   root.toggleAttribute('data-window-glance', looking);
-  arrivalStatus.classList.toggle('visually-hidden', waiting && Boolean(content));
+  waitingReceive.hidden = !waiting || !looking;
+  arrivalStatus.classList.toggle('visually-hidden', waiting && !looking);
   if (content) content.inert = looking;
   const dialog = content?.querySelector('[aria-modal="true"]');
   if (dialog && available && !looking) dialog.setAttribute('aria-owns', windowGlance.id);
@@ -1036,6 +1042,7 @@ function reportWorkspaceContext(betweenBatches) {
 
 function persistRun() {
   if (!run || reviewingHistory) return;
+  if (arrival && restoreNewerArrivalSave()) return;
   captureCorrectionScroll();
   const body = workspaceBody();
   const item = getCase(run);
@@ -1057,6 +1064,7 @@ function persistRun() {
   saved = {
     ...run,
     ...(arrival ? { arrivalAction: arrival.action } : {}),
+    ...(arrival?.stage === 'approach' ? { arrivalStage: arrival.stage } : {}),
     ...(betweenBatches && arrival.ready ? { arrivalReady: true } : {}),
     ...(correctionDraft && (run.phase === 'handoff' || (!arrival && canRecheckReceipt(run, correctionDraft.id))) ? { correctionDraft } : {}),
     ...(pairWorkspace ? { handoffPair: pairWorkspace } : {}),
@@ -1150,15 +1158,17 @@ function enter(restore) {
   presentedEvidence = null;
   let workspace;
   let arrivalAction;
+  let resumeApproach = false;
   let savedCorrection;
   let savedPair;
   let lookup;
   let resumeWaitingTools = false;
   let visitorWaiting = false;
   if (restore && saved) {
-    const { inspectionProgress, arrivalAction: savedArrival, arrivalReady, correctionDraft: draft, handoffPair: pair,
+    const { inspectionProgress, arrivalAction: savedArrival, arrivalStage: savedStage, arrivalReady, correctionDraft: draft, handoffPair: pair,
       reportWorkspace: savedLookup, ...savedRun } = saved;
     arrivalAction = savedArrival;
+    resumeApproach = savedStage === 'approach';
     savedCorrection = draft;
     savedPair = pair;
     run = restoreRun(savedRun);
@@ -1204,7 +1214,7 @@ function enter(restore) {
   if (needsArrival(next)) {
     if (!resumeWaitingTools) panel = null;
     pauseBeforeArrival(arrivalAction, next, true, {
-      resumed: true, ready: visitorWaiting,
+      resumed: true, ready: visitorWaiting, approaching: resumeApproach,
       scrollTop: resumeWaitingTools ? lookup.scrollTop : undefined,
       scrollLeft: resumeWaitingTools ? lookup.scrollLeft : undefined,
     });
@@ -1367,6 +1377,15 @@ function needsArrival(next) {
   return next && (next.phase === 'case' || activeVisit(next));
 }
 
+function restoreNewerArrivalSave() {
+  const latest = readStorage(SAVE_KEY);
+  if (!validSave(latest) || JSON.stringify(latest) === JSON.stringify(saved)) return false;
+  saved = latest;
+  enter(true);
+  toast('已接续另一标签页的值班记录');
+  return true;
+}
+
 function finishWindowAdvance(value, restoreFocus) {
   const action = windowAction(value);
   const visit = action?.type === 'ack-visit' ? activeVisit() : null;
@@ -1403,6 +1422,7 @@ function finishWindowAdvance(value, restoreFocus) {
 }
 
 function beginWindowApproach() {
+  if (restoreNewerArrivalSave()) return;
   const { action, restoreFocus } = arrival;
   // A call at the empty window can put a different visitor at the head of the queue.
   const next = windowAdvance(action);
@@ -1418,6 +1438,7 @@ function beginWindowApproach() {
   arrival.keepVisitor &&= visitorAt(next) === visitorAt(run);
   arrival.approach = arrivalApproach(next);
   arrivalTimer = setTimeout(() => {
+    if (restoreNewerArrivalSave()) return;
     cancelArrivalPause();
     finishWindowAdvance(action, restoreFocus);
   }, ARRIVAL_APPROACH_MS);
@@ -1426,7 +1447,7 @@ function beginWindowApproach() {
   render();
 }
 
-function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready = false, scrollTop, scrollLeft } = {}) {
+function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready = false, approaching = false, scrollTop, scrollLeft } = {}) {
   if (!panel) modalOpener = null;
   const npc = visitorAt(next);
   const hasVisitor = Boolean(needsArrival(next));
@@ -1439,13 +1460,16 @@ function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready
     render(scrollTop, scrollLeft);
     return;
   }
-  if (action === 'start-day' && activeVisit(next)?.kind !== 'rework') {
+  if (approaching || (action === 'start-day' && activeVisit(next)?.kind !== 'rework')) {
     beginWindowApproach();
     return;
   }
-  const duration = action === 'next' ? NEXT_BATCH_PAUSE_MS : action === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
+  const firstBreak = run.day === 0 && run.index === 0;
+  const duration = action === 'next' ? (firstBreak ? FIRST_BATCH_PAUSE_MS : NEXT_BATCH_PAUSE_MS)
+    : action === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
   const advance = () => {
     arrivalTimer = 0;
+    if (restoreNewerArrivalSave()) return;
     if (panel && toolsAvailableBetweenBatches()) {
       arrival.ready = true;
       renderArrivalStatus();
@@ -1461,6 +1485,7 @@ function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready
     const travel = cargoRoutes.has(route) ? CARGO_DEPARTURE_MS : 0;
     const wait = hasVisitor ? duration - ARRIVAL_APPROACH_MS - RECEIPT_HANDOVER_MS : travel;
     arrivalTimer = setTimeout(() => {
+      if (restoreNewerArrivalSave()) return;
       arrival.handingReceipt = false;
       if (travel) playSound('cargo', route);
       renderArrivalStatus();
@@ -2316,7 +2341,7 @@ function revealArchiveReceipt(revealIndex) {
   modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, activeCorrection() ? correctionDraft.scrollTop : 0);
 }
 
-function closePanel() {
+function closePanel({ receiveWaiting = false } = {}) {
   captureCorrectionScroll();
   if (panel === 'carton' && interaction.returnToDocs && windowCase()?.carton) {
     playSound('paper');
@@ -2324,7 +2349,7 @@ function closePanel() {
     focusControl(modalLayer, { act: 'carton', i: String(interaction.lastReadDoc) });
     return;
   }
-  if (panel === 'archive' && reportIndex && archivePaper) {
+  if (!receiveWaiting && panel === 'archive' && reportIndex && archivePaper) {
     const { id, index, scrollTop, scrollLeft } = archivePaper;
     archivePaper = null;
     playSound('paper');
@@ -2333,11 +2358,11 @@ function closePanel() {
     focusControl(modalLayer, { act: 'report-index-paper', i: String(id), doc: String(index) });
     return;
   }
-  let previousPanel = run && panel === 'archive' ? archiveReturn : null;
-  if (panel === 'phone') {
+  let previousPanel = !receiveWaiting && run && panel === 'archive' ? archiveReturn : null;
+  if (panel === 'phone' || (receiveWaiting && archiveReturn?.panel === 'phone')) {
     interaction.phoneBottom = false;
     update({ type: 'hang-up' }, false);
-    previousPanel = phoneReturn;
+    if (!receiveWaiting) previousPanel = phoneReturn;
     phoneReturn = null;
   }
   const toReceipt = previousPanel?.panel === 'receipt';
@@ -2387,6 +2412,12 @@ root.addEventListener('click', (event) => {
   switch (act) {
     case 'carton': case 'carton-turn': case 'carton-note': checkCarton(act, target); break;
     case 'window-glance': toggleWindowGlance(); break;
+    case 'receive-waiting':
+      if (!waitingReceive.hidden && arrival?.ready && glancedPanel === panel) {
+        arrival.restoreFocus = true;
+        closePanel({ receiveWaiting: true });
+      }
+      break;
     case 'how': case 'rules': openPanel(act, target); break;
     case 'completed-shifts':
       if (!run && completedShifts.size) {
@@ -2780,7 +2811,11 @@ document.addEventListener('keydown', (event) => {
   const target = event.target;
   if (glancedPanel) {
     if (event.key === 'Escape') { event.preventDefault(); toggleWindowGlance(); }
-    if (event.key === 'Tab') { event.preventDefault(); windowGlance.focus({ preventScroll: true }); }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const next = !waitingReceive.hidden && document.activeElement === windowGlance ? waitingReceive : windowGlance;
+      next.focus({ preventScroll: true });
+    }
     return;
   }
   if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
