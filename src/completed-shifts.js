@@ -27,7 +27,7 @@ function isCompletedRun(run) {
 }
 
 function snapshotRun(run) {
-  const { inspectionProgress, arrivalAction, correctionDraft, handoffPair, reportWorkspace, completedAt, ...snapshot } = run;
+  const { inspectionProgress, arrivalAction, correctionDraft, handoffWorkspace, handoffPair, reportWorkspace, completedAt, ...snapshot } = run;
   return Number.isFinite(completedAt) ? { ...snapshot, completedAt } : snapshot;
 }
 

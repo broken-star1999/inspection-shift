@@ -1,4 +1,4 @@
-import { archive, archivedReportSources, getCase, getTraceInquiry, nightRegisterForReceipt } from './engine.js';
+import { archive, archivedReportSources, getCase, getDay, getTraceInquiry, nightRegisterForReceipt } from './engine.js';
 
 export const TRACE_INQUIRY_KEY = 'call:trace:R-071';
 
@@ -56,23 +56,27 @@ function phoneOrigin(run, value, filed, hasTraceInquiry, betweenBatches, support
   };
 }
 
-export function reportWorkspace(run, value, { betweenBatches = false, supportingKeys } = {}) {
-  if (run?.phase !== (betweenBatches ? 'receipt' : 'case') || (run.events?.length ?? Boolean(run.event)) ||
-      !['archive', 'phone'].includes(value?.panel) || !Number.isInteger(value.caseId) || getCase(run)?.id !== value.caseId) return null;
+export function reportWorkspace(run, value, { betweenBatches = false, handoffArchive = false, supportingKeys } = {}) {
+  const phase = handoffArchive ? 'handoff' : betweenBatches ? 'receipt' : 'case';
+  if (run?.phase !== phase || (run.events?.length ?? Boolean(run.event)) ||
+      !['archive', 'phone'].includes(value?.panel) || !Number.isInteger(value.caseId)) return null;
+  if (handoffArchive && (value.panel !== 'archive' || value.archiveReturn?.panel !== 'handoff')) return null;
+  const item = handoffArchive ? getDay(run)?.cases[run.index] : getCase(run);
+  if (item?.id !== value.caseId) return null;
 
   const filed = new Map(archive(run).map((item) => [item.id, item]));
   const hasTraceInquiry = (value.archiveFocus === TRACE_INQUIRY_KEY || value.phoneReturn?.archiveFocus === TRACE_INQUIRY_KEY) &&
     Boolean(getTraceInquiry(run));
   const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry, supportingKeys);
   const report = indexEntry(run, value.reportIndex);
-  const archiveReturn = parent(value.archiveReturn, betweenBatches ? ['phone'] : ['docs', 'sample', 'phone']);
-  const retained = betweenBatches ? nightRegisterForReceipt(run) : null;
+  const archiveReturn = parent(value.archiveReturn, handoffArchive ? ['handoff'] : betweenBatches ? ['phone'] : ['docs', 'sample', 'phone']);
+  const retained = phase === 'receipt' ? nightRegisterForReceipt(run) : null;
   const archivePaper = exactPaper(value.archivePaper, filed, report, { fromPhone: archiveReturn?.panel === 'phone', retained });
-  const phoneReturn = phoneOrigin(run, value.phoneReturn, filed, hasTraceInquiry, betweenBatches, supportingKeys, retained);
+  const phoneReturn = handoffArchive ? null : phoneOrigin(run, value.phoneReturn, filed, hasTraceInquiry, betweenBatches, supportingKeys, retained);
   const indexedView = value.panel === 'archive'
     ? report || archivePaper || archiveFocus === TRACE_INQUIRY_KEY
     : phoneReturn?.reportIndex || phoneReturn?.archiveFocus === TRACE_INQUIRY_KEY;
-  if (!betweenBatches && !indexedView) return null;
+  if (!handoffArchive && !betweenBatches && !indexedView) return null;
 
   return {
     caseId: value.caseId, panel: value.panel,

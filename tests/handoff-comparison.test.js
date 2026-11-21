@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { archive, createFollowingRun, dispatch, getCase } from '../src/engine.js';
+import { archive, createFollowingRun, dispatch, EVIDENCE, getCase, TRACE_CASE_ID } from '../src/engine.js';
 import { handoffComparison } from '../src/handoff-comparison.js';
+import { handoffWorkspace, hasHandoffDocument } from '../src/handoff-workspace.js';
 
 function friday(decisions) {
   let run = createFollowingRun(null, 21);
@@ -66,4 +67,49 @@ test('G-205 still has two related records before the supplement is adopted', () 
   assert.equal(pair.earlier.record.status, 'shipped');
   assert.equal(pair.later.record.status, 'held');
   assert.deepEqual(handoffComparison(rows, 9), pair);
+});
+
+test('Friday restores a historical receipt and its selected original document and scroll positions', () => {
+  const run = friday({ 5: 'pass', 9: 'pass' });
+  const workspace = { id: 5, documentIndex: 1, comparing: false, scrollTop: 146.5, boardScrollTop: 72 };
+  assert.deepEqual(handoffWorkspace(run, JSON.parse(JSON.stringify(workspace))), workspace);
+  assert.deepEqual(handoffWorkspace(run, { ...workspace, documentIndex: '1', scrollTop: -8, boardScrollTop: Infinity }), {
+    ...workspace, documentIndex: null, scrollTop: 0, boardScrollTop: 0,
+  });
+  assert.equal(handoffWorkspace(run, { id: '5' }), null);
+  assert.equal(handoffWorkspace(run, { id: 99 }), null);
+  assert.equal(handoffWorkspace(dispatch(run, { type: 'finish' }), workspace), null);
+});
+
+test('Friday restores attachments only after collection and checks that papers belong to the selected receipt', () => {
+  const run = friday({});
+  const waiting = dispatch(run, { type: 'dial', number: '204', caseIds: [7, 14] });
+  const filed = dispatch(waiting, { type: 'ack-visit' });
+  const attachments = { id: 'attachments', documentIndex: null, comparing: false, scrollTop: 16, boardScrollTop: 8 };
+  assert.equal(handoffWorkspace(waiting, attachments), null);
+  assert.equal(handoffWorkspace({ ...run, flags: { traceDocument: 'true' } }, attachments), null);
+  assert.deepEqual(handoffWorkspace(filed, { ...attachments, documentIndex: 'trace' }), attachments);
+  assert.equal(handoffWorkspace(filed, { ...attachments, comparing: true }), null);
+
+  const nightWaiting = dispatch(run, { type: 'dial', number: '107', caseIds: [11] });
+  assert.deepEqual(handoffWorkspace(dispatch(nightWaiting, { type: 'ack-visit' }), attachments), attachments);
+
+  const papers = [{ caseId: TRACE_CASE_ID, document: { ...EVIDENCE.trace, kind: 'trace' } }];
+  const original = { id: TRACE_CASE_ID, documentIndex: 'trace' };
+  const row = handoffRows(filed).find(({ id }) => id === TRACE_CASE_ID);
+  assert.equal(hasHandoffDocument(row, 'trace', papers), true);
+  assert.equal(hasHandoffDocument(null, 'trace', papers), false);
+  assert.equal(handoffWorkspace(filed, original, papers).documentIndex, 'trace');
+  assert.equal(handoffWorkspace(filed, original).documentIndex, null);
+  assert.equal(handoffWorkspace(filed, { ...original, id: 14 }, papers).documentIndex, null);
+});
+
+test('Friday validates a linked comparison even while its recall visitor is at the window', () => {
+  const run = friday({ 5: 'pass', 9: 'pass' });
+  const requested = dispatch(run, { type: 'recheck', id: 9, value: 'review' });
+  const atWindow = dispatch(requested, { type: 'receive-recall', id: 9 });
+  assert.equal(atWindow.event.kind, 'recall');
+  const workspace = { id: 5, documentIndex: null, comparing: true, scrollTop: 60, boardScrollTop: 27 };
+  assert.deepEqual(handoffWorkspace(atWindow, workspace), workspace);
+  assert.equal(handoffWorkspace(run, { ...workspace, id: 1 }), null);
 });

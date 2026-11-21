@@ -54,7 +54,7 @@ test('legacy ending keys migrate in place and a matching active ending does not 
   const problem = finishedWeek(2, { 4: 'pass' });
   const reorder = (value) => Object.fromEntries(Object.entries(value).reverse());
   const activeCopy = { ...reorder(first), flags: reorder(first.flags), arrivalAction: 'next',
-    handoffPair: { id: 4 }, correctionDraft: { id: 6 }, inspectionProgress: { caseId: 20 },
+    handoffPair: { id: 4 }, handoffWorkspace: { id: 9, documentIndex: 1 }, correctionDraft: { id: 6 }, inspectionProgress: { caseId: 20 },
     reportWorkspace: { panel: 'archive' }, completedAt: Number.NaN };
   const stored = [
     { id: 'routine', run: first }, { id: 'routine', run: second }, { id: 'issue', run: problem },

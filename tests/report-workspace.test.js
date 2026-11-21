@@ -102,6 +102,44 @@ test('a handed receipt can save the held phone or open archive while the next vi
   assert.equal(reportWorkspace(run, { ...archive, archiveReturn: docs }, options).archiveReturn, null);
 });
 
+test('Friday archive restores an ordinary row or the exact indexed paper opened from the board', () => {
+  const run = { ...atReportLookup(), phase: 'handoff', day: 4, index: 3 };
+  const caseId = getDay(run).cases[run.index].id;
+  const archiveReturn = { panel: 'handoff', opener: { act: 'archive' }, scrollTop: 31, scrollLeft: 0 };
+  const open = { ...indexed, caseId, archiveReturn };
+  const row = { ...open, reportIndex: null, archivePaper: null, archiveFocus: 7, archiveQuery: 'G-241' };
+  const supporting = { ...row, archiveFocus: 'trace' };
+  const options = { handoffArchive: true, supportingKeys: new Set(['trace']) };
+  for (const workspace of [open, row, supporting, { ...open, archivePaper: null }]) {
+    assert.deepEqual(reportWorkspace(run, JSON.parse(JSON.stringify(workspace)), options), workspace);
+  }
+
+  assert.deepEqual(reportWorkspace(run, {
+    ...open, archiveFocus: 'missing', archivePaper: { id: 14, index: 1 }, phoneReturn: docs,
+    archiveReturn: { ...archiveReturn, detailScroll: 21, scrollTop: -3, opener: { act: 'archive', unwanted: true } },
+  }, options), {
+    ...open, archiveFocus: null, archivePaper: null, archiveReturn: { ...archiveReturn, scrollTop: 0 },
+  });
+  assert.deepEqual(reportWorkspace(run, { ...open, reportIndex: 'R-881' }, options), {
+    ...open, reportIndex: null, archivePaper: null,
+  });
+});
+
+test('Friday archive restoration requires the active shift, matching case, and board parent', () => {
+  const run = { ...atReportLookup(), phase: 'handoff', day: 4, index: 3 };
+  const caseId = getDay(run).cases[run.index].id;
+  const open = { ...indexed, caseId, archiveReturn: { panel: 'handoff' } };
+  const options = { handoffArchive: true };
+  assert.equal(reportWorkspace(run, open), null);
+  assert.equal(reportWorkspace(atReportLookup(), { ...open, caseId: 14 }, options), null);
+  assert.equal(reportWorkspace(run, { ...open, caseId: 14 }, options), null);
+  assert.equal(reportWorkspace(run, { ...open, archiveReturn: null }, options), null);
+  assert.equal(reportWorkspace(run, { ...open, archiveReturn: docs }, options), null);
+  assert.equal(reportWorkspace(run, { ...open, panel: 'phone' }, options), null);
+  assert.equal(reportWorkspace({ ...run, events: [{ key: 'night' }] }, open, options), null);
+  assert.equal(reportWorkspace({ ...run, events: undefined, event: { key: 'night' } }, open, options), null);
+});
+
 test('invalid exact selection falls back to a valid index while unsafe offsets and opener data are pruned', () => {
   const run = atReportLookup();
   const unsafe = {
