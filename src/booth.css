@@ -488,7 +488,35 @@
   white-space: nowrap;
 }
 .window-glance:is(:hover, :focus-visible) { background: #524232; color: #fff2cc; }
+.utility .window-glance-live {
+  position: relative;
+  inset: auto;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  inline-size: clamp(3.35rem, 10cqw, 4.4rem);
+  min-block-size: 44px;
+  padding: .22rem .14rem;
+  translate: none;
+  border-color: #a48d60;
+  background: linear-gradient(#404032, #272e25);
+  box-shadow: inset 0 1px #cfba7925, 1px 1px #121a14;
+  font: 730 clamp(.73rem, 1.4cqw, .86rem) / 1.2 var(--mono);
+}
+.utility .window-glance-live:is(:hover, :focus-visible) { border-color: #d0af72; background: #494233; }
+#game[data-window-glance] .utility .window-glance-live { border-color: #c9ab73; background: #4d422e; }
+.utility .window-glance-live:focus-visible { outline-offset: -3px; }
+
+@container workstation (max-height: 540px) {
+  .utility .window-glance-live { margin-block: calc((2rem - 44px) / 2); }
+}
+@container workstation (min-width: 561px) and (max-width: 720px) {
+  .topbar:has(.window-glance-live) { grid-template-columns: minmax(0, 1fr) auto max-content; }
+}
 #game[data-window-glance] .modal-layer > :not(.window-glance) { visibility: hidden; }
+#game[data-window-glance] .game-toast,
+#game[data-window-glance] .speech .prior-receipt,
+#game[data-window-glance][data-modeled='true'] .booth-layout :is(button[data-fixture], .bench-draft) { visibility: hidden; }
 
 .booth-layout .speech p,
 .booth-layout .training p {

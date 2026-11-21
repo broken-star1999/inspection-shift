@@ -68,6 +68,7 @@ let modeledReady = false;
 let toastTimer;
 let arrivalTimer = 0;
 let arrival = null;
+let glancedPanel = null;
 let lastToolFocus = null;
 let closingShotTimer = 0;
 let closingShot = null;
@@ -99,6 +100,8 @@ const booth = root.querySelector('.booth-layout');
 const wallShift = root.querySelector('#wall-shift');
 const hud = root.querySelector('#room-hud');
 const arrivalStatus = root.querySelector('#arrival-status');
+const windowReadback = root.querySelector('#window-readback');
+const utility = root.querySelector('.topbar .utility');
 const windowGlance = document.createElement('button');
 windowGlance.id = 'window-glance';
 windowGlance.className = 'window-glance';
@@ -216,13 +219,14 @@ function resetGaze() {
 function followGaze(time) {
   gaze.frame = 0;
   if (drag || toolDrag) { gaze.time = 0; return; }
-  if (reducedMotion.matches || root.dataset.rotated === 'true') { resetGaze(); return; }
+  if (reducedMotion.matches || (root.dataset.rotated === 'true' && !glancedPanel)) { resetGaze(); return; }
+  const targetY = glancedPanel ? Math.min(gaze.targetY, -.32) : gaze.targetY;
   const elapsed = gaze.time ? Math.min(time - gaze.time, 48) : 16;
   const blend = 1 - Math.exp(-elapsed / 82);
   const x = gaze.x + (gaze.targetX - gaze.x) * blend;
-  const y = gaze.y + (gaze.targetY - gaze.y) * blend;
-  if (Math.max(Math.abs(x - gaze.targetX), Math.abs(y - gaze.targetY)) < .002) {
-    drawGaze(gaze.targetX, gaze.targetY);
+  const y = gaze.y + (targetY - gaze.y) * blend;
+  if (Math.max(Math.abs(x - gaze.targetX), Math.abs(y - targetY)) < .002) {
+    drawGaze(gaze.targetX, targetY);
     gaze.time = 0;
     return;
   }
@@ -240,13 +244,13 @@ function setGazeTarget(x, y) {
 root.addEventListener('pointerdown', (event) => {
   toolClickTarget = null;
   suppressPaperClick = false;
-  if (event.pointerType !== 'mouse' && !drag) resetGaze();
+  if (event.pointerType !== 'mouse' && !drag && !glancedPanel) resetGaze();
 }, { capture: true });
 
 root.addEventListener('pointermove', (event) => {
   if (toolDrag) return;
   if (drag && drag.pointerId !== event.pointerId) return;
-  if (event.pointerType !== 'mouse') { if (!drag) resetGaze(); return; }
+  if (event.pointerType !== 'mouse') { if (!drag && !glancedPanel) resetGaze(); return; }
   if (!run || root.dataset.rotated === 'true' || reducedMotion.matches) return;
   const bounds = root.getBoundingClientRect();
   if (!bounds.width || !bounds.height) return;
@@ -643,31 +647,64 @@ function renderArrivalStatus() {
   if (arrivalStatus.textContent !== message) arrivalStatus.textContent = message;
 }
 
+const glanceReturnLabels = {
+  docs: '回到单据', sample: '回到检样', carton: '回到外箱', archive: '回到交接簿', phone: '回到电话', visit: '回到来件',
+};
+
 function syncWindowGlance() {
-  const available = arrival?.ready && toolsAvailableBetweenBatches() && ['archive', 'phone'].includes(panel);
-  arrivalStatus.classList.toggle('visually-hidden', Boolean(available));
+  const content = modalLayer.querySelector('.modal-shade, .desk-surface');
+  const waiting = Boolean(arrival?.ready && toolsAvailableBetweenBatches() && ['archive', 'phone'].includes(panel));
+  const live = Boolean(!arrival && !closingShot && Object.hasOwn(glanceReturnLabels, panel) &&
+    (run?.phase === 'case' || run?.phase === 'receipt' || activeVisit()));
+  const available = content && (waiting || live);
+  if (glancedPanel && (!available || glancedPanel !== panel)) {
+    glancedPanel = null;
+    setGazeTarget(gaze.targetX, gaze.targetY);
+  }
+  const looking = Boolean(glancedPanel);
+  root.toggleAttribute('data-window-glance', looking);
+  arrivalStatus.classList.toggle('visually-hidden', waiting && Boolean(content));
+  if (content) content.inert = looking;
+  const dialog = content?.querySelector('[aria-modal="true"]');
+  if (dialog && available && !looking) dialog.setAttribute('aria-owns', windowGlance.id);
+  else dialog?.removeAttribute('aria-owns');
+  const screenCoversBooth = Boolean(screenLayer.firstElementChild) && run?.phase !== 'summary';
+  booth.inert = looking || Boolean(dialog || !run || closingShot || (arrival && !toolsAvailableBetweenBatches()) || screenCoversBooth);
+
+  const speech = looking && live ? hud.querySelector('.speech') : null;
+  const readback = speech ? [...speech.querySelectorAll('.speaker strong, p')].map((line) => line.textContent).join(' ') : '';
+  if (windowReadback.textContent !== readback) windowReadback.textContent = readback;
   if (!available) {
-    if (arrival) arrival.glancing = false;
-    root.removeAttribute('data-window-glance');
     windowGlance.remove();
     return;
   }
-  root.toggleAttribute('data-window-glance', Boolean(arrival.glancing));
-  windowGlance.textContent = arrival.glancing
-    ? (panel === 'phone' ? '回到电话' : '继续看单')
-    : '窗口有人等候 · 抬头看';
-  if (!windowGlance.isConnected) modalLayer.append(windowGlance);
-  const dialog = modalLayer.querySelector('[aria-modal="true"]');
-  dialog?.setAttribute('aria-owns', windowGlance.id);
-  booth.inert = Boolean(dialog || arrival.glancing);
+  windowGlance.classList.toggle('window-glance-live', live);
+  const command = looking
+    ? (waiting && panel === 'archive' ? '继续看单' : glanceReturnLabels[panel])
+    : waiting ? '窗口有人等候 · 抬头看' : '抬头看';
+  windowGlance.textContent = looking && live ? '回到查验' : command;
+  windowGlance.setAttribute('aria-label', command);
+  const host = live ? utility : modalLayer;
+  if (windowGlance.parentElement !== host) {
+    if (live) host.prepend(windowGlance);
+    else host.append(windowGlance);
+  }
 }
 
 function toggleWindowGlance() {
-  if (!windowGlance.isConnected) return;
-  arrival.glancing = !arrival.glancing;
+  if (!windowGlance.isConnected || drag || toolDrag) return;
+  glancedPanel = glancedPanel ? null : panel;
   syncWindowGlance();
-  const returnTo = modalLayer.contains(lastToolFocus) ? lastToolFocus : modalLayer.querySelector('[data-act="close"]');
-  (arrival.glancing ? windowGlance : returnTo)?.focus({ preventScroll: true });
+  setGazeTarget(gaze.targetX, gaze.targetY);
+  if (glancedPanel) {
+    windowGlance.focus({ preventScroll: true });
+    return;
+  }
+  const previous = modalLayer.contains(lastToolFocus) ? lastToolFocus : document.getElementById(lastToolFocus?.id ?? '');
+  if (previous && modalLayer.contains(previous) && !previous.matches(':disabled')) previous.focus({ preventScroll: true });
+  else if (!lastToolFocus?.dataset.act || !focusControl(modalLayer, lastToolFocus.dataset)) {
+    modalLayer.querySelector('[data-act="close"]')?.focus({ preventScroll: true });
+  }
 }
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
@@ -761,17 +798,24 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const previousPaper = previousSurface?.querySelector('.return-previous');
   const wasShowingSignature = previousSurface?.querySelector('[data-tutorial-signature]');
   const archiveIndexScroll = previousSurface?.querySelector('.drawer-list')?.scrollTop;
+  const previousSearch = glancedPanel === 'archive' ? previousSurface?.querySelector('#archive-query') : null;
+  const searchDraft = previousSearch && {
+    query: previousSearch.defaultValue, value: previousSearch.value,
+    start: previousSearch.selectionStart, end: previousSearch.selectionEnd, direction: previousSearch.selectionDirection,
+  };
   const phoneScroll = modalLayer.querySelector('.phone-modal .modal-body')?.scrollTop;
   const handoffIndexScroll = modalLayer.querySelector('.handoff-board')?.scrollTop;
   const handoffDetailScroll = modalLayer.querySelector('.handoff-detail-scroll')?.scrollTop;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
+  const archiveSearch = searchDraft && surface?.querySelector('#archive-query');
+  if (archiveSearch && archiveSearch.defaultValue === searchDraft.query) {
+    archiveSearch.value = searchDraft.value;
+    archiveSearch.setSelectionRange(searchDraft.start, searchDraft.end, searchDraft.direction);
+  }
   if (phoneScroll !== undefined) modalLayer.querySelector('.phone-modal .modal-body')?.scrollTo(0, phoneScroll);
   if (handoffIndexScroll !== undefined) modalLayer.querySelector('.handoff-board')?.scrollTo(0, handoffIndexScroll);
   if (handoffDetailScroll !== undefined) modalLayer.querySelector('.handoff-detail-scroll')?.scrollTo(0, handoffDetailScroll);
-  const blockingDialog = Boolean(markup && !surface);
-  const screenCoversBooth = Boolean(screenLayer.firstElementChild) && run?.phase !== 'summary';
-  booth.inert = blockingDialog || !run || Boolean(closingShot || (arrival && !toolsAvailableBetweenBatches())) || screenCoversBooth;
   screenLayer.inert = Boolean(markup);
   syncWindowGlance();
   if (!markup) {
@@ -786,7 +830,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]') ?? focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
     !['close', 'toggle-findings', 'remove-finding'].includes(element.dataset.act));
-  (arrival?.glancing ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
+  (glancedPanel ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
   if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
     const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
     if (object?.classList.contains('receipt-slip') && pendingReceiptPrint) {
@@ -905,7 +949,7 @@ modalLayer.addEventListener('scroll', (event) => {
   workspaceScrollTimer = setTimeout(persistWorkspaceScroll, 150);
 }, { capture: true, passive: true });
 modalLayer.addEventListener('focusin', (event) => {
-  if (event.target !== windowGlance) lastToolFocus = event.target;
+  if (!glancedPanel && event.target !== windowGlance) lastToolFocus = event.target;
 });
 window.addEventListener('pagehide', persistWorkspaceScroll);
 document.addEventListener('visibilitychange', () => {
@@ -2362,7 +2406,7 @@ root.addEventListener('submit', (event) => {
 document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.isComposing) return;
   const target = event.target;
-  if (arrival?.glancing) {
+  if (glancedPanel) {
     if (event.key === 'Escape') { event.preventDefault(); toggleWindowGlance(); }
     if (event.key === 'Tab') { event.preventDefault(); windowGlance.focus({ preventScroll: true }); }
     return;
@@ -2376,8 +2420,12 @@ document.addEventListener('keydown', (event) => {
     const controls = [...modalLayer.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
     const first = controls[0];
     const last = controls.at(-1);
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    const liveControl = windowGlance.parentElement === utility ? windowGlance : null;
+    let next;
+    if (document.activeElement === liveControl) next = event.shiftKey ? last : first;
+    else if (event.shiftKey && document.activeElement === first) next = liveControl ?? last;
+    else if (!event.shiftKey && document.activeElement === last) next = liveControl ?? first;
+    if (next) { event.preventDefault(); next.focus(); }
   }
   if (event.key === 'Escape' && panel) { event.preventDefault(); closePanel(); }
   const editable = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'));

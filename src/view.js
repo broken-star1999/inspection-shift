@@ -40,7 +40,7 @@ export function shell() {
   return `<div class="game-frame">
     <header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><strong>南渡防护用品厂</strong><small>成品抽检窗口</small></div></div>
       <div class="top-status" id="top-status"></div>
-      <nav class="utility" aria-label="游戏设置">
+      <nav class="utility" aria-label="游戏操作">
         <button class="icon-button home-shortcut" data-act="shift-home" aria-label="存档并返回首页" title="存档并返回首页" hidden>首页</button>
         <button class="icon-button" data-act="how" aria-label="玩法说明" title="玩法说明"><span class="icon-help" aria-hidden="true">?</span></button>
         <button class="icon-button" data-act="sound" aria-label="音效" title="音效"><span class="icon-sound" aria-hidden="true">♪</span></button>
@@ -62,6 +62,7 @@ export function shell() {
         <div class="console" id="desk"></div>
       </div>
       <p class="arrival-status" id="arrival-status" role="status"></p>
+      <p class="visually-hidden" id="window-readback" role="status"></p>
       <div class="screen-layer" id="screen"></div>
       <div class="modal-layer" id="modal"></div>
       <div class="game-toast" aria-live="polite"></div>
@@ -323,7 +324,7 @@ export function instructions(how) {
   return dialog(how ? '接班说明' : '桌边查验卡', `<div class="rule-sheet"><p>先认箱签，按送检联核对收到的报告。看批号、签发和检验项目，再按实际品类查镜片、罩壳、手套接缝或插片。</p>
     <ol><li><b>通过</b>　样品合格，有效报告能对应这批，并覆盖送检要求。</li><li><b>不通过</b>　实物确有裂纹、划伤、扣件问题或已查明的错型、超差。</li><li><b>要求审查</b>　报告没交、对不上或没验齐，先隔离，等对方补证或安排复检。</li></ol>
     <p>有换签时对照登记上的旧号和新号。保护膜可以揭角。测插片时先放入量规，再合上量爪。核对过的旧单会留在交接簿。</p>
-    ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。两指可在系统支持时缩放视图。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
+    ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。拿着单据或检样时可以抬头看窗口，再接着查验。两指可在系统支持时缩放视图。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
 function moldSketch() {
