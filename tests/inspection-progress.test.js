@@ -316,6 +316,29 @@ test('restores the open measured thickness comparison directly or on return from
   }
 });
 
+test('keeps a seated gauge sample without opening a thickness comparison before measuring', () => {
+  const current = DAYS[4].cases.find(({ id }) => id === 18);
+  const other = DAYS[4].cases.find(({ id }) => id === 19);
+  const work = freshInteraction();
+  work.inspection.gaugeLoaded = true;
+  work.thicknessOpen = true;
+  work.referenceDoc = 1;
+  const sample = { panel: 'sample', scrollTop: 21 };
+  const phone = { panel: 'phone', scrollTop: 31, returnTo: sample };
+  for (const workspace of [sample, phone]) {
+    const saved = JSON.parse(JSON.stringify(captureInspectionProgress(current, work, workspace)));
+    const origin = saved.workspace.returnTo ?? saved.workspace;
+    assert.equal(saved.inspection.gaugeLoaded, true);
+    assert.equal(saved.inspection.measured, false);
+    assert.equal(origin.thicknessOpen, undefined);
+    assert.deepEqual(restoreInspectionProgress(saved, current, [18], {}), { ...work, thicknessOpen: false, workspace });
+    assert.deepEqual(restoreInspectionProgress(saved, other, [18, 19], {}), freshInteraction());
+  }
+  assert.equal(captureInspectionProgress(other, work, sample).inspection.gaugeLoaded, undefined);
+  assert.equal(captureInspectionProgress(current, { ...work, inspection: { gaugeLoaded: 'true' } }, sample).inspection.gaugeLoaded, undefined);
+  assert.equal(freshInteraction(work).inspection.gaugeLoaded, undefined);
+});
+
 test('restores thickness mode only for a valid measurement in a non-guided sample workspace', () => {
   const current = DAYS[4].cases.find(({ id }) => id === 18);
   const work = freshInteraction();

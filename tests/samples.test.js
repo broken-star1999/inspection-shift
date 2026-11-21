@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { DAYS } from '../src/content.js';
-import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleObservation } from '../src/samples.js';
+import { gaugeArt } from '../src/gauge-art.js';
+import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge, sampleObservation } from '../src/samples.js';
 
 const items = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
 
@@ -69,6 +70,20 @@ test('G-218 keeps the reported, measured and allowed thickness in distinct sourc
   assert.equal(papers.report.厚度, '2.10 mm');
   assert.equal(papers.order.厚度范围, '2.00–2.20 mm');
   assert.equal(papers.report.厚度范围, undefined);
+});
+
+test('seating an insert exposes neither its reading nor its contact offset until the jaws close', () => {
+  const { sample, variants } = items.get(18);
+  const alternate = { ...sample, ...variants[1].sample };
+  const seated = { gaugeLoaded: true, measured: false };
+  assert.equal(sampleInGauge(sample, {}), false);
+  assert.equal(sampleInGauge(sample, seated), true);
+  assert.equal(sampleInGauge(sample, { measured: true }), true);
+  const open = (spec) => gaugeArt(spec.reading, { loaded: true, measured: false });
+  assert.equal(open(sample), open(alternate));
+  assert.match(open(sample), /gauge-display[^>]*>—/u);
+  assert.doesNotMatch(sampleFinding(sample, seated).text, /1\.80 mm/u);
+  assert.match(gaugeArt(alternate.reading, { loaded: true, measured: true }), /2\.10 mm/u);
 });
 
 test('G-216 only reveals each side of the glove after the bag is opened', () => {

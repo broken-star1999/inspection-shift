@@ -13,6 +13,10 @@ export function sampleAppearance(spec) {
   return { key, ...appearances[key] };
 }
 
+export function sampleInGauge(spec, inspection) {
+  return Boolean(spec?.reading && (inspection?.gaugeLoaded === true || inspection?.measured === true));
+}
+
 // Positions follow the cuff seam in the back view of the glove.
 export const CUFF_SPLIT_PATCHES = [
   { color: '#7b4620', points: [[47, 76.3], [54.5, 75.9], [62.4, 76.4], [69.8, 77.3], [68.2, 79.1], [60.9, 79.2], [53.1, 78.7]] },

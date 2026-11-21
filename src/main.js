@@ -1,6 +1,6 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
-import { cuffSplitVisible, sampleAppearance, sampleFinding } from './samples.js';
+import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
 import { ARRIVAL_APPROACH_MS, RECEIPT_FEED_MS } from './booth-motion.js';
@@ -1636,12 +1636,15 @@ function checkSample(act) {
   const spec = item?.sample;
   if (!spec) return;
   const packed = spec.kind === 'yellow' && !sample.unpacked;
+  const inGauge = sampleInGauge(spec, sample);
+  const previousJaw = act === 'sample-gauge-clamp' && modalLayer.querySelector('.gauge-moving-jaw');
+  const jawFrom = previousJaw ? getComputedStyle(previousJaw).transform : null;
   const previousFilm = act === 'sample-film' && modalLayer.querySelector('.sample-film-sheet');
   const previousFold = previousFilm ? getComputedStyle(previousFilm).transform : null;
   let sound = 'slide';
   switch (act) {
     case 'sample-flip':
-      if (packed || (spec.reading && sample.measured)) return;
+      if (packed || inGauge) return;
       sample.back = !sample.back;
       break;
     case 'sample-film':
@@ -1662,9 +1665,16 @@ function checkSample(act) {
       break;
     case 'sample-measure':
       if (!spec.reading) return;
+      sample.gaugeLoaded = !inGauge;
+      sample.measured = false;
+      interaction.thicknessOpen = false;
+      break;
+    case 'sample-gauge-clamp':
+      if (!inGauge) return;
+      sample.gaugeLoaded = true;
       sample.measured = !sample.measured;
       if (!sample.measured) interaction.thicknessOpen = false;
-      sound = sample.measured ? 'clasp' : 'slide';
+      sound = sample.measured ? 'clasp' : 'click';
       break;
     case 'sample-thickness':
       if (tutorialStep() || !thicknessComparison(item, sample)) return;
@@ -1687,6 +1697,7 @@ function checkSample(act) {
       sound = 'paper';
       break;
     case 'sample-basis': {
+      if (inGauge && !sample.measured) return;
       const recorded = toggleFinding(sampleFinding(spec, sample));
       sound = 'paper';
       toast(recorded ? '已记下检样结果' : '已取回这条查验依据');
@@ -1699,7 +1710,16 @@ function checkSample(act) {
     modalLayer.querySelector('.sample-inspector')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
   const graphic = modalLayer.querySelector('.sample-stage .sample-object');
-  if (act === 'sample-flip') {
+  if (act === 'sample-gauge-clamp' && jawFrom) {
+    const jaw = modalLayer.querySelector('.gauge-moving-jaw');
+    const jawDuration = 170;
+    if (jaw) animateOnDesk(jaw, [{ transform: jawFrom }, { transform: getComputedStyle(jaw).transform }], jawDuration);
+    if (sample.measured) {
+      for (const element of modalLayer.querySelectorAll('.gauge-display, .sample-findings .reading, .thickness-check')) {
+        animateOnDesk(element, [{ visibility: 'hidden' }, { visibility: 'hidden' }], jawDuration);
+      }
+    }
+  } else if (act === 'sample-flip') {
     animateOnDesk(graphic, [{ transform: 'perspective(600px) rotateY(-57deg)', opacity: .8 }, { transform: 'perspective(600px) rotateY(0deg)', opacity: 1 }], 220);
   } else if (act === 'sample-film' && previousFold) {
     const film = modalLayer.querySelector('.sample-film-sheet');
@@ -2348,7 +2368,7 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
-      target.matches('[data-act="stamp"], [data-act="next"], [data-act="visit-paper"], [data-act="event-next"], .sample-hotspot[data-drag]')) {
+      target.matches('[data-act="stamp"], [data-act="next"], [data-act="visit-paper"], [data-act="event-next"], .sample-hotspot[data-drag], .gauge-clamp')) {
     event.preventDefault();
     return;
   }
@@ -2374,25 +2394,28 @@ modalLayer.addEventListener('pointerdown', (event) => {
   if (!handle || event.button !== 0 || !event.isPrimary || toolDrag || drag) return;
   const stage = handle.closest('.sample-stage');
   const origin = stagePoint(root, event.clientX, event.clientY);
+  const kind = handle.dataset.drag;
   toolDrag = {
     handle, stage, origin, pointerId: event.pointerId, distance: 0,
-    kind: handle.dataset.drag, action: handle.dataset.act,
-    slot: stage.querySelector('[data-gauge-target]'), measured: stage.classList.contains('measured'),
+    kind, action: handle.dataset.act,
+    ...(kind === 'gauge' ? { slot: stage.querySelector('[data-gauge-target]'), insert: stageBounds(handle.closest('.sample-object')),
+      loaded: stage.classList.contains('gauge-loaded') } : {}),
     peeled: stage.classList.contains('peeled'), filmTravel: 0,
   };
   handle.setPointerCapture(event.pointerId);
 });
 
-function isOverGauge(event, slot) {
+function gaugeContainsInsert({ slot, insert, origin }, point) {
   if (!slot) return false;
-  const bounds = slot.getBoundingClientRect();
-  return event.clientX >= bounds.left && event.clientX <= bounds.right &&
-    event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+  const bounds = stageBounds(slot);
+  const x = insert.x + insert.w / 2 + point.x - origin.x;
+  const y = insert.y + insert.h / 2 + point.y - origin.y;
+  return x >= bounds.x && x <= bounds.x + bounds.w && y >= bounds.y && y <= bounds.y + bounds.h;
 }
 
 window.addEventListener('pointermove', (event) => {
   if (!toolDrag || event.pointerId !== toolDrag.pointerId) return;
-  const { stage, origin, kind, slot } = toolDrag;
+  const { stage, origin, kind } = toolDrag;
   const point = stagePoint(root, event.clientX, event.clientY);
   const dx = point.x - origin.x;
   const dy = point.y - origin.y;
@@ -2409,7 +2432,7 @@ window.addEventListener('pointermove', (event) => {
   }
   if (kind === 'gauge' && toolDrag.distance >= 9) {
     stage.dataset.toolDrag = kind;
-    stage.toggleAttribute('data-gauge-over', isOverGauge(event, slot));
+    stage.toggleAttribute('data-gauge-over', gaugeContainsInsert(toolDrag, point));
     stage.style.setProperty('--tool-dx', `${dx.toFixed(1)}px`);
     stage.style.setProperty('--tool-dy', `${dy.toFixed(1)}px`);
   }
@@ -2417,7 +2440,8 @@ window.addEventListener('pointermove', (event) => {
 
 function endToolDrag(event) {
   if (!toolDrag || (event.type !== 'blur' && event.pointerId !== toolDrag.pointerId)) return;
-  const { handle, stage, distance, kind, action, slot, measured, filmTravel } = toolDrag;
+  const completedDrag = toolDrag;
+  const { handle, stage, distance, kind, action, slot, loaded, filmTravel } = completedDrag;
   toolDrag = null;
   delete stage.dataset.toolDrag;
   stage.removeAttribute('data-gauge-over');
@@ -2425,7 +2449,7 @@ function endToolDrag(event) {
   if (event.type === 'pointerup' && distance >= 9) {
     toolClickTarget = handle;
     let completed = true;
-    if (kind === 'gauge') completed = Boolean(slot) && isOverGauge(event, slot) !== measured;
+    if (kind === 'gauge') completed = Boolean(slot) && gaugeContainsInsert(completedDrag, stagePoint(root, event.clientX, event.clientY)) !== loaded;
     if (kind === 'wrapper') completed = distance >= 18;
     if (kind === 'film') completed = filmTravel >= 18;
     if (completed && stage.isConnected) checkSample(action);

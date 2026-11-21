@@ -54,6 +54,7 @@ function caseProgress(item, progress) {
       tug: inspection?.tug === true,
       measured: inspection?.measured === true,
       unpacked: inspection?.unpacked === true,
+      ...(item?.sample?.reading && inspection?.gaugeLoaded === true ? { gaugeLoaded: true } : {}),
     },
     labelSeen: item?.id === 1 && progress?.labelSeen === true,
     reportSeen: item?.id === 1 && progress?.reportSeen === true,
