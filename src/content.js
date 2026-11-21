@@ -135,7 +135,11 @@ const earmuff = { kind: 'clear', appearance: 'earmuff', front: '双侧耳罩壳�
 
 export const TUTORIAL = [
   { target: 'label', title: '先认箱', line: '点开箱签，找批号。' },
-  { target: 'report', title: '对批号', line: '把箱签和报告并排放，先查批号。', pairLine: '在两张纸上各点一次批号，看是不是同一批。' },
+  {
+    target: 'report', title: '对批号', line: '把箱签和报告并排放，先查批号。',
+    deskLine: '把箱签拖到报告上停一下，看到「松手并排」再放开。',
+    pairLine: '在两张纸上各点一次批号，看是不是同一批。',
+  },
   {
     target: 'order', title: '核对签发和项目', line: '点报告上的「已签发」。',
     reportLine: '翻到检验报告，找签发栏。',

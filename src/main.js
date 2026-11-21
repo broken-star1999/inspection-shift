@@ -114,6 +114,7 @@ const wallShift = root.querySelector('#wall-shift');
 const hud = root.querySelector('#room-hud');
 const arrivalStatus = root.querySelector('#arrival-status');
 const windowReadback = root.querySelector('#window-readback');
+const paperDragCue = root.querySelector('#paper-drag-cue');
 const utility = root.querySelector('.topbar .utility');
 const windowGlance = document.createElement('button');
 windowGlance.id = 'window-glance';
@@ -676,6 +677,7 @@ function setScene() {
 }
 
 function render(resumeScroll, resumeScrollLeft = 0) {
+  if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
   const settingDownCloseSheet = run?.phase === 'summary' &&
     (root.dataset.phase === 'receipt' || root.dataset.phase === 'summary') &&
     !screenLayer.querySelector('.shift-close-sheet');
@@ -2850,9 +2852,10 @@ window.addEventListener('blur', endToolDrag);
 function projectedPaperFace(paper, project) {
   const { left, top, width, height } = paper.getBoundingClientRect();
   if (!width || !height) return null;
-  const corners = [[.1, .1], [.9, .1], [.9, .9], [.1, .9]].map(([x, y]) => project(left + x * width, top + y * height));
+  const corners = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => project(left + x * width, top + y * height));
   return {
     center: project(left + width / 2, top + height / 2),
+    layer: Number(getComputedStyle(paper).zIndex) || 0,
     contains(point) {
       const sides = corners.map((from, index) => {
         const to = corners[(index + 1) % corners.length];
@@ -2863,13 +2866,16 @@ function projectedPaperFace(paper, project) {
   };
 }
 
-function captureDeskPaperFaces(modeled, project) {
-  if (panel || tutorialStep()) return [];
+function captureDeskPaperFaces(source, modeled, project) {
+  const lesson = tutorialStep()?.key;
+  const batchPapers = ':is(.paper-label, .paper-report)';
+  if (panel || (lesson && (lesson !== 'report' || !source.matches(batchPapers)))) return [];
   const modeledFaces = modeled ? scenery.capturePaperTargets?.() ?? [] : null;
-  return [...desktop.querySelectorAll('[data-drag="paper"]:enabled:not([data-lifted])')].flatMap((paper) => {
+  const selector = `[data-drag="paper"]:enabled:not([data-lifted])${lesson ? batchPapers : ''}`;
+  return [...desktop.querySelectorAll(selector)].flatMap((paper, order) => {
     const face = modeledFaces ? modeledFaces.find(({ index }) => index === Number(paper.dataset.i)) : projectedPaperFace(paper, project);
-    return face ? [{ paper, ...face }] : [];
-  });
+    return face ? [{ paper, order, ...face }] : [];
+  }).sort((a, b) => b.layer - a.layer || b.order - a.order);
 }
 
 function paperDropTarget(work, offset) {
@@ -2878,8 +2884,19 @@ function paperDropTarget(work, offset) {
     x: work.center.x + offset.x - work.offset.x,
     y: work.center.y + offset.y - work.offset.y,
   };
-  const hits = work.targets.filter(({ paper, contains }) => paper.isConnected && contains(center));
-  return hits.length === 1 ? hits[0].paper : null;
+  return work.targets.find(({ paper, contains }) => paper.isConnected && contains(center))?.paper ?? null;
+}
+
+function updatePaperDragCue(work) {
+  const visible = work?.moved && work.targets.length;
+  paperDragCue.hidden = !visible;
+  if (!visible) return;
+  const { paper, target, pairReady } = work;
+  const title = paper.querySelector('h3').textContent;
+  const command = target ? (pairReady ? '松手并排' : '停一下') : '拖到另一张纸上';
+  const pair = target ? `${title} ＋ ${target.querySelector('h3').textContent}` : title;
+  paperDragCue.querySelector('strong').textContent = command;
+  paperDragCue.querySelector('span').textContent = pair;
 }
 
 function markPaperDrop(work, target) {
@@ -2888,20 +2905,32 @@ function markPaperDrop(work, target) {
   work.target?.removeAttribute('data-pair-drop');
   work.target = target;
   work.pairReady = false;
+  updatePaperDragCue(work);
   if (!target) return;
   target.dataset.pairDrop = 'near';
   work.pairTimer = setTimeout(() => {
     if (drag !== work || !work.paper.isConnected || !target.isConnected || panel) return;
     work.pairReady = true;
     target.dataset.pairDrop = 'ready';
+    updatePaperDragCue(work);
     playSound('click');
   }, PAPER_PAIR_HOLD_MS);
 }
 
-function moveDeskPaper(work, offset, lift = 0) {
+function moveDeskPaper(work, offset, lift = 0, settle = false) {
   work.paper.style.setProperty('--paper-x', `${offset.x}px`);
   work.paper.style.setProperty('--paper-y', `${offset.y}px`);
-  scenery?.setPaperOffset?.(work.index, offset, lift);
+  scenery?.setPaperOffset?.(work.index, offset, lift, settle);
+}
+
+function paperDragPlacement(work, event) {
+  const point = work.project(event.clientX, event.clientY);
+  const x = point.x - work.origin.x;
+  const y = point.y - work.origin.y;
+  const next = { x: work.offset.x + x, y: work.offset.y + y };
+  const resting = { x: Math.max(-90, Math.min(90, next.x)), y: Math.max(-35, Math.min(40, next.y)) };
+  const preview = work.targets.length ? { x: Math.max(-380, Math.min(380, next.x)), y: Math.max(-65, Math.min(65, next.y)) } : resting;
+  return { distance: Math.hypot(x, y), resting, preview };
 }
 
 desktop.addEventListener('pointerdown', (event) => {
@@ -2911,9 +2940,9 @@ desktop.addEventListener('pointerdown', (event) => {
   const projection = root.dataset.modeled === 'true' ? scenery?.captureDeskProjection?.() : null;
   const project = projection ?? captureDeskProjection(desktop) ?? ((x, y) => stagePoint(root, x, y));
   const offset = interaction.positions[index] ?? { x: 0, y: 0 };
-  const faces = captureDeskPaperFaces(Boolean(projection), project);
+  const faces = captureDeskPaperFaces(paper, Boolean(projection), project);
   drag = { paper, index, pointerId: event.pointerId, project, origin: project(event.clientX, event.clientY),
-    offset, resting: offset, moved: false, center: faces.find((face) => face.paper === paper)?.center,
+    offset, moved: false, center: faces.find((face) => face.paper === paper)?.center,
     targets: faces.filter((face) => face.paper !== paper), target: null, pairReady: false };
 });
 
@@ -2923,18 +2952,14 @@ window.addEventListener('pointermove', (event) => {
     endDrag({ type: 'pointercancel', pointerId: event.pointerId });
     return;
   }
-  const point = drag.project(event.clientX, event.clientY);
-  const x = point.x - drag.origin.x;
-  const y = point.y - drag.origin.y;
-  if (!drag.moved && Math.hypot(x, y) < 7) return;
+  const { distance, preview } = paperDragPlacement(drag, event);
+  if (!drag.moved && distance < 7) return;
   if (!drag.moved) {
+    drag.moved = true;
     drag.paper.classList.add('moving');
+    updatePaperDragCue(drag);
     playSound('paper');
   }
-  drag.moved = true;
-  const next = { x: drag.offset.x + x, y: drag.offset.y + y };
-  drag.resting = { x: Math.max(-90, Math.min(90, next.x)), y: Math.max(-35, Math.min(40, next.y)) };
-  const preview = drag.targets.length ? { x: Math.max(-380, Math.min(380, next.x)), y: Math.max(-65, Math.min(65, next.y)) } : drag.resting;
   markPaperDrop(drag, paperDropTarget(drag, preview));
   moveDeskPaper(drag, preview, drag.targets.length ? .05 : 0);
 });
@@ -2943,14 +2968,16 @@ function endDrag(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
   const work = drag;
   const released = event.type === 'pointerup';
-  const pair = released && work.pairReady && !panel && run?.phase === 'case' && work.target?.isConnected ? work.target : null;
+  const placement = released && work.moved ? paperDragPlacement(work, event) : null;
+  const pair = placement && work.pairReady && paperDropTarget(work, placement.preview) === work.target ? work.target : null;
   markPaperDrop(work, null);
+  updatePaperDragCue(null);
   drag = null;
   if (work.moved && work.paper.isConnected) {
-    work.paper.classList.remove('moving');
     suppressPaperClick = true;
-    const offset = released && !pair ? work.resting : work.offset;
-    moveDeskPaper(work, offset);
+    const offset = placement && !pair ? placement.resting : work.offset;
+    moveDeskPaper(work, offset, 0, true);
+    work.paper.classList.remove('moving');
     if (pair) openDeskPair(Number(pair.dataset.i), work.index, work.paper);
     else if (released) {
       interaction.positions[work.index] = offset;
@@ -2962,6 +2989,7 @@ function endDrag(event) {
 
 window.addEventListener('pointerup', endDrag);
 window.addEventListener('pointercancel', endDrag);
+window.addEventListener('lostpointercapture', endDrag);
 window.addEventListener('blur', () => {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
   resetGaze();

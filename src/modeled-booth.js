@@ -6,7 +6,6 @@ import { BOOTH_METRICS, createWorkbenchModels } from './workbench-models.js';
 
 const pixelsPerUnit = 86;
 const deskProjectionHeight = BOOTH_METRICS.deskTop + .035;
-const paperTargetInset = .10;
 const workerNames = new Set(['luo', 'tang', 'xu', 'chen', 'zhou', 'sun']);
 const baseFov = 38;
 const deskDepartureMs = 285;
@@ -748,13 +747,14 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     sample.scale.set(depth * aspect, depth, 1);
   }
 
-  function setPaperOffset(index, offset, lift = 0) {
+  function setPaperOffset(index, offset, lift = 0, settle = false) {
     const paper = paperSet[index];
     if (!paper) return;
     const { origin, rest } = paper.userData;
     rest.set(origin.x + (offset?.x || 0) / pixelsPerUnit, origin.y + lift, origin.z + (offset?.y || 0) / pixelsPerUnit);
     paper.position.copy(rest);
     layoutDirty = true;
+    if (settle) refreshLayout();
     invalidate();
   }
 
@@ -1202,9 +1202,10 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
       return [{
         index,
         center: { x: center.x * pixelsPerUnit, y: center.z * pixelsPerUnit },
+        layer: center.y,
         contains(point) {
           local.set(point.x / pixelsPerUnit, deskProjectionHeight, point.y / pixelsPerUnit).applyMatrix4(inverse);
-          return Math.abs(local.x) <= width / 2 - paperTargetInset && Math.abs(local.z) <= depth / 2 - paperTargetInset;
+          return Math.abs(local.x) <= width / 2 && Math.abs(local.z) <= depth / 2;
         },
       }];
     });

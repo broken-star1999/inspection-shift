@@ -64,6 +64,7 @@ export function shell() {
       </div>
       <p class="arrival-status" id="arrival-status" role="status"></p>
       <p class="visually-hidden" id="window-readback" role="status"></p>
+      <div class="paper-drag-cue" id="paper-drag-cue" role="status" hidden><strong></strong><span></span></div>
       <div class="screen-layer" id="screen"></div>
       <div class="modal-layer" id="modal"></div>
       <div class="game-toast" aria-live="polite"></div>
@@ -140,7 +141,7 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCu
   const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? reply ?? item?.line ?? day.intro;
   const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
   const training = tutorial && !sceneEvent
-    ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>`
+    ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.deskLine ?? tutorial.line)}</p></div>`
     : filmCue ? `<div class="training" id="film-bench-cue" aria-live="polite"><small>老周</small><p>${esc(FILM_BENCH_TUTORIAL)}</p></div>` : '';
   return `<div class="speech${cls('dispatch-event', sceneEvent)}${cls('pressure-exchange', exchange)}"${sceneEvent?.kind ? ` data-visit-kind="${esc(sceneEvent.kind)}"` : ''} aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
       <p${reply ? ' class="finding-reply"' : ''}>${esc(line)}</p>${exchange && !reply ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}

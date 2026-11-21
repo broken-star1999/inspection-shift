@@ -661,30 +661,27 @@
   outline: 1px solid #e7c98e;
   outline-offset: .12rem;
 }
-#game:not([data-modeled='true']) .booth-layout .paper-card[data-pair-drop='ready'] {
-  overflow: visible;
-  z-index: 4;
-}
-.booth-layout .paper-card[data-pair-drop='ready']::after {
-  content: '松手并排';
+.booth-layout .paper-card[data-pair-drop='ready'] { outline-color: #fff0b5; }
+.paper-drag-cue:not([hidden]) {
   position: absolute;
-  z-index: 1;
-  inset: auto auto calc(100% + .26rem) 50%;
-  display: block;
-  inline-size: max-content;
-  block-size: auto;
-  padding: .15rem .38rem;
+  z-index: 11;
+  inset: auto auto .48rem 50%;
+  display: flex;
+  align-items: center;
+  gap: .54rem;
+  max-inline-size: calc(100% - 1.4rem);
+  padding: .3rem .53rem;
   translate: -50% 0;
-  transform: none;
-  clip-path: none;
-  border: 1px solid #b2925e;
-  background: #ead0a1;
-  box-shadow: 1px 2px #312719;
-  color: #40301f;
-  font: 760 .75rem / 1.25 var(--mono);
+  border: 1px solid #9e8156;
+  background: #26362a;
+  box-shadow: 2px 2px #1a2119;
+  color: #e8d9b2;
+  font: 670 .76rem / 1.3 var(--mono);
   white-space: nowrap;
   pointer-events: none;
 }
+.paper-drag-cue strong { flex: 0 0 auto; color: #ffd99b; }
+.paper-drag-cue span { overflow: hidden; text-overflow: ellipsis; }
 .booth-layout .paper-card > small { display: none; }
 .booth-layout .paper-card h3 { margin-block: .12rem .13rem; }
 .booth-layout .paper-rules { opacity: .66; }
