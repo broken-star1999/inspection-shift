@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DAYS } from '../src/content.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress, tutorialActionComplete } from '../src/inspection-progress.js';
 
 const item = { id: 7, documents: [{ type: 'label' }, { type: 'report' }] };
@@ -220,6 +221,60 @@ test('restores the current and prior papers separately and falls back to the sav
     const currentOnly = restoreInspectionProgress(saved, itemWithPrior, [5, 9], context);
     assert.deepEqual(currentOnly, { ...restored, previousDoc: null, previousCurrentDoc: null });
   }
+});
+
+test('restores the open relabel comparison directly or on return from the phone', () => {
+  const current = DAYS[2].cases.find(({ id }) => id === 11);
+  const work = { ...freshInteraction(), doc: 2, relabelCheck: 2, phoneNumber: '107' };
+  const documents = { panel: 'docs', scrollTop: 21 };
+  const phone = { panel: 'phone', scrollTop: 31, returnTo: documents };
+  const comparison = { ...documents, doc: 2, compare: null, relabelCheck: 2, showFindings: false };
+  for (const workspace of [documents, phone]) {
+    const progress = captureInspectionProgress(current, work, workspace);
+    const saved = JSON.parse(JSON.stringify(progress));
+    assert.deepEqual(saved.workspace, workspace === phone ? { ...phone, returnTo: comparison } : comparison);
+    assert.deepEqual(restoreInspectionProgress(saved, current, [11], {}), { ...work, workspace });
+  }
+});
+
+test('preserves a relabel comparison only for a valid current document workspace', () => {
+  const current = DAYS[2].cases.find(({ id }) => id === 11);
+  const work = { ...freshInteraction(), doc: 2, relabelCheck: 2, returnToDocs: true };
+  const documents = { panel: 'docs' };
+  const saved = captureInspectionProgress(current, work, documents);
+  assert.equal(restoreInspectionProgress(saved, current, [11], { guided: true }).relabelCheck, null);
+  assert.equal(restoreInspectionProgress(saved, item, [7, 11], {}).relabelCheck, null);
+  assert.equal(captureInspectionProgress(current, work, { panel: 'sample' }).workspace.relabelCheck, undefined);
+  assert.equal(captureInspectionProgress(current, work, { ...documents, guided: true }).workspace.relabelCheck, undefined);
+  for (const relabelCheck of [null, '2', -1, 1, 3]) {
+    const progress = captureInspectionProgress(current, { ...work, relabelCheck }, documents);
+    assert.equal(progress.workspace.relabelCheck, undefined);
+    assert.equal(restoreInspectionProgress({ ...saved, workspace: { ...saved.workspace, relabelCheck } }, current, [11], {}).relabelCheck, null);
+  }
+  delete saved.workspace.relabelCheck;
+  assert.equal(restoreInspectionProgress(saved, current, [11], {}).relabelCheck, null);
+});
+
+test('drops a conflicting relabel comparison when a legacy comparison is valid', () => {
+  const current = DAYS[3].cases.find(({ id }) => id === 13);
+  const work = { ...freshInteraction(), doc: 2, relabelCheck: 2 };
+  const prior = { id: 11, documentCount: 3 };
+  const oldPair = { priorId: prior.id, previousDoc: 2, previousCurrentDoc: 2 };
+  const progress = captureInspectionProgress(current, work, { panel: 'docs' });
+  const conflictingPair = captureInspectionProgress(current, { ...work, ...oldPair }, { panel: 'docs', prior });
+  assert.equal(conflictingPair.workspace.relabelCheck, undefined);
+  const restored = restoreInspectionProgress({ ...progress, workspace: { ...progress.workspace, ...oldPair } }, current, [11, 13], { prior });
+  assert.equal(restored.previousDoc, 2);
+  assert.equal(restored.relabelCheck, null);
+
+  const order = { type: 'order', fields: [['随货材料', '随货附本批检验报告']] };
+  const withOrder = { ...current, documents: [...current.documents, order] };
+  const saved = captureInspectionProgress(withOrder, { ...work, deliveryCheck: 3 }, { panel: 'docs' });
+  assert.equal(saved.workspace.relabelCheck, undefined);
+  const pointCount = restoreInspectionProgress({ ...progress, workspace: { ...progress.workspace, deliveryCheck: 3 } }, withOrder, [13], {});
+  assert.equal(pointCount.deliveryCheck, 3);
+  assert.equal(pointCount.relabelCheck, null);
+  assert.equal(restoreInspectionProgress({ ...progress, workspace: { ...progress.workspace, deliveryCheck: 3 } }, current, [13], {}).relabelCheck, 2);
 });
 
 test('preserves a sample reference and its return to papers while respecting guided inspection', () => {

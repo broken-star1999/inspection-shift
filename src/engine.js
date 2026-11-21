@@ -151,7 +151,7 @@ function getDialogue(state, item) {
 }
 
 function pressureFindingKind(key) {
-  const comparison = /^compare:\d+:(intake|projects):/.exec(key)?.[1];
+  const comparison = /^compare:\d+:(intake|projects|relabel):/.exec(key)?.[1];
   return comparison ?? (key.startsWith('sample:') ? 'sample' : 'paper');
 }
 

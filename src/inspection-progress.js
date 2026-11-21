@@ -1,5 +1,5 @@
 import { normalizeFindings } from './inspection-findings.js';
-import { intakeComparison } from './document-comparison.js';
+import { intakeComparison, relabelComparison } from './document-comparison.js';
 import { DAYS, EASTER_EGGS, documentExtension } from './content.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -132,6 +132,10 @@ function workspaceProgress(item, work, context = {}) {
         previousDoc !== null && previousCurrentDoc !== null) {
       Object.assign(workspace, { priorId: prior.id, previousDoc, previousCurrentDoc });
     }
+    if (panel === 'docs' && !guided && workspace.deliveryCheck === undefined && workspace.previousDoc === undefined &&
+        relabelComparison(item, work.relabelCheck)) {
+      workspace.relabelCheck = work.relabelCheck;
+    }
   }
 
   if (panel === 'sample') {
@@ -147,6 +151,7 @@ export function freshInteraction(carry = {}) {
     doc: 0,
     compare: null,
     deliveryCheck: null,
+    relabelCheck: null,
     clipboardBack: false,
     spreadAll: false,
     previousDoc: null,

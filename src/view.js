@@ -1,5 +1,5 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
-import { intakeComparison, projectComparison } from './document-comparison.js';
+import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
 import { receiptDisposition, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { CUFF_SPLIT_PATCHES, cuffSplitVisible, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
@@ -352,6 +352,17 @@ function intakeSlip(comparison, orderIndex, selected) {
     <div class="modal-actions intake-actions">${button(checked ? '取回依据' : '记下点收', 'delivery-evidence', 'secondary intake-evidence', `data-i="${orderIndex}"${active(checked)}`)}</div></article>`;
 }
 
+function relabelSlip(comparison, selected) {
+  const field = ({ title, field, value }) => `<span class="relabel-field"><small>${esc(title)}</small><span>${esc(field)}</span><strong>${esc(value)}</strong></span>`;
+  const pairs = comparison.pairs.map(({ side, left, right, finding }) => {
+    const recorded = selected.has(finding.key);
+    const record = button(recorded ? '取回这组' : '记下这组', 'relabel-evidence', 'secondary relabel-evidence',
+      `data-i="${comparison.registerIndex}" data-key="${side}"${active(recorded)} aria-label="${recorded ? '取回' : '记下'}${side === 'original' ? '原箱批号对照' : '现箱批号对照'}"`);
+    return `<div class="relabel-pair" data-side="${side}">${field(left)}${field(right)}${record}</div>`;
+  }).join('');
+  return `<article class="sheet relabel-slip"><h3>批号对照</h3>${pairs}</article>`;
+}
+
 function tutorialGuide(line, extraClass = '') {
   return `<p class="modal-guide tutorial-guide${cls(extraClass, extraClass)}" aria-live="polite"><b>老周</b> ${esc(line)}</p>`;
 }
@@ -459,12 +470,16 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const phoneLabel = progress.incomingCall ? '接电话' : bringOrder ? '带送检联问' : '拿电话';
   const phoneAction = tutorial ? '' : button(phoneLabel, 'phone', `reference-control phone-work-tool${cls('phone-bring-order', bringOrder)}`, bringOrder ? 'data-key="bring-order"' : '');
   const headerActions = guidedCompare + previousAction + spreadAction + sampleAction + phoneAction + draft.header;
-  const activeSheet = (page, position) => sheet(page, position, inspection, {
-    clipboardFront: position === clipboardIndex,
-    reportLookup: !tutorial,
-    phoneSource: !tutorial ? item.id : null,
-    fieldActions: !tutorial && !comparing && page.type === 'order' ? orderFieldActions(item, position, visible, inspection.selected) : undefined,
-  });
+  const activeSheet = (page, position) => {
+    let fieldActions;
+    if (!tutorial && !comparing) {
+      if (page.type === 'order') fieldActions = orderFieldActions(item, position, visible, inspection.selected);
+      else if (relabelComparison(item, position)) fieldActions = new Map([['原箱批号',
+        button('对批号', 'relabel-check', 'secondary document-field-action', `data-i="${position}"${active(false)}`)]]);
+    }
+    return sheet(page, position, inspection, { clipboardFront: position === clipboardIndex,
+      reportLookup: !tutorial, phoneSource: !tutorial ? item.id : null, fieldActions });
+  };
   const intakeIndex = progress.deliveryCheck;
   const intake = !tutorial && intakeComparison(item, intakeIndex);
   if (intake) {
@@ -472,6 +487,14 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair intake-comparison">${sheet(item.documents[intakeIndex], intakeIndex, inspection)}
       ${intakeSlip(intake, intakeIndex, inspection.selected)}</div>`, 'documents-surface', '放回台面', `intake:${intakeIndex}`,
     { headerActions: closeIntake + phoneAction + draft.header });
+  }
+  const relabel = !tutorial && !comparing && relabelComparison(item, progress.relabelCheck);
+  if (relabel) {
+    const register = item.documents[relabel.registerIndex];
+    const collapse = button('收起对照', 'relabel-check', 'secondary relabel-close', `data-i="${relabel.registerIndex}"${active(true)}`);
+    return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair relabel-comparison">${relabelSlip(relabel, inspection.selected)}
+      <div class="relabel-register">${sheet(register, relabel.registerIndex, inspection, { phoneSource: item.id })}${extras ? `<div class="modal-actions">${extras}</div>` : ''}</div></div>`,
+    'documents-surface', '放回台面', `relabel:${relabel.registerIndex}`, { headerActions: collapse + phoneAction + draft.header });
   }
   if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, activeSheet)}`,
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });

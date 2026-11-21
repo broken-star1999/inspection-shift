@@ -5,7 +5,7 @@ import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMute
 import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
-import { intakeComparison, projectComparison } from './document-comparison.js';
+import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
 import { handoffComparison } from './handoff-comparison.js';
 import * as view from './view.js';
 import './style.css';
@@ -370,7 +370,9 @@ function heldObjects(item) {
   let heldDocuments = [];
   if (panel === 'visit') heldDocuments = [0];
   if (panel === 'docs') {
-    if (interaction.deliveryCheck !== null) heldDocuments = [interaction.deliveryCheck];
+    const relabel = relabelComparison(item, interaction.relabelCheck);
+    if (relabel) heldDocuments = [relabel.registerIndex, relabel.reportIndex, relabel.labelIndex];
+    else if (interaction.deliveryCheck !== null) heldDocuments = [interaction.deliveryCheck];
     else if (interaction.previousDoc !== null) heldDocuments = [viewedDocument()];
     else if (interaction.spreadAll && item?.documents.length === 3) heldDocuments = [0, 1, 2];
     else heldDocuments = [interaction.doc, interaction.compare];
@@ -1048,6 +1050,7 @@ function chooseDoc(index, opener) {
   }
   interaction.clipboardBack = false;
   interaction.deliveryCheck = null;
+  interaction.relabelCheck = null;
   if (tutorialStep()?.key === 'signature' && doc.type === 'order') {
     pairTutorialOrder(item, index);
   } else if (panel === 'docs' && interaction.previousDoc !== null) {
@@ -1249,33 +1252,48 @@ function documentCheckItem() {
 
 function toggleDeliveryCheck(index) {
   if (!intakeComparison(documentCheckItem(), index)) return;
+  interaction.relabelCheck = null;
   interaction.deliveryCheck = interaction.deliveryCheck === index ? null : index;
   playSound('paper');
   render(0);
   focusControl(modalLayer, { act: 'delivery-check', i: String(index) });
 }
 
+function toggleRelabelCheck(index) {
+  const item = documentCheckItem();
+  if (!relabelComparison(item, index) || interaction.previousDoc !== null || interaction.deliveryCheck !== null ||
+      !heldObjects(item).heldDocuments.includes(index)) return;
+  interaction.relabelCheck = interaction.relabelCheck === index ? null : index;
+  playSound('paper');
+  render(0);
+  focusControl(modalLayer, { act: 'relabel-check', i: String(index) });
+}
+
 function openProjectComparison(orderIndex, reportIndex) {
   if (!projectComparison(documentCheckItem(), orderIndex, reportIndex)) return;
-  Object.assign(interaction, { doc: orderIndex, compare: reportIndex, deliveryCheck: null,
+  Object.assign(interaction, { doc: orderIndex, compare: reportIndex, deliveryCheck: null, relabelCheck: null,
     spreadAll: false, previousDoc: null, previousCurrentDoc: null, clipboardBack: false });
   playSound('slide');
   render(0);
   focusControl(modalLayer, { act: 'project-evidence', i: String(orderIndex), key: String(reportIndex) });
 }
 
-function recordDocumentComparison(kind, orderIndex, reportIndex) {
+function recordDocumentComparison(kind, documentIndex, target) {
   const item = documentCheckItem();
   if (!item) return;
   let comparison;
   if (kind === 'delivery-evidence') {
-    if (interaction.deliveryCheck !== orderIndex) return;
-    comparison = intakeComparison(item, orderIndex);
+    if (interaction.deliveryCheck !== documentIndex) return;
+    comparison = intakeComparison(item, documentIndex);
+  } else if (kind === 'relabel-evidence') {
+    if (interaction.relabelCheck !== documentIndex) return;
+    comparison = relabelComparison(item, documentIndex)?.pairs.find(({ side }) => side === target);
   } else {
     if (interaction.deliveryCheck !== null || interaction.previousDoc !== null) return;
+    const reportIndex = Number(target);
     const { heldDocuments } = heldObjects(item);
-    if (!heldDocuments.includes(orderIndex) || !heldDocuments.includes(reportIndex)) return;
-    comparison = projectComparison(item, orderIndex, reportIndex);
+    if (!heldDocuments.includes(documentIndex) || !heldDocuments.includes(reportIndex)) return;
+    comparison = projectComparison(item, documentIndex, reportIndex);
   }
   if (!comparison) return;
   const recorded = toggleFinding(comparison.finding);
@@ -1290,6 +1308,7 @@ function comparePrevious(opener) {
   if (!previous?.documents.length) return;
   if (panel !== 'docs' && (panel !== 'archive' || archiveReturn || interaction.archiveFocus !== previous.record.id)) return;
   interaction.deliveryCheck = null;
+  interaction.relabelCheck = null;
   if (panel === 'docs' && interaction.previousDoc !== null) {
     interaction.previousDoc = null;
     interaction.previousCurrentDoc = null;
@@ -1683,8 +1702,9 @@ root.addEventListener('click', (event) => {
     case 'compare': compareDocs(key); break;
     case 'compare-all': spreadDocuments(); break;
     case 'delivery-check': toggleDeliveryCheck(index); break;
+    case 'relabel-check': toggleRelabelCheck(index); break;
     case 'project-pair': openProjectComparison(index, Number(key)); break;
-    case 'delivery-evidence': case 'project-evidence': recordDocumentComparison(act, index, Number(key)); break;
+    case 'delivery-evidence': case 'project-evidence': case 'relabel-evidence': recordDocumentComparison(act, index, key); break;
     case 'previous-compare': comparePrevious(target); break;
     case 'previous-doc': {
       const previous = previousInspection();

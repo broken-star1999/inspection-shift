@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DAYS } from '../src/content.js';
-import { intakeComparison, projectComparison } from '../src/document-comparison.js';
+import { DAYS, PRESSURE } from '../src/content.js';
+import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
+import { createRun, dispatch, getCase, getDay } from '../src/engine.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress } from '../src/inspection-progress.js';
 
 const cases = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
@@ -42,6 +43,75 @@ test('the G-248 comparison keeps the requirements and report text independent of
   assert.equal(projectComparison(item, 2, 0), null);
   assert.equal(projectComparison(item, '2', 1), null);
   assert.equal(projectComparison(cases.get(14), 2, 1), null);
+});
+
+test('relabel comparisons keep the previous and current batch numbers as independent facts', () => {
+  const examples = [
+    [6, 'G-106', 'G-206', 'G-206'], [11, 'G-111', 'G-216', 'G-211'], [13, 'G-111', 'G-211', 'G-211'],
+    [16, 'G-112', 'G-216', 'G-216'], [19, 'G-119', 'G-219', 'G-219'],
+  ];
+  for (const [id, original, registeredCurrent, label] of examples) {
+    const item = cases.get(id);
+    const result = relabelComparison(item, 2);
+    assert.deepEqual([result.registerIndex, result.reportIndex, result.labelIndex], [2, 1, 0]);
+    assert.deepEqual(result.pairs.map(({ side, left, right }) => [side, left.value, right.value]), [
+      ['original', original, original], ['current', registeredCurrent, label],
+    ]);
+    assert.deepEqual(result.pairs.map(({ finding }) => finding.key), [
+      `compare:${id}:relabel:2:1:original`, `compare:${id}:relabel:2:0:current`,
+    ]);
+  }
+
+  const item = cases.get(11);
+  const [original, current] = relabelComparison(item, 2).pairs;
+  assert.deepEqual([original.left, original.right], [
+    { title: '检验报告', field: '批号', value: 'G-111' },
+    { title: '换签登记', field: '原箱批号', value: 'G-111' },
+  ]);
+  assert.deepEqual(current, {
+    side: 'current',
+    left: { title: '换签登记', field: '现箱批号', value: 'G-216' },
+    right: { title: '外箱标签', field: '批号', value: 'G-211' },
+    finding: {
+      key: 'compare:11:relabel:2:0:current', source: '换签登记 / 外箱标签', text: '现箱批号 · G-216；批号 · G-211',
+    },
+  });
+  assert.deepEqual(relabelComparison({ ...item, answer: 'pass', reason: '别的判断' }, 2).pairs[1], current);
+});
+
+test('relabel comparisons require one real label, one report and an unambiguous register', () => {
+  const item = cases.get(6);
+  const [label, report, register] = item.documents;
+  assert.equal(relabelComparison(item, 0), null);
+  assert.equal(relabelComparison(item, '2'), null);
+  assert.equal(relabelComparison(cases.get(14), 2), null);
+  assert.equal(relabelComparison(null, 2), null);
+  assert.equal(relabelComparison({ ...item, documents: [label, report, register, report] }, 2), null);
+  assert.equal(relabelComparison({ ...item, documents: [label, report, register, label] }, 2), null);
+  for (const fields of [
+    [...register.fields, ['原箱批号', 'G-999']], register.fields.filter(([key]) => key !== '现箱批号'),
+  ]) {
+    assert.equal(relabelComparison({ ...item, documents: [label, report, { ...register, fields }] }, 2), null);
+  }
+  const noReportBatch = { ...report, fields: report.fields.filter(([key]) => key !== '批号') };
+  assert.equal(relabelComparison({ ...item, documents: [label, noReportBatch, register] }, 2), null);
+
+  const reordered = relabelComparison({ ...item, documents: [report, register, label] }, 1);
+  assert.deepEqual([reordered.registerIndex, reordered.reportIndex, reordered.labelIndex], [1, 0, 2]);
+  assert.equal(reordered.pairs[0].finding.key, 'compare:6:relabel:1:0:original');
+  assert.equal(reordered.pairs[1].finding.key, 'compare:6:relabel:1:2:current');
+});
+
+test('a G-216 relabel finding draws a paper-specific pressure reply without deciding the sample', () => {
+  const run = { ...createRun(4), day: 3, phase: 'case' };
+  run.index = getDay(run).cases.findIndex(({ id }) => id === 16);
+  const current = getCase(run);
+  assert.equal(current.pressure, 'favor');
+  const { finding } = relabelComparison(current, 2).pairs[1];
+  const shown = dispatch(run, { type: 'show-finding', finding });
+  assert.equal(getCase(shown).pressureReply, PRESSURE[0].shown.relabel);
+  assert.equal(getCase(shown).answer, current.answer);
+  assert.equal(shown.records, run.records);
 });
 
 test('report body can be empty and same-batch records keep distinct evidence keys', () => {

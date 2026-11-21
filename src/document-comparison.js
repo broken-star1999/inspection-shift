@@ -55,3 +55,50 @@ export function projectComparison(item, orderIndex, reportIndex) {
     },
   };
 }
+
+function uniqueDocumentIndex(documents, type) {
+  const matches = (document) => document?.type === type;
+  const first = documents.findIndex(matches);
+  return first === documents.findLastIndex(matches) ? first : -1;
+}
+
+function numberedField(document, field) {
+  const matches = rowsOf(document).filter(([label]) => label === field);
+  const title = cleanText(document?.title);
+  const value = matches.length === 1 ? cleanText(matches[0][1]) : '';
+  return title && value ? { title, field, value } : null;
+}
+
+function relabelPair(id, registerIndex, paperIndex, side, left, right) {
+  return {
+    side,
+    left,
+    right,
+    finding: {
+      key: `compare:${id}:relabel:${registerIndex}:${paperIndex}:${side}`,
+      source: `${left.title} / ${right.title}`,
+      text: `${left.field} · ${left.value}；${right.field} · ${right.value}`,
+    },
+  };
+}
+
+export function relabelComparison(item, registerIndex) {
+  const register = documentAt(item, registerIndex, 'archive');
+  if (!register) return null;
+  const reportIndex = uniqueDocumentIndex(item.documents, 'report');
+  const labelIndex = uniqueDocumentIndex(item.documents, 'label');
+  const original = numberedField(register, '原箱批号');
+  const current = numberedField(register, '现箱批号');
+  const reportBatch = numberedField(item.documents[reportIndex], '批号');
+  const labelBatch = numberedField(item.documents[labelIndex], '批号');
+  if (!original || !current || !reportBatch || !labelBatch) return null;
+  return {
+    registerIndex,
+    reportIndex,
+    labelIndex,
+    pairs: [
+      relabelPair(item.id, registerIndex, reportIndex, 'original', reportBatch, original),
+      relabelPair(item.id, registerIndex, labelIndex, 'current', current, labelBatch),
+    ],
+  };
+}
