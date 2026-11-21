@@ -182,7 +182,7 @@ function drawWorker(ctx, who) {
   rect('#1e2a23', 73, 92, 4, 18);
 }
 
-export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) {
+export function mountScenery(host, { baseUrl, context }) {
   const view = host.ownerDocument.defaultView;
   const art = `${baseUrl.replace(/\/?$/, '/')}art/`;
   const reducedMotion = view.matchMedia('(prefers-reduced-motion: reduce)');
@@ -226,14 +226,11 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
       this.elapsed = 0;
       this.look = { x: 0, y: 0 };
       this.frame = {};
-      this.isWebGL = this.game.renderer.type === Phaser.WEBGL;
-      if (this.isWebGL) {
-        const camera = this.cameras.main;
-        this.game.renderer.pipelines.addPostPipeline('ShiftWarmLight', WarmLightPipeline);
-        camera.setPostPipeline('ShiftWarmLight');
-        this.pipeline = camera.getPostPipeline('ShiftWarmLight');
-      }
-      host.dataset.renderer = this.isWebGL ? 'webgl' : 'canvas';
+      const camera = this.cameras.main;
+      this.game.renderer.pipelines.addPostPipeline('ShiftWarmLight', WarmLightPipeline);
+      camera.setPostPipeline('ShiftWarmLight');
+      this.pipeline = camera.getPostPipeline('ShiftWarmLight');
+      host.dataset.renderer = 'webgl';
       this.game.canvas.setAttribute('aria-hidden', 'true');
       Object.assign(this.game.canvas.style, {
         display: 'block',
@@ -364,7 +361,9 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
   }
 
   game = new Phaser.Game({
-    type: Phaser.AUTO,
+    type: Phaser.WEBGL,
+    canvas: context.canvas,
+    context,
     parent: host,
     width: stageWidth(),
     height: logicalHeight,

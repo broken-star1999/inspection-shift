@@ -21,7 +21,7 @@ npm run build
 npm run preview
 ```
 
-`src/content.js` 定义来件、单据和对白。`src/engine.js` 处理随机来件、电话线索、存档、交班重审和结局。支持 WebGL 2 的浏览器用 Three.js 渲染 `src/workbench-models.js` 中的值班室和道具。模型在同一台透视相机里，桌上纸张通过射线与台面相交来处理拖动。查看单据和检样细节时使用 HTML 与 CSS。没有 WebGL 2 时，`src/scenery.js` 提供 Phaser 场景。Web Audio 现场合成翻纸、盖章和铃声。
+`src/content.js` 定义来件、单据和对白。`src/engine.js` 处理随机来件、电话线索、存档、交班重审和结局。页面先显示可操作的插画值班室。支持 WebGL 2 的浏览器加载 Three.js，在桌面空闲时切入 `src/workbench-models.js` 中的三维场景。模型在同一台透视相机里，桌上纸张通过射线与台面相交来处理拖动。查看单据和检样细节时使用 HTML 与 CSS。支持 WebGL 1 的浏览器可用 `src/scenery.js` 的 Phaser 场景取得窗外光效。禁用 WebGL 时可以直接在插画值班室完成查验。Web Audio 现场合成翻纸、盖章和铃声。
 
 ## EdgeOne Makers
 

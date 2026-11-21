@@ -70,6 +70,8 @@ let historyNavigation = null;
 let panel = null;
 let scenery;
 let modeledReady = false;
+let resumeSceneMount = null;
+let sceneMountFrame = 0;
 let toastTimer;
 let arrivalTimer = 0;
 let arrival = null;
@@ -177,9 +179,14 @@ function placeFixtures() {
   }
 }
 
+function canSwitchBooth() {
+  if (panel || drag || toolDrag) return false;
+  if (arrival) return arrival.stage === 'waiting' && !arrival.handingReceipt;
+  return run?.phase !== 'case' && run?.phase !== 'receipt' && !activeVisit();
+}
+
 function showModeledScene() {
-  if (!modeledReady || root.dataset.modeled === 'true' || panel || drag) return;
-  if (!arrival && (run?.phase === 'case' || run?.phase === 'receipt' || activeVisit())) return;
+  if (!modeledReady || root.dataset.modeled === 'true' || !canSwitchBooth()) return;
   root.dataset.modeled = 'true';
 }
 
@@ -192,34 +199,71 @@ function suspendModeledScene() {
   setScene();
 }
 
+function createSceneContext(type, attributes) {
+  try {
+    const context = root.ownerDocument.createElement('canvas').getContext(type, attributes);
+    return context && !context.isContextLost() ? context : null;
+  } catch {
+    return null;
+  }
+}
+
+function scheduleSceneMount() {
+  if (!resumeSceneMount || sceneMountFrame || !canSwitchBooth()) return;
+  sceneMountFrame = requestAnimationFrame(() => {
+    sceneMountFrame = 0;
+    if (!canSwitchBooth()) return;
+    const resume = resumeSceneMount;
+    resumeSceneMount = null;
+    resume();
+  });
+}
+
+function waitForSceneBoundary() {
+  return new Promise((resolve) => {
+    resumeSceneMount = resolve;
+    scheduleSceneMount();
+  });
+}
+
 async function startScene() {
   const baseUrl = import.meta.env.BASE_URL;
-  try {
-    const { mountModeledBooth } = await import('./modeled-booth.js');
-    scenery = mountModeledBooth(modelHost, {
-      baseUrl,
-      onLayout(layout) {
-        fixtureLayout = layout;
-        placeFixtures();
-      },
-      onReady() {
-        modeledReady = true;
-        showModeledScene();
-      },
-      onUnavailable: suspendModeledScene,
-    });
-  } catch { /* The illustrated booth remains available when 3D is unavailable. */ }
+  const webgl2 = createSceneContext('webgl2', { alpha: false, antialias: true, powerPreference: 'low-power', depth: true });
+  if (webgl2) {
+    try {
+      const { mountModeledBooth } = await import('./modeled-booth.js');
+      await waitForSceneBoundary();
+      if (!webgl2.isContextLost()) {
+        scenery = mountModeledBooth(modelHost, {
+          baseUrl,
+          context: webgl2,
+          onLayout(layout) {
+            fixtureLayout = layout;
+            placeFixtures();
+          },
+          onReady() {
+            modeledReady = true;
+            showModeledScene();
+          },
+          onUnavailable: suspendModeledScene,
+        });
+      }
+    } catch { /* Use the illustrated booth if the 3D module failed to start. */ }
+    if (!scenery) webgl2.getExtension('WEBGL_lose_context')?.loseContext();
+  }
   if (!scenery) {
+    roomHost.dataset.renderer = 'static';
+    const webgl = createSceneContext('webgl', { alpha: false, antialias: false, depth: true, stencil: true });
+    if (!webgl) return;
     try {
       const { mountScenery } = await import('./scenery.js');
-      scenery = mountScenery(roomHost, { baseUrl });
-    } catch { roomHost.dataset.renderer = 'static'; }
+      await waitForSceneBoundary();
+      if (!webgl.isContextLost()) scenery = mountScenery(roomHost, { baseUrl, context: webgl });
+    } catch { webgl.getExtension('WEBGL_lose_context')?.loseContext(); }
   }
   setScene();
   scenery?.setViewPose(gaze.x, gaze.y);
 }
-
-void startScene();
 
 function drawGaze(x, y) {
   gaze.x = x;
@@ -578,6 +622,8 @@ function sceneShipment(state, item, waiting) {
 }
 
 function setScene() {
+  scheduleSceneMount();
+  showModeledScene();
   const approaching = arrival?.stage === 'approach';
   const waiting = arrival && !approaching;
   const waitingNpc = waiting && arrival.ready ? visitorAt(windowAdvance(arrival.action)) : null;
@@ -2908,3 +2954,4 @@ window.addEventListener('blur', () => {
   resetGaze();
 });
 render();
+requestAnimationFrame(() => requestAnimationFrame(() => { void startScene(); }));

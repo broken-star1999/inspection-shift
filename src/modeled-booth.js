@@ -496,21 +496,11 @@ function projectStampStation(station, camera, width, height) {
   return { x, y, labelX: (point.x + 1) * width / 2, labelY: (1 - point.y) * height / 2 };
 }
 
-export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, onLayout, onReady, onUnavailable } = {}) {
-  if (!host) return null;
+export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, onUnavailable }) {
   const ownerDocument = host.ownerDocument;
   const view = ownerDocument.defaultView;
-  const canvas = ownerDocument.createElement('canvas');
-  let renderer;
-  try {
-    const context = canvas.getContext('webgl2', {
-      alpha: false, antialias: true, powerPreference: 'low-power', depth: true,
-    });
-    if (!context) return null;
-    renderer = new THREE.WebGLRenderer({ canvas, context, antialias: true, alpha: false });
-  } catch {
-    return null;
-  }
+  const { canvas } = context;
+  const renderer = new THREE.WebGLRenderer({ canvas, context, antialias: true, alpha: false });
 
   const reduced = view.matchMedia('(prefers-reduced-motion: reduce)');
   const art = `${baseUrl.replace(/\/?$/, '/')}art/`;
