@@ -526,6 +526,17 @@
   gap: .22rem .48rem;
 }
 .document-action-value .field-value { min-inline-size: 0; }
+.field-value.relabel-value::after { content: '↔'; margin-inline-start: .28rem; color: #765c38; font: .92em / 1 var(--mono); }
+.documents-surface .document-action-value .evidence-show-control {
+  min-block-size: 2.25rem;
+  padding: .16rem .3rem;
+  border-color: #91724f;
+  background: #e4cda1;
+  color: #513a26;
+  font: 760 .76rem / 1.2 var(--mono);
+  text-shadow: none;
+  white-space: nowrap;
+}
 .sheet .document-action-value .document-field-action,
 .documents-surface .intake-slip .intake-actions .intake-evidence {
   min-inline-size: 2.75rem;

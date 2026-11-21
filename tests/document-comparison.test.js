@@ -136,6 +136,9 @@ test('relabel comparisons keep the previous and current batch numbers as indepen
     assert.deepEqual(result.pairs.map(({ side, left, right }) => [side, left.value, right.value]), [
       ['original', original, original], ['current', registeredCurrent, label],
     ]);
+    assert.deepEqual(result.pairs.map(({ paperIndex, registerField }) => [paperIndex, registerField.field, registerField.value]), [
+      [result.reportIndex, '原箱批号', original], [result.labelIndex, '现箱批号', registeredCurrent],
+    ]);
     assert.deepEqual(result.pairs.map(({ finding }) => finding.key), [
       `compare:${id}:relabel:2:1:original`, `compare:${id}:relabel:2:0:current`,
     ]);
@@ -147,9 +150,12 @@ test('relabel comparisons keep the previous and current batch numbers as indepen
     { title: '检验报告', field: '批号', value: 'G-111' },
     { title: '换签登记', field: '原箱批号', value: 'G-111' },
   ]);
+  const registered = { title: '换签登记', field: '现箱批号', value: 'G-216' };
   assert.deepEqual(current, {
     side: 'current',
-    left: { title: '换签登记', field: '现箱批号', value: 'G-216' },
+    paperIndex: 0,
+    registerField: registered,
+    left: registered,
     right: { title: '外箱标签', field: '批号', value: 'G-211' },
     finding: {
       key: 'compare:11:relabel:2:0:current', source: '换签登记 / 外箱标签', text: '现箱批号 · G-216；批号 · G-211',

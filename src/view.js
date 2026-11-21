@@ -365,7 +365,7 @@ function moldSketch() {
   </figure>`;
 }
 
-function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, reportCarry = false, lookupBelow = false, fieldActions, phoneSource, pinAction = '', canFocus = false, showTitle = true, leadField } = {}) {
+function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, reportCarry = false, lookupBelow = false, fieldActions, valueActions, phoneSource, pinAction = '', canFocus = false, showTitle = true, leadField } = {}) {
   const action = inspection?.action ?? 'basis';
   const lookupActions = [];
   const rows = doc.fields.map(([key, value], field) => {
@@ -374,9 +374,9 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const batchTarget = inspection?.batch && key === '批号' && ['label', 'report'].includes(doc.type);
     const chosen = inspection?.selected.has(`doc:${index}:${field}`);
     const projectTarget = inspection?.projects && ((doc.type === 'report' && ['外观', '扣合'].includes(key)) || (doc.type === 'order' && key === '检验项目'));
-    const fieldValue = batchTarget || projectTarget || signatureTarget ? `<mark class="guided-paper-value"${batchTarget ? ' data-tutorial-batch' : ''}>${text}</mark>`
+    const fieldValue = valueActions?.get(key) ?? (batchTarget || projectTarget || signatureTarget ? `<mark class="guided-paper-value"${batchTarget ? ' data-tutorial-batch' : ''}>${text}</mark>`
       : inspection && !inspection.guided
-      ? `<button class="field-value" data-act="${action}" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
+      ? `<button class="field-value" data-act="${action}" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text);
     const lookup = reportLookup && (key === '报告编号' || key === '原报告编号') && value;
     const carry = reportCarry && lookup && documentReportNumber([key, value])
       ? button('带单问小陈', 'phone-document', 'secondary report-lookup',
@@ -465,6 +465,26 @@ function relabelSlip(item, comparison, selected) {
     return `<div class="relabel-pair" data-side="${side}">${field(left)}${field(right)}${actions}</div>`;
   }).join('');
   return `<article class="sheet relabel-slip"><h3>批号对照</h3>${pairs}</article>`;
+}
+
+function relabelFieldActions(item, comparison, visible, selected) {
+  const fieldActions = new Map();
+  const valueActions = new Map();
+  const index = comparison.registerIndex;
+  const missing = comparison.pairs.find(({ paperIndex }) => !visible.includes(paperIndex));
+  if (missing) {
+    fieldActions.set(missing.registerField.field, button('对批号', 'relabel-check', 'secondary document-field-action', `data-i="${index}"`));
+  }
+  for (const { side, paperIndex, registerField, finding } of comparison.pairs) {
+    if (!visible.includes(paperIndex)) continue;
+    const { field, value } = registerField;
+    const recorded = selected.has(finding.key);
+    valueActions.set(field, `<button type="button" class="field-value relabel-value" data-act="relabel-evidence"
+      data-i="${index}" data-key="${side}"${active(recorded)} aria-label="${recorded ? '取回' : '记下'}${esc(field)}对照 ${esc(value)}">${esc(value)}</button>`);
+    const show = recorded ? findingShowButton(finding, item, item.shownFinding, null, 'source') : '';
+    if (show) fieldActions.set(field, show);
+  }
+  return { fieldActions, valueActions };
 }
 
 function tutorialGuide(line, extraClass = '') {
@@ -591,10 +611,11 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const thickness = canMeasure && thicknessComparison(item, progress.inspection, findings);
   const activeSheet = (page, position) => {
     let fieldActions;
+    let valueActions;
     if (!comparing) {
       if (page.type === 'order') fieldActions = orderFieldActions(item, position, visible, inspection.selected);
-      else if (relabelComparison(item, position)) fieldActions = new Map([['原箱批号',
-        button('对批号', 'relabel-check', 'secondary document-field-action', `data-i="${position}"${active(false)}`)]]);
+      const register = relabelComparison(item, position);
+      if (register) ({ fieldActions, valueActions } = relabelFieldActions(item, register, visible, inspection.selected));
       if (item.carton && ['label', 'order'].includes(page.type)) {
         const codeField = page.fields.find(([field]) => field === '箱底喷码')?.[0];
         fieldActions ??= new Map();
@@ -610,7 +631,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     }
     return sheet(page, position, inspection, { clipboardFront: position === clipboardIndex,
       reportLookup: true, reportCarry: !(extension && reportToAsk && position === selectedPhonePaper),
-      lookupBelow: spreading, phoneSource: item.id, fieldActions, canFocus: Boolean(!comparing && (spreading || other)) });
+      lookupBelow: spreading, phoneSource: item.id, fieldActions, valueActions, canFocus: Boolean(!comparing && (spreading || other)) });
   };
   const intakeIndex = progress.deliveryCheck;
   const intake = intakeComparison(item, intakeIndex);

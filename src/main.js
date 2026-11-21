@@ -1884,8 +1884,12 @@ function recordDocumentComparison(kind, documentIndex, target) {
       interaction.deliveryCheck = documentIndex;
     }
   } else if (kind === 'relabel-evidence') {
-    if (interaction.relabelCheck !== documentIndex) return;
+    if (interaction.previousDoc !== null || interaction.deliveryCheck !== null) return;
     comparison = relabelComparison(item, documentIndex)?.pairs.find(({ side }) => side === target);
+    if (comparison && interaction.relabelCheck !== documentIndex) {
+      const { heldDocuments } = heldObjects(item);
+      if (!heldDocuments.includes(documentIndex) || !heldDocuments.includes(comparison.paperIndex)) return;
+    }
   } else {
     if (interaction.deliveryCheck !== null || interaction.previousDoc !== null) return;
     const reportIndex = Number(target);

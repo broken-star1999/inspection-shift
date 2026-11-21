@@ -115,6 +115,8 @@ export function thicknessComparison(item, inspection, findings = []) {
 function relabelPair(id, registerIndex, paperIndex, side, left, right) {
   return {
     side,
+    paperIndex,
+    registerField: side === 'original' ? right : left,
     left,
     right,
     finding: {
