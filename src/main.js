@@ -25,6 +25,7 @@ const ARRIVAL_PAUSE_MS = 1150;
 const NEXT_BATCH_PAUSE_MS = 1650;
 const VISIT_HANDOVER_MS = 760;
 const ARRIVAL_APPROACH_MS = 465;
+const PAPER_PAIR_HOLD_MS = 250;
 
 function readStorage(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
@@ -128,6 +129,7 @@ let fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
 let fixtureLayout = {};
 
 bindViewport(root, ({ fullscreen, immersive, rotated }) => {
+  if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
   const expanded = fullscreen || immersive;
   fullscreenToggle.setAttribute('aria-pressed', String(expanded));
   fullscreenToggle.setAttribute('aria-label', expanded ? '退出全屏' : '全屏');
@@ -162,7 +164,7 @@ function showModeledScene() {
 function suspendModeledScene() {
   modeledReady = false;
   if (root.dataset.modeled !== 'true') return;
-  if (drag) endDrag(drag);
+  if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
   stampTouch = null;
   delete root.dataset.modeled;
   setScene();
@@ -243,6 +245,7 @@ function setGazeTarget(x, y) {
 
 root.addEventListener('pointerdown', (event) => {
   toolClickTarget = null;
+  suppressPaperClick = false;
   if (event.pointerType !== 'mouse' && !drag) resetGaze();
 }, { capture: true });
 
@@ -1279,13 +1282,23 @@ function toggleRelabelCheck(index) {
   focusControl(modalLayer, { act: 'relabel-check', i: String(index) });
 }
 
+function setDocumentPair(left, right) {
+  Object.assign(interaction, { doc: left, compare: right, deliveryCheck: null, relabelCheck: null,
+    spreadAll: false, previousDoc: null, previousCurrentDoc: null, clipboardBack: false });
+}
+
 function openProjectComparison(orderIndex, reportIndex) {
   if (!projectComparison(documentCheckItem(), orderIndex, reportIndex)) return;
-  Object.assign(interaction, { doc: orderIndex, compare: reportIndex, deliveryCheck: null, relabelCheck: null,
-    spreadAll: false, previousDoc: null, previousCurrentDoc: null, clipboardBack: false });
+  setDocumentPair(orderIndex, reportIndex);
   playSound('slide');
   render(0);
   focusControl(modalLayer, { act: 'project-evidence', i: String(orderIndex), key: String(reportIndex) });
+}
+
+function openDeskPair(left, right, opener) {
+  setDocumentPair(left, right);
+  playSound('slide');
+  openPanel('docs', opener);
 }
 
 function recordDocumentComparison(kind, documentIndex, target) {
@@ -1668,7 +1681,7 @@ root.addEventListener('click', (event) => {
   if (target === toolClickTarget && event.detail > 0) return;
   const { act, key } = target.dataset;
   const index = Number(target.dataset.i);
-  if (act === 'doc' && suppressPaperClick) return;
+  if (act === 'doc' && suppressPaperClick && event.detail > 0) return;
   if (act.startsWith('sample-')) { checkSample(act); return; }
   switch (act) {
     case 'how': case 'rules': openPanel(act, target); break;
@@ -2064,17 +2077,71 @@ window.addEventListener('pointercancel', endToolDrag);
 window.addEventListener('lostpointercapture', endToolDrag);
 window.addEventListener('blur', endToolDrag);
 
+function captureDeskPaperTargets(source, modeledProjection) {
+  if (panel || tutorialStep()) return [];
+  const papers = [...desktop.querySelectorAll('[data-drag="paper"]:enabled:not([data-lifted])')].filter((paper) => paper !== source);
+  if (modeledProjection) {
+    const faces = scenery.capturePaperTargets?.() ?? [];
+    return faces.flatMap(({ index, contains }) => {
+      const paper = papers.find((entry) => Number(entry.dataset.i) === index);
+      return paper ? [{ paper, contains: (event) => contains(modeledProjection(event.clientX, event.clientY)) }] : [];
+    });
+  }
+  return papers.flatMap((paper) => {
+    const box = paper.getBoundingClientRect();
+    if (!box.width || !box.height) return [];
+    const marginX = box.width * .10;
+    const marginY = box.height * .10;
+    return [{ paper, contains: ({ clientX, clientY }) => clientX > box.left + marginX && clientX < box.right - marginX &&
+      clientY > box.top + marginY && clientY < box.bottom - marginY }];
+  });
+}
+
+function paperDropTarget(work, event) {
+  if (panel || run?.phase !== 'case' || !work.paper.isConnected) return null;
+  const hits = work.targets.filter(({ paper, contains }) => paper.isConnected && contains(event));
+  return hits.length === 1 ? hits[0].paper : null;
+}
+
+function markPaperDrop(work, target) {
+  if (work.target === target) return;
+  clearTimeout(work.pairTimer);
+  work.target?.removeAttribute('data-pair-drop');
+  work.target = target;
+  work.pairReady = false;
+  if (!target) return;
+  target.dataset.pairDrop = 'near';
+  work.pairTimer = setTimeout(() => {
+    if (drag !== work || !work.paper.isConnected || !target.isConnected || panel) return;
+    work.pairReady = true;
+    target.dataset.pairDrop = 'ready';
+    playSound('click');
+  }, PAPER_PAIR_HOLD_MS);
+}
+
+function moveDeskPaper(work, offset, lift = 0) {
+  work.paper.style.setProperty('--paper-x', `${offset.x}px`);
+  work.paper.style.setProperty('--paper-y', `${offset.y}px`);
+  scenery?.setPaperOffset?.(work.index, offset, lift);
+}
+
 desktop.addEventListener('pointerdown', (event) => {
   const paper = event.target.closest('[data-drag="paper"]');
-  if (!paper || event.button !== 0 || run?.phase !== 'case') return;
+  if (!paper || event.button !== 0 || !event.isPrimary || drag || toolDrag || run?.phase !== 'case') return;
   const index = Number(paper.dataset.i);
   const projection = root.dataset.modeled === 'true' ? scenery?.captureDeskProjection?.() : null;
   const project = projection ?? captureDeskProjection(desktop) ?? ((x, y) => stagePoint(root, x, y));
-  drag = { paper, index, pointerId: event.pointerId, project, origin: project(event.clientX, event.clientY), offset: interaction.positions[index] ?? { x: 0, y: 0 }, moved: false };
+  const offset = interaction.positions[index] ?? { x: 0, y: 0 };
+  drag = { paper, index, pointerId: event.pointerId, project, origin: project(event.clientX, event.clientY),
+    offset, resting: offset, moved: false, targets: captureDeskPaperTargets(paper, projection), target: null, pairReady: false };
 });
 
 window.addEventListener('pointermove', (event) => {
   if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!drag.paper.isConnected) {
+    endDrag({ type: 'pointercancel', pointerId: event.pointerId });
+    return;
+  }
   const point = drag.project(event.clientX, event.clientY);
   const x = point.x - drag.origin.x;
   const y = point.y - drag.origin.y;
@@ -2084,29 +2151,39 @@ window.addEventListener('pointermove', (event) => {
     playSound('paper');
   }
   drag.moved = true;
-  const offset = { x: Math.max(-90, Math.min(90, drag.offset.x + x)), y: Math.max(-35, Math.min(40, drag.offset.y + y)) };
-  interaction.positions[drag.index] = offset;
-  drag.paper.style.setProperty('--paper-x', `${offset.x}px`);
-  drag.paper.style.setProperty('--paper-y', `${offset.y}px`);
-  scenery?.setPaperOffset?.(drag.index, offset);
+  const next = { x: drag.offset.x + x, y: drag.offset.y + y };
+  drag.resting = { x: Math.max(-90, Math.min(90, next.x)), y: Math.max(-35, Math.min(40, next.y)) };
+  const target = paperDropTarget(drag, event);
+  markPaperDrop(drag, target);
+  const preview = drag.targets.length ? { x: Math.max(-380, Math.min(380, next.x)), y: Math.max(-65, Math.min(65, next.y)) } : drag.resting;
+  moveDeskPaper(drag, preview, drag.targets.length ? .05 : 0);
 });
 
 function endDrag(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
-  if (drag.moved) {
-    drag.paper.classList.remove('moving');
-    persistRun();
-    suppressPaperClick = true;
-    setTimeout(() => { suppressPaperClick = false; }, 0);
-  }
+  const work = drag;
+  const released = event.type === 'pointerup';
+  const pair = released && work.pairReady && paperDropTarget(work, event) === work.target ? work.target : null;
+  markPaperDrop(work, null);
   drag = null;
+  if (work.moved && work.paper.isConnected) {
+    work.paper.classList.remove('moving');
+    suppressPaperClick = true;
+    const offset = released && !pair ? work.resting : work.offset;
+    moveDeskPaper(work, offset);
+    if (pair) openDeskPair(Number(pair.dataset.i), work.index, work.paper);
+    else if (released) {
+      interaction.positions[work.index] = offset;
+      persistRun();
+    }
+  }
   setGazeTarget(gaze.targetX, gaze.targetY);
 }
 
 window.addEventListener('pointerup', endDrag);
 window.addEventListener('pointercancel', endDrag);
 window.addEventListener('blur', () => {
-  if (drag) endDrag(drag);
+  if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
   resetGaze();
 });
 render();

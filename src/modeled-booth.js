@@ -3,6 +3,8 @@ import { CUFF_SPLIT_PATCHES } from './samples.js';
 import { BOOTH_METRICS, createWorkbenchModels } from './workbench-models.js';
 
 const pixelsPerUnit = 86;
+const deskProjectionHeight = BOOTH_METRICS.deskTop + .035;
+const paperTargetInset = .10;
 const workerNames = new Set(['luo', 'tang', 'xu', 'chen', 'zhou', 'sun']);
 const baseFov = 38;
 const deskDepartureMs = 285;
@@ -662,11 +664,11 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     sample.scale.set(depth * aspect, depth, 1);
   }
 
-  function setPaperOffset(index, offset) {
+  function setPaperOffset(index, offset, lift = 0) {
     const paper = paperSet[index];
     if (!paper) return;
     const { origin, rest } = paper.userData;
-    rest.set(origin.x + (offset?.x || 0) / pixelsPerUnit, origin.y, origin.z + (offset?.y || 0) / pixelsPerUnit);
+    rest.set(origin.x + (offset?.x || 0) / pixelsPerUnit, origin.y + lift, origin.z + (offset?.y || 0) / pixelsPerUnit);
     paper.position.copy(rest);
     layoutDirty = true;
     invalidate();
@@ -983,6 +985,25 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
         (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 
+  function capturePaperTargets() {
+    if (!ready || destroyed || contextLost) return [];
+    return paperSet.flatMap((paper, index) => {
+      if (!paper.visible || !paper.userData.onDesk) return [];
+      const bounds = paper.userData.paperBounds;
+      const { width, depth } = bounds.geometry.parameters;
+      bounds.updateWorldMatrix(true, false);
+      const inverse = bounds.matrixWorld.clone().invert();
+      const local = new THREE.Vector3();
+      return [{
+        index,
+        contains(point) {
+          local.set(point.x / pixelsPerUnit, deskProjectionHeight, point.y / pixelsPerUnit).applyMatrix4(inverse);
+          return Math.abs(local.x) <= width / 2 - paperTargetInset && Math.abs(local.z) <= depth / 2 - paperTargetInset;
+        },
+      }];
+    });
+  }
+
   function captureDeskProjection() {
     if (!width || !height || !ready || destroyed) return null;
     const rect = host.getBoundingClientRect();
@@ -993,7 +1014,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
     const hit = new THREE.Vector3();
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(BOOTH_METRICS.deskTop + .035));
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -deskProjectionHeight);
     return (clientX, clientY) => {
       const u = rotated ? (clientY - rect.top) / rect.height : (clientX - rect.left) / rect.width;
       const v = rotated ? (rect.right - clientX) / rect.width : (clientY - rect.top) / rect.height;
@@ -1031,6 +1052,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       invalidate();
     },
     captureDeskProjection,
+    capturePaperTargets,
     destroy() {
       if (destroyed) return;
       destroyed = true;

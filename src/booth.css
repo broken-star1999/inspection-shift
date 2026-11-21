@@ -574,6 +574,30 @@
 .booth-layout .paper-card:nth-child(2) { rotate: 1.85deg; }
 .booth-layout .paper-card:nth-child(3) { rotate: -1.2deg; }
 .booth-layout .paper-card:is(:hover, :focus-visible, .moving) { z-index: 3; }
+.booth-layout .paper-card[data-pair-drop] {
+  outline: 1px solid #e7c98e;
+  outline-offset: .12rem;
+}
+.booth-layout .paper-card[data-pair-drop='ready']::after {
+  content: '松手并排';
+  position: absolute;
+  z-index: 1;
+  inset: auto auto calc(100% + .26rem) 50%;
+  display: block;
+  inline-size: max-content;
+  block-size: auto;
+  padding: .15rem .38rem;
+  translate: -50% 0;
+  transform: none;
+  clip-path: none;
+  border: 1px solid #b2925e;
+  background: #ead0a1;
+  box-shadow: 1px 2px #312719;
+  color: #40301f;
+  font: 760 .75rem / 1.25 var(--mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
 .booth-layout .paper-card > small { display: none; }
 .booth-layout .paper-card h3 { margin-block: .12rem .13rem; }
 .booth-layout .paper-rules { opacity: .66; }

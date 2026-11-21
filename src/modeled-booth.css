@@ -248,6 +248,9 @@
 }
 
 #game[data-modeled='true'] .booth-layout .paper-card[data-fixture]::after { display: none; }
+#game[data-modeled='true'] .booth-layout .paper-card[data-fixture][data-pair-drop] { z-index: 5; }
+#game[data-modeled='true'] .booth-layout .paper-card[data-fixture][data-pair-drop]::before { opacity: 1; }
+#game[data-modeled='true'] .booth-layout .paper-card[data-fixture][data-pair-drop='ready']::after { display: block; }
 
 #game[data-modeled='true'] .booth-layout button[data-fixture]:is(:focus-visible, .instructed, .moving):not(:disabled) {
   z-index: 4;
