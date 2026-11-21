@@ -273,8 +273,19 @@ export const DAYS = [
         id: 3, batch: 'G-203', npc: 'xu', title: '老模子的细线',
         line: '耳罩外壳这条线每次都有人问。你拿夹板上的图对一对。',
         answer: 'pass', reason: '细线与允许的合模线相符',
-        documents: [label('G-203', [], '防噪耳罩'), report('G-203', 'R-063', earmuffReport), archive('耳罩外壳工艺示意', [['图号', 'WX-3'], ['合模线允许位置', '耳杯外壳下沿'], ['目视限制', '不得贯穿壳体或延伸到软垫']], '逆着这张纸看，夹板背面还压了东西。')],
+        documents: [
+          label('G-203', [], '防噪耳罩'), report('G-203', 'R-063', earmuffReport),
+          { ...archive('耳罩外壳工艺示意', [['图号', 'WX-3'], ['合模线允许位置', '耳杯外壳下沿'], ['目视限制', '不得贯穿壳体或延伸到软垫']], '逆着这张纸看，夹板背面还压了东西。'), kind: 'mold-sketch' },
+        ],
         sample: { kind: 'line', appearance: 'earmuff', front: '耳杯外壳下沿有一道细线，边缘很整齐。', back: '细线沿外壳收住，内侧壳体没有裂口，软垫也完整。' },
+        variants: [
+          {},
+          { answer: 'fail', reason: '裂纹跨过外壳与软垫的接缝', sample: {
+            earCupSplit: true,
+            front: '耳杯下沿有一道细线，靠近外壳和软垫的接缝时转向内侧。',
+            back: '沿内侧看，那道线越过外壳边缘，在软垫边上也能看到一截。',
+          } },
+        ],
       },
       {
         id: 4, batch: 'G-204', npc: 'zhou', title: '最后一趟车',

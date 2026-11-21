@@ -138,6 +138,83 @@
 .sample-stage:has(.sample-clasp-state[data-clasp-result]) > .sample-mark { display: none; }
 .sample-findings .sample-clasp-feedback { font-weight: 740; }
 
+.sample-ear-cup-mark {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background: #182832;
+  pointer-events: none;
+}
+
+.sample-ear-cup-mark[data-shape='split'] { background: #c7cdc7; }
+
+.mold-sketch {
+  display: flex;
+  align-items: center;
+  gap: .52rem;
+  margin: .28rem 0 .39rem;
+  padding: .28rem .45rem;
+  border: 1px solid #9475487a;
+  background: repeating-linear-gradient(0deg, #84694412 0 1px, transparent 1px 8px), #eee0ba;
+  color: #523c23;
+}
+
+.mold-sketch-cup {
+  position: relative;
+  flex: 0 0 4.2rem;
+  block-size: 3.35rem;
+  rotate: 9deg;
+}
+
+.mold-sketch-cup i { position: absolute; display: block; }
+.mold-sketch-cup i:first-child {
+  inset: 2% 2% 5% 9%;
+  border: 1px solid #695539;
+  border-radius: 43% 49% 42% 46%;
+  background: repeating-linear-gradient(125deg, #785e3e32 0 1px, transparent 1px 5px), #bda479;
+}
+.mold-sketch-cup i:nth-child(2) {
+  inset: 10% 12% 16% 19%;
+  border: 1px solid #6b5436;
+  border-radius: 47% 48% 45% 46%;
+  background: #e8d8ae;
+  box-shadow: inset 0 0 0 .26rem #967b50;
+}
+.mold-sketch-cup i:last-child {
+  inset: 62% 32% 10% 12%;
+  border-block-end: 2px dashed #5c3b1f;
+  border-radius: 0 0 34% 46%;
+}
+.mold-sketch figcaption {
+  display: grid;
+  gap: .42rem;
+  font: 740 .75rem / 1.2 var(--mono);
+}
+.mold-sketch figcaption small { font-size: inherit; font-weight: 540; }
+.mold-sketch figcaption span::before {
+  content: '';
+  display: inline-block;
+  inline-size: .94rem;
+  margin-inline-end: .32rem;
+  border-block-start: 1px solid #6b5436;
+  vertical-align: middle;
+}
+.mold-sketch figcaption .mold-sketch-zone::before { border-block-start: 2px dashed #5c3b1f; }
+
+@media (pointer: coarse) {
+  .sample-surface .desk-surface-tools .mold-reference-action { min-block-size: 44px; }
+}
+
+@container workstation (max-height: 400px) {
+  #game .sample-surface .sample-workbench.with-reference:has(.mold-sketch) .sample-findings {
+    padding: .25rem .45rem .31rem;
+  }
+  #game .sample-surface .sample-workbench.with-reference:has(.mold-sketch) .sample-findings p {
+    font-size: .82rem;
+    line-height: 1.28;
+  }
+}
+
 .gauge-stage .thickness-check {
   position: absolute;
   z-index: 4;

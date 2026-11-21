@@ -10,7 +10,7 @@ const ARRIVAL_ORDERS = {
   3: [[13, 15, 14, 16], [13, 16, 14, 15]],
   4: [[17, 18, 19, 20], [17, 19, 18, 20]],
 };
-const REPLAY_VARIANT_CASES = [8, 12, 16, 18].map((id) => CASE_BY_ID.get(id));
+const REPLAY_VARIANT_CASES = [3, 8, 12, 16, 18].map((id) => CASE_BY_ID.get(id));
 const REWORK_KEY = 'rework:2';
 const TUTORIAL_KEYS = ['label', 'report', 'signature', 'sample', 'stamp'];
 export const TUTORIAL = tutorialContent.map((step, index) => ({ ...step, key: TUTORIAL_KEYS[index] }));
@@ -77,7 +77,7 @@ export function createRun(seed) {
 }
 
 export function createFollowingRun(previousRun, seed) {
-  const run = { ...createRun(seed), tutorial: TUTORIAL.length };
+  const run = { ...createRun(seed), sampleSet: 4, tutorial: TUTORIAL.length };
   if (!previousRun || REPLAY_VARIANT_CASES.some((item) => variantIndex(previousRun, item) !== variantIndex(run, item))) {
     return run;
   }
@@ -112,8 +112,9 @@ export function getDay(state) {
 }
 
 function variantIndex(state, item) {
-  if (item.id === 16 && ![2, 3].includes(state.sampleSet)) return 0;
-  if (item.id === 18 && state.sampleSet !== 3) return 0;
+  if (item.id === 3 && state.sampleSet !== 4) return 0;
+  if (item.id === 16 && ![2, 3, 4].includes(state.sampleSet)) return 0;
+  if (item.id === 18 && ![3, 4].includes(state.sampleSet)) return 0;
   const override = state.variantOverride;
   if (override?.caseId === item.id && Number.isInteger(override.index) && override.index >= 0 && override.index < item.variants.length) {
     return override.index;

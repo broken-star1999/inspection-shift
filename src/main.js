@@ -1351,8 +1351,9 @@ function toggleReference() {
     interaction.referenceDoc = null;
   } else if (interaction.referenceDoc === null) {
     const report = documents.findIndex((doc) => doc.type === 'report');
+    const sketch = documents.findIndex((doc) => doc.kind === 'mold-sketch');
     const order = documents.findIndex((doc) => doc.type === 'order');
-    interaction.referenceDoc = interaction.returnToDocs ? viewedDocument() : report >= 0 ? report : Math.max(order, 0);
+    interaction.referenceDoc = interaction.returnToDocs ? viewedDocument() : [sketch, report, order, 0].find((index) => index >= 0);
   }
   playSound('paper');
   render();

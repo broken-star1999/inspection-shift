@@ -23,6 +23,24 @@ export const CUFF_SPLIT_PATCHES = [
   { color: '#e3b56a', points: [[68.27, 77.58], [68.9, 77.68], [68.4, 78.35], [67.77, 78.25]] },
 ];
 
+// Coordinates are percentages of the front and back earmuff sprites.
+const earCupMarks = {
+  seam: {
+    front: [[11.8, 84.5], [15.7, 87.6], [20.9, 90], [26.3, 90.7], [31.6, 89.8], [31.7, 90.6], [26.3, 91.7], [20.7, 91], [15.3, 88.6], [11.6, 85.3]],
+    back: [[6.4, 83.4], [9.2, 86.8], [12.6, 89], [16.2, 90], [16.5, 90.9], [12.4, 90], [8.8, 87.7], [6.1, 84.1]],
+  },
+  split: {
+    front: [[17.7, 87.5], [22.8, 88.5], [27.6, 86.5], [30.2, 87.1], [34.2, 83.4], [38.1, 84.2], [41.9, 81.5], [44.6, 82], [42.1, 82.9], [38.5, 85.5], [34.6, 84.8], [30.7, 88.4], [27.7, 87.8], [23.2, 89.8], [17.8, 88.5]],
+    back: [[7.7, 85.4], [10.8, 86.3], [14.2, 84.4], [16.4, 84.9], [19.3, 80.6], [22, 81.1], [24.5, 76.7], [27.2, 76.3], [25.2, 78], [22.5, 82.4], [19.6, 82], [16.7, 86.2], [14.4, 85.7], [11.1, 87.4], [7.8, 86.5]],
+  },
+};
+
+export function earCupMark(spec, back) {
+  if (spec.kind !== 'line' || spec.appearance !== 'earmuff') return null;
+  const shape = spec.earCupSplit ? 'split' : 'seam';
+  return { shape, points: earCupMarks[shape][back ? 'back' : 'front'] };
+}
+
 export function cuffSplitVisible(spec, inspection) {
   return spec.cuffSplit === true && inspection.unpacked === true && inspection.back === true;
 }

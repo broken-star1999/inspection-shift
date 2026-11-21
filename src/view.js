@@ -2,7 +2,7 @@ import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE, documentExtension 
 import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { receiptDisposition, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
-import { CUFF_SPLIT_PATCHES, cuffSplitVisible, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
+import { CUFF_SPLIT_PATCHES, cuffSplitVisible, earCupMark, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
 
 export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
 export const labels = { pass: '通过', fail: '不通过', review: '要求审查' };
@@ -160,16 +160,18 @@ function sampleArt(spec, appearance, { back = false, unpacked = false, control =
   const alt = wrapped ? '' : `${appearance.name}${back ? '背面' : appearance.front ?? '正面'}`;
   const cuff = cuffSplitVisible(spec, { back, unpacked }) ? `<span class="sample-cuff-split" aria-hidden="true">${CUFF_SPLIT_PATCHES.map(({ color, points }) =>
     `<span style="--split-ink:${color};--split-patch:polygon(${points.map(([x, y]) => `${x}% ${y}%`).join(',')})"></span>`).join('')}</span>` : '';
+  const cup = earCupMark(spec, back);
+  const line = cup ? `<span class="sample-ear-cup-mark" data-shape="${cup.shape}" aria-hidden="true" style="clip-path:polygon(${cup.points.map(([x, y]) => `${x}% ${y}%`).join(',')})"></span>` : '';
   return `<span class="sample-object" style="--sample-ratio:${ratio}">
     <img src="${asset(`${appearance.stem}${back ? '-back' : ''}.webp`)}" alt="${esc(alt)}" draggable="false">
-    ${cuff}
+    ${cuff}${line}
     ${lensFilm ? `<span class="sample-film-sheet" aria-hidden="true">${spec.kind === 'film' ? '<span class="sample-film-trace"></span>' : ''}</span>` : ''}
     ${!back && spec.kind === 'crack' ? '<span class="sample-lens-crack" aria-hidden="true"></span>' : ''}
     ${back && spec.model ? `<span class="model-mark" aria-hidden="true">${esc(spec.model)}</span>` : ''}
     ${back && appearance.clasp && inspection ? claspArt(spec, inspection) : ''}
     ${wrapped ? '<span class="sample-wrap" aria-hidden="true"><span class="sample-wrap-mouth"></span></span>' : spec.kind === 'yellow' ? '<span class="sample-wrap-folded" aria-hidden="true"></span>' : ''}
     ${control}</span>
-    ${!lensFilm && spec.kind !== 'yellow' ? '<span class="sample-mark" aria-hidden="true"></span>' : ''}`;
+    ${!lensFilm && spec.kind !== 'yellow' && !cup ? '<span class="sample-mark" aria-hidden="true"></span>' : ''}`;
 }
 
 function gaugeArt(reading, measured) {
@@ -289,6 +291,13 @@ export function instructions(how) {
     ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。可以先记下查验依据。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
+function moldSketch() {
+  return `<figure class="mold-sketch" aria-label="耳杯内侧线位图">
+    <div class="mold-sketch-cup" aria-hidden="true"><i></i><i></i><i></i></div>
+    <figcaption><span class="mold-sketch-pad">软垫边界</span><span class="mold-sketch-zone">允许线位 <small>外壳下沿</small></span></figcaption>
+  </figure>`;
+}
+
 function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, fieldActions, phoneSource, pinAction = '', showTitle = true } = {}) {
   const action = inspection?.action ?? 'basis';
   const rows = doc.fields.map(([key, value], field) => {
@@ -306,7 +315,7 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${extraAction ?? ''}</dd></div>`;
   }).join('');
   const heading = showTitle ? `<h3>${esc(doc.title)}</h3>` : '';
-  return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}"${Number.isInteger(index) ? ` data-doc-index="${index}"` : ''}><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small>${pinAction ? `<div class="sheet-pin-heading">${heading}${pinAction}</div>` : heading}${clipboardFront ? clipboardFlip(false) : ''}<dl class="fields">
+  return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}"${Number.isInteger(index) ? ` data-doc-index="${index}"` : ''}><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small>${pinAction ? `<div class="sheet-pin-heading">${heading}${pinAction}</div>` : heading}${clipboardFront ? clipboardFlip(false) : ''}${doc.kind === 'mold-sketch' ? moldSketch() : ''}<dl class="fields">
     ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
 }
 
@@ -550,8 +559,10 @@ export function sample(item, inspection, tutorial, progress) {
     ${item.documents.map(({ title }, index) => button(esc(title), 'reference-doc', 'tab', `data-i="${index}"${active(index === referenceIndex)}`)).join('')}
     </nav>${sheet(reference, referenceIndex, { selected: new Set(findings.map(({ key }) => key)) }, { reportLookup: true, phoneSource: item.id })}</aside>` : '';
   const canCompare = !tutorial && item.documents.length > 0;
+  const hasMoldSketch = item.documents.some(({ kind }) => kind === 'mold-sketch');
+  const compareLabel = hasMoldSketch ? '对照工艺图' : '对照单据';
   const referenceActions = canCompare
-    ? `${progress?.returnToDocs ? button('回到单据', 'reference-back', 'reference-control') : ''}${button(reference ? '收起单据' : '对照单据', 'reference', 'reference-control', active(Boolean(reference)))}`
+    ? `${progress?.returnToDocs ? button('回到单据', 'reference-back', 'reference-control') : ''}${button(reference ? '收起单据' : compareLabel, 'reference', 'reference-control' + cls('mold-reference-action', hasMoldSketch), active(Boolean(reference)))}`
     : '';
   const phoneAction = tutorial ? '' : button(progress?.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
   let control = '';
