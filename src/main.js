@@ -84,6 +84,7 @@ let modeledReady = false;
 let toastTimer;
 let arrivalTimer = 0;
 let arrival = null;
+let lastToolFocus = null;
 let closingShotTimer = 0;
 let closingShot = null;
 let workspaceScrollTimer = 0;
@@ -113,6 +114,11 @@ const booth = root.querySelector('.booth-layout');
 const wallShift = root.querySelector('#wall-shift');
 const hud = root.querySelector('#room-hud');
 const arrivalStatus = root.querySelector('#arrival-status');
+const windowGlance = document.createElement('button');
+windowGlance.id = 'window-glance';
+windowGlance.className = 'window-glance';
+windowGlance.type = 'button';
+windowGlance.dataset.act = 'window-glance';
 const desktop = root.querySelector('#desk');
 const screenLayer = root.querySelector('#screen');
 const modalLayer = root.querySelector('#modal');
@@ -448,6 +454,7 @@ function sceneShipment(state, item, waiting) {
 function setScene() {
   const approaching = arrival?.stage === 'approach';
   const waiting = arrival && !approaching;
+  const waitingNpc = waiting && arrival.ready ? visitorAt(windowAdvance(arrival.action)) : null;
   const sceneRun = approaching ? arrival.next : run;
   const visit = waiting ? null : activeVisit(sceneRun);
   const phase = approaching ? 'arriving' : waiting ? 'waiting' : (run?.phase ?? 'home');
@@ -458,7 +465,7 @@ function setScene() {
   if (catPassing) root.dataset.catPassing = 'true';
   else delete root.dataset.catPassing;
   const item = !waiting && !visit && sceneRun ? getCase(sceneRun) : null;
-  const npc = closingShot ? null : waiting ? (arrival.keepVisitor ? visitorAt(run) : null)
+  const npc = closingShot ? null : waiting ? (waitingNpc ?? (arrival.keepVisitor ? visitorAt(run) : null))
     : visit?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
   if (illustratedWorker && root.dataset.modeled !== 'true' && roomHost.dataset.sceneReady !== 'true') {
     if (npc) {
@@ -480,7 +487,8 @@ function setScene() {
     documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind, cuffSplit: cuffSplitVisible(item.sample, inspection) } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
-    keepVisitor: arrival?.keepVisitor ?? false, approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
+    keepVisitor: arrival?.keepVisitor ?? false, visitorWaiting: Boolean(waitingNpc),
+    approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
     presentedEvidence: phase === 'case' && item?.shownFinding === presentedEvidence ? presentedEvidence : null,
     ...shipment });
 }
@@ -546,6 +554,33 @@ function renderArrivalStatus() {
     : arrival?.action?.type === 'receive-recall' ? '等收货方回执…' : arrival ? '等下一位…' : '';
   arrivalStatus.toggleAttribute('data-visitor-waiting', Boolean(someoneWaiting));
   if (arrivalStatus.textContent !== message) arrivalStatus.textContent = message;
+}
+
+function syncWindowGlance() {
+  const available = arrival?.ready && toolsAvailableBetweenBatches() && ['archive', 'phone'].includes(panel);
+  arrivalStatus.classList.toggle('visually-hidden', Boolean(available));
+  if (!available) {
+    if (arrival) arrival.glancing = false;
+    root.removeAttribute('data-window-glance');
+    windowGlance.remove();
+    return;
+  }
+  root.toggleAttribute('data-window-glance', Boolean(arrival.glancing));
+  windowGlance.textContent = arrival.glancing
+    ? (panel === 'phone' ? '回到电话' : '继续看单')
+    : '窗口有人等候 · 抬头看';
+  if (!windowGlance.isConnected) modalLayer.append(windowGlance);
+  const dialog = modalLayer.querySelector('[aria-modal="true"]');
+  dialog?.setAttribute('aria-owns', windowGlance.id);
+  booth.inert = Boolean(dialog || arrival.glancing);
+}
+
+function toggleWindowGlance() {
+  if (!windowGlance.isConnected) return;
+  arrival.glancing = !arrival.glancing;
+  syncWindowGlance();
+  const returnTo = modalLayer.contains(lastToolFocus) ? lastToolFocus : modalLayer.querySelector('[data-act="close"]');
+  (arrival.glancing ? windowGlance : returnTo)?.focus({ preventScroll: true });
 }
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
@@ -640,6 +675,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const screenCoversBooth = Boolean(screenLayer.firstElementChild) && run?.phase !== 'summary';
   booth.inert = blockingDialog || !run || Boolean(closingShot || (arrival && !toolsAvailableBetweenBatches())) || screenCoversBooth;
   screenLayer.inert = Boolean(markup);
+  syncWindowGlance();
   if (!markup) {
     if (hadModal && modalOpener) {
       focusControl(root, modalOpener);
@@ -652,7 +688,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]') ?? focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
     !['close', 'toggle-findings', 'remove-finding'].includes(element.dataset.act));
-  (restored || firstAction || focusables[0])?.focus({ preventScroll: true });
+  (arrival?.glancing ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
   if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
     const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
     const printsHere = object?.classList.contains('receipt-slip') && !hadModal && root.dataset.modeled === 'true' &&
@@ -773,6 +809,9 @@ modalLayer.addEventListener('scroll', (event) => {
   clearTimeout(workspaceScrollTimer);
   workspaceScrollTimer = setTimeout(persistWorkspaceScroll, 150);
 }, { capture: true, passive: true });
+modalLayer.addEventListener('focusin', (event) => {
+  if (event.target !== windowGlance) lastToolFocus = event.target;
+});
 window.addEventListener('pagehide', persistWorkspaceScroll);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) persistWorkspaceScroll();
@@ -1054,6 +1093,8 @@ function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
     if (panel && toolsAvailableBetweenBatches()) {
       arrival.ready = true;
       renderArrivalStatus();
+      syncWindowGlance();
+      setScene();
       playSound('knock');
     } else beginWindowApproach();
   }, duration - ARRIVAL_APPROACH_MS);
@@ -1760,6 +1801,7 @@ root.addEventListener('click', (event) => {
   if (act === 'doc' && suppressPaperClick && event.detail > 0) return;
   if (act.startsWith('sample-')) { checkSample(act); return; }
   switch (act) {
+    case 'window-glance': toggleWindowGlance(); break;
     case 'how': case 'rules': openPanel(act, target); break;
     case 'completed-shifts': if (!run && completedShifts.size) openPanel('completed-shifts', target); break;
     case 'review-shift': reviewCompletedShift(key); break;
@@ -2066,6 +2108,11 @@ root.addEventListener('submit', (event) => {
 document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.isComposing) return;
   const target = event.target;
+  if (arrival?.glancing) {
+    if (event.key === 'Escape') { event.preventDefault(); toggleWindowGlance(); }
+    if (event.key === 'Tab') { event.preventDefault(); windowGlance.focus({ preventScroll: true }); }
+    return;
+  }
   if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
       target.matches('[data-act="stamp"], [data-act="next"], [data-act="visit-paper"], [data-act="event-next"], .sample-hotspot[data-drag]')) {
     event.preventDefault();

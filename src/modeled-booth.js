@@ -23,7 +23,13 @@ const cargoDestinations = {
 };
 const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'review', supplementHeld: 'review', review: 'review' };
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, presentedEvidence: null };
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, presentedEvidence: null };
+
+function visibleVisitor(frame) {
+  if (frame.phase === 'waiting' && !frame.keepVisitor && !frame.visitorWaiting) return null;
+  return frame.npc ?? null;
+}
+
 const paperStyles = {
   label: { width: 1.04, depth: .78, bright: '#ead2a0', shade: '#c4a875', edge: '#a67b52', turn: -.081 },
   report: { width: 1.22, depth: .97, bright: '#f2e4bb', shade: '#d4c4a0', edge: '#6e7955', turn: .048 },
@@ -714,7 +720,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     }
     const waiting = frame.phase === 'waiting';
     const arriving = frame.phase === 'arriving';
-    const working = arriving || frame.phase === 'case' || frame.phase === 'receipt' || frame.visit;
+    const working = !waiting && (arriving || frame.phase === 'case' || frame.phase === 'receipt' || frame.visit);
     cuffSplit.visible = (frame.phase === 'case' || frame.phase === 'receipt') &&
       !frame.visit && !frame.sampleHeld && frame.sample?.cuffSplit === true;
     const now = view.performance.now();
@@ -739,9 +745,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const { npc: nextNpc, sampleFilename: nextSample } = frame.approach ?? {};
     if (workerNames.has(nextNpc)) loadTexture(`${art}${nextNpc}.webp`);
     if (nextSample) loadTexture(artPath(nextSample));
-    if (waiting) {
-      if (!frame.keepVisitor && before.phase !== 'waiting') portraitMotionAt = deskMotionAt;
-    } else {
+    if (!waiting) {
       updatePaperSet(working ? frame.documents ?? [] : [], frame.visit);
       paperSet.forEach((paper, index) => {
         paper.userData.onDesk = !frame.heldDocuments.includes(index);
@@ -763,12 +767,15 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
         }
       }
     }
-    if (!waiting && (frame.npc !== before.npc || (before.phase === 'waiting' && !before.keepVisitor) || (before.phase === 'receipt' && frame.phase === 'case'))) {
+    const visitor = visibleVisitor(frame);
+    const previousVisitor = visibleVisitor(before);
+    if (waiting && !visitor) {
+      if (previousVisitor) portraitMotionAt = now;
+    } else if (visitor !== previousVisitor) {
       portrait.visible = false;
-      if (workerNames.has(frame.npc)) {
-        const id = frame.npc;
-        loadTexture(`${art}${id}.webp`, (texture) => {
-          if (destroyed || frame.npc !== id) return;
+      if (workerNames.has(visitor)) {
+        loadTexture(`${art}${visitor}.webp`, (texture) => {
+          if (destroyed || visibleVisitor(frame) !== visitor) return;
           const aspect = texture.image.width / texture.image.height;
           portraitWidth = Math.min(3, portraitHeight * aspect);
           portrait.scale.set(portraitWidth, portraitHeight, 1);
@@ -948,7 +955,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       backdrop.material.color.setRGB(closing ? .72 : .9 + .04 * (1 - day), closing ? .74 : .92, closing ? .74 : .89 + .06 * day);
     }
 
-    const leaving = frame.phase === 'waiting' && !frame.keepVisitor;
+    const leaving = frame.phase === 'waiting' && !visibleVisitor(frame);
     const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - portraitMotionAt) / (leaving ? 280 : 340), 0, 1);
     const presence = leaving ? 1 - progress : 1 - (1 - progress) ** 2;
     const slide = (leaving ? .94 : -.52) * (1 - presence);

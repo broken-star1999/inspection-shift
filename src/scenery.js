@@ -8,6 +8,11 @@ const logicalHeight = 220;
 const roomTravel = { x: 4, y: 2.7 };
 const workerTravel = { x: 2, y: 1.35 };
 
+function visibleVisitor(frame) {
+  if (frame.phase === 'waiting' && !frame.keepVisitor && !frame.visitorWaiting) return null;
+  return frame.npc ?? null;
+}
+
 const warmLight = `
   precision mediump float;
   uniform sampler2D uMainSampler;
@@ -274,10 +279,11 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
 
     placeWorker() {
       if (!this.worker.visible) return;
+      const leaving = this.frame.phase === 'waiting' && !visibleVisitor(this.frame);
       const stageProgress = reducedMotion.matches
-        ? Number(this.frame.phase !== 'waiting' || this.frame.keepVisitor === true)
+        ? Number(!leaving)
         : this.arrival.progress;
-      const slide = this.frame.phase === 'waiting' ? 37 : -21;
+      const slide = leaving ? 37 : -21;
       const breath = reducedMotion.matches ? 0 : Math.sin(this.elapsed * 1.9) * 0.85;
       this.worker.setPosition(
         Math.round(this.workerX + (1 - stageProgress) * slide + this.look.x * workerTravel.x),
@@ -288,11 +294,11 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
 
     show(next) {
       const previous = this.frame;
-      const enters = next.npc !== previous.npc || (next.phase === 'case' && previous.phase === 'receipt');
-      const waiting = next.phase === 'waiting';
+      const visitor = visibleVisitor(next);
+      const previousVisitor = visibleVisitor(previous);
       this.frame = next;
-      if (waiting && !next.keepVisitor) {
-        if (previous.phase === 'waiting' && !previous.keepVisitor) return;
+      if (next.phase === 'waiting' && !visitor) {
+        if (!previousVisitor) return;
         this.tweens.killTweensOf(this.arrival);
         if (this.worker.visible && !reducedMotion.matches) {
           this.tweens.add({ targets: this.arrival, progress: 0, duration: 280, ease: 'Quad.In',
@@ -307,14 +313,14 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
         }
         return;
       }
-      if (!sprites.includes(next.npc)) {
+      if (!sprites.includes(visitor)) {
         this.worker.setVisible(false);
         delete host.dataset.npcArt;
-      } else if (enters || !this.worker.visible) {
-        const key = `worker-${next.npc}`;
+      } else if (visitor !== previousVisitor || !this.worker.visible) {
+        const key = `worker-${visitor}`;
         if (!this.textures.exists(key)) {
           const texture = this.textures.createCanvas(key, 88, 110);
-          drawWorker(texture.getContext(), next.npc);
+          drawWorker(texture.getContext(), visitor);
           texture.refresh();
         }
         this.worker.setTexture(key).setVisible(true);
@@ -323,13 +329,10 @@ export function mountScenery(host, { baseUrl = import.meta.env.BASE_URL } = {}) 
         const height = logicalHeight * 0.91;
         this.worker.setScale(Math.min(height / texture.height, 204 / texture.width));
         this.tweens.killTweensOf(this.arrival);
-        this.arrival.progress = waiting || reducedMotion.matches ? 1 : 0;
+        this.arrival.progress = reducedMotion.matches ? 1 : 0;
         if (this.arrival.progress === 0) {
           this.tweens.add({ targets: this.arrival, progress: 1, duration: 420, ease: 'Cubic.Out' });
         }
-      } else if (waiting) {
-        this.tweens.killTweensOf(this.arrival);
-        this.arrival.progress = 1;
       }
       this.placeWorker();
     }
