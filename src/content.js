@@ -107,6 +107,14 @@ function standard(batch, number) {
   return [label(batch), report(batch, number), order(batch)];
 }
 
+function g206Documents(reportBatch) {
+  return [
+    label('G-206', [], '作业防护手套'),
+    report(reportBatch, 'R-066', gloveReport),
+    archive('换签登记', [['原箱批号', 'G-106'], ['现箱批号', 'G-206'], ['缘由', '外箱受潮；原货转箱'], seal]),
+  ];
+}
+
 const clear = { kind: 'clear', appearance: 'classic', front: '视窗平整，转一个角度也看不到裂纹或划伤。', back: '两侧插片完整。扣上后轻拉，没有脱开。' };
 const shield = { kind: 'clear', appearance: 'shield', front: '弧形透明面屏的视野内没有划伤，前缘完整。', back: '沿内侧接缝检查，面屏与头带固定座贴合，连接点没有开裂。' };
 const glove = { kind: 'clear', appearance: 'glove', front: '掌面覆层平整，指尖没有起皮或破口。', back: '背面的缝线连续，织布腕口边缘收得齐整。' };
@@ -313,7 +321,11 @@ export const DAYS = [
         id: 6, batch: 'G-206', npc: 'tang', title: '换过一只纸箱',
         line: '外箱昨晚淋湿了，换了干箱子。旧签还夹在登记上。',
         answer: 'pass', reason: '换签登记对应本箱',
-        documents: [label('G-206', [], '作业防护手套'), report('G-106', 'R-066', gloveReport), archive('换签登记', [['原箱批号', 'G-106'], ['现箱批号', 'G-206'], ['缘由', '外箱受潮；原货转箱'], seal])], sample: glove,
+        documents: g206Documents('G-106'), sample: glove,
+        variants: [
+          {},
+          { answer: 'review', reason: '报告批号 G-160 与换签登记的原箱 G-106 不符', documents: g206Documents('G-160') },
+        ],
       },
       {
         id: 7, batch: 'G-241', npc: 'luo', title: '横折过的随货联',

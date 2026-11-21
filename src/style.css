@@ -128,6 +128,8 @@ button:disabled { cursor: not-allowed; }
 }
 
 .utility { justify-content: end; gap: .5rem; }
+.utility .home-shortcut[hidden] { display: none; }
+.utility .home-shortcut { font: 740 .8rem / 1 var(--mono); white-space: nowrap; }
 .icon-button, .button, .tool, .stamp, .modal button {
   transition: background-color .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
 }

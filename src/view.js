@@ -33,6 +33,7 @@ export function shell() {
     <header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><strong>南渡防护用品厂</strong><small>成品抽检窗口</small></div></div>
       <div class="top-status" id="top-status"></div>
       <nav class="utility" aria-label="游戏设置">
+        <button class="icon-button home-shortcut" data-act="shift-home" aria-label="存档并返回首页" title="存档并返回首页" hidden>首页</button>
         <button class="icon-button" data-act="how" aria-label="玩法说明" title="玩法说明"><span class="icon-help" aria-hidden="true">?</span></button>
         <button class="icon-button" data-act="sound" aria-label="音效" title="音效"><span class="icon-sound" aria-hidden="true">♪</span></button>
         <button class="icon-button" data-act="fullscreen" aria-label="全屏" title="全屏"><span class="icon-expand" aria-hidden="true"></span></button>
@@ -257,7 +258,12 @@ function endingView(ending, reviewingHistory) {
 
 export function overlay(run, ending, reviewingHistory = false, incomingCall = null) {
   const day = DAYS[run.day];
-  if (run.phase === 'brief') return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(day.subtitle)}</h3><p>${esc(day.intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
+  if (run.phase === 'brief') {
+    const returning = run.day === 0 && run.sampleSet === 4;
+    const subtitle = returning ? '窗口照常开' : day.subtitle;
+    const intro = returning ? '老周把钥匙放在桌上。「窗口这周还是你。批号眼熟，也要照手上这批查。」' : day.intro;
+    return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(subtitle)}</h3><p>${esc(intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
+  }
   if (run.phase === 'summary') {
     const records = run.records.filter(({ day: dayIndex }) => dayIndex === run.day);
     return `<section class="shift-close-sheet" aria-labelledby="shift-close-title">
@@ -542,7 +548,7 @@ export function sample(item, inspection, tutorial, progress) {
   const inGauge = measured && Boolean(spec.reading);
   const practicing = tutorial?.key === 'sample';
   const stampReady = tutorial?.key === 'stamp';
-  const filmHint = item.id === 2 && !back && !film && !progress?.filmChecked;
+  const filmHint = item.id === 2 && !progress?.returningWeek && !back && !film && !progress?.filmChecked;
   const guidedFlip = practicing && !back;
   let guide = '';
   if (stampReady) guide = tutorial.sampleLine;

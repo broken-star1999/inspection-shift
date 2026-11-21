@@ -127,6 +127,7 @@ const roomHost = root.querySelector('.canvas-room');
 const cargoHost = root.querySelector('.booth-cargo');
 const illustratedWorker = roomHost.querySelector('.static-worker');
 const modelHost = root.querySelector('.model-world');
+const homeShortcut = root.querySelector('.home-shortcut');
 const soundToggle = root.querySelector('[data-act="sound"]');
 const fullscreenToggle = root.querySelector('[data-act="fullscreen"]');
 const phoneFixture = booth.querySelector('.wall-phone');
@@ -505,6 +506,7 @@ function render(resumeScroll) {
   renderArrivalStatus();
   status.innerHTML = run ? `<span>${getDay(run).title}</span><span>第 ${run.day + 1} 天 / 5</span>` : '<span>质检员的一天</span>';
   wallShift.innerHTML = run ? view.wallShift(run) : '';
+  homeShortcut.hidden = !run || run.phase === 'ending';
   soundToggle.setAttribute('aria-pressed', String(!isMuted()));
   soundToggle.setAttribute('aria-label', isMuted() ? '开启音效' : '关闭音效');
   const item = windowCase();
@@ -590,7 +592,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const batchPapers = panel === 'archive' || panel === 'handoff' ? filedBatchPapers() : [];
   const supportingBasis = correction && filedCorrectionBasis(correction);
   const incomingCall = incomingAtWindow();
-  const work = { ...interaction, incomingCall };
+  const work = { ...interaction, incomingCall, returningWeek: run?.sampleSet === 4 };
   let markup = '';
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
   if (panel === 'visit' && !arrival) {
@@ -1810,8 +1812,10 @@ root.addEventListener('click', (event) => {
     case 'new': if (saved && saved.phase !== 'ending') openPanel('restart', target); else enter(false); break;
     case 'start': enter(false); break;
     case 'resume': enter(true); break;
-    case 'home': {
+    case 'shift-home': case 'home': {
       const fromHistory = reviewingHistory;
+      const fromShift = Boolean(run && !fromHistory && run.phase !== 'ending');
+      if (fromShift) persistRun();
       cancelArrivalPause();
       cancelClosingShot();
       run = null;
@@ -1821,6 +1825,7 @@ root.addEventListener('click', (event) => {
       resetGaze();
       closePanel();
       if (fromHistory) focusControl(screenLayer, { act: 'completed-shifts' });
+      else if (fromShift) focusControl(screenLayer, { act: 'resume' });
       break;
     }
     case 'start-day': {

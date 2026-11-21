@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PHONE, PRESSURE } from '../src/content.js';
-import { intakeComparison, projectComparison } from '../src/document-comparison.js';
+import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
 import { archive, archivedReportSources, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, isSupplementOnly, receiptFeedback, restoreRun, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
@@ -76,7 +76,7 @@ test('an experienced week can begin without a previous snapshot and stamp the fi
   const seed = 'experienced replay';
   const original = createRun(seed);
   const experienced = createFollowingRun(null, seed);
-  assert.deepEqual(experienced, { ...original, sampleSet: 4, tutorial: TUTORIAL.length });
+  assert.deepEqual(experienced, { ...original, sampleSet: 4, replayDocuments: true, tutorial: TUTORIAL.length });
   const first = act(experienced, 'start-day');
   assert.equal(getCase(first).id, 1);
   const stamped = act(first, 'stamp', { value: 'pass' });
@@ -153,6 +153,60 @@ test('when replay would repeat every sample, the deterministic override can choo
   assert.deepEqual(specimenVariants(next), { ...specimenVariants(original), 3: 1 });
   assert.deepEqual(next.records.map(({ id }) => id), original.records.map(({ id }) => id));
   assert.deepEqual(next.flags, original.flags);
+});
+
+test('G-206 replay checks the report against the original box, with the same current box and sample', () => {
+  function inspectReboxing(initialState, decision) {
+    let atWindow;
+    const week = untilHandoff(initialState.seed, { initialState, decisions: { 6: decision }, inspect: (state, item) => {
+      if (item.id !== 6) return state;
+      atWindow = restoreRun(JSON.parse(JSON.stringify(state)));
+      assert.deepEqual(getCase(atWindow), item);
+      return atWindow;
+    } });
+    return { atWindow, item: getCase(atWindow), week, row: archive(week).find(({ id }) => id === 6) };
+  }
+
+  const normal = inspectReboxing(createFollowingRun(null, 0));
+  const wrongReport = inspectReboxing(createFollowingRun(null, 2));
+  assert.equal(normal.item.variant, 0);
+  assert.equal(wrongReport.item.variant, 1);
+  assert.equal(wrongReport.item.line, normal.item.line);
+  assert.equal(wrongReport.item.npc, normal.item.npc);
+  assert.deepEqual(wrongReport.item.sample, normal.item.sample);
+  assert.deepEqual(wrongReport.item.documents, [normal.item.documents[0], {
+    ...normal.item.documents[1], fields: [['批号', 'G-160'], ...normal.item.documents[1].fields.slice(1)],
+  }, normal.item.documents[2]]);
+
+  const compare = relabelComparison(wrongReport.item, 2);
+  assert.deepEqual(compare.pairs.map(({ side, left, right }) => [side, left.value, right.value]), [
+    ['original', 'G-160', 'G-106'], ['current', 'G-206', 'G-206'],
+  ]);
+  const finding = compare.pairs[0].finding;
+  assert.equal(finding.key, 'compare:6:relabel:2:1:original');
+  const held = act(wrongReport.atWindow, 'stamp', { value: 'review', findings: [finding] });
+  assert.deepEqual(held.records.at(-1).findings, [finding]);
+  assert.deepEqual([normal.row.record.answer, normal.row.record.status], ['pass', 'shipped']);
+  assert.deepEqual([wrongReport.row.record.answer, wrongReport.row.record.status], ['review', 'held']);
+  assert.deepEqual(archive(wrongReport.week, 'G-160').map(({ id }) => id), [6]);
+  const restoredWeek = restoreRun(JSON.parse(JSON.stringify(wrongReport.week)));
+  const [source] = archivedReportSources(restoredWeek, 'R-066');
+  assert.deepEqual([source.id, source.index, source.document], [6, 1, wrongReport.item.documents[1]]);
+  assert.equal(getEnding(act(wrongReport.week, 'finish')).id, 'routine');
+
+  const hurried = inspectReboxing(createFollowingRun(null, 2), 'pass');
+  assert.equal(hurried.row.record.status, 'shipped');
+  const ending = getEnding(act(hurried.week, 'finish'));
+  assert.equal(ending.id, 'issue');
+  assert.deepEqual(ending.issues.map(({ id }) => id), [6]);
+
+  const { replayDocuments: _documentMarker, ...oldReplay } = createFollowingRun(null, 2);
+  for (const oldRun of [createRun(2), oldReplay]) {
+    const old = inspectReboxing(oldRun);
+    assert.equal(old.item.variant, 0);
+    assert.deepEqual(old.row.documents, normal.row.documents);
+    assert.deepEqual([old.row.record.answer, old.row.record.status], ['pass', 'shipped']);
+  }
 });
 
 test('G-216 uses the seeded sample for new runs and keeps the old sample for legacy saves', () => {

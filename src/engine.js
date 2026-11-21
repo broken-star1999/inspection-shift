@@ -85,7 +85,7 @@ export function createRun(seed) {
 }
 
 export function createFollowingRun(previousRun, seed) {
-  const run = { ...createRun(seed), sampleSet: 4, tutorial: TUTORIAL.length };
+  const run = { ...createRun(seed), sampleSet: 4, replayDocuments: true, tutorial: TUTORIAL.length };
   if (!previousRun || REPLAY_VARIANT_CASES.some((item) => variantIndex(previousRun, item) !== variantIndex(run, item))) {
     return run;
   }
@@ -121,6 +121,7 @@ export function getDay(state) {
 
 function variantIndex(state, item) {
   if (item.id === 3 && state.sampleSet !== 4) return 0;
+  if (item.id === 6) return state.replayDocuments === true ? seededChoice(state.seed, item.id, item.variants.length) : 0;
   if (item.id === 16 && ![2, 3, 4].includes(state.sampleSet)) return 0;
   if (item.id === 18 && ![3, 4].includes(state.sampleSet)) return 0;
   const override = state.variantOverride;
