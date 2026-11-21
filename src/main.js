@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, getTraceHandoffReview, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, getTraceHandoffReview, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { mountSampleImage, retrySampleImage, updateSampleImage } from './sample-images.js';
@@ -34,7 +34,7 @@ const COLLECTION_KEY = 'nandu-inspection-endings-v1';
 const COMPLETED_KEY = 'nandu-inspection-completed-v1';
 const ARRIVAL_PAUSE_MS = 1150;
 const NEXT_BATCH_PAUSE_MS = 2350;
-const FIRST_BATCH_PAUSE_MS = 3200;
+const LONG_BATCH_PAUSE_MS = 3200;
 const VISIT_HANDOVER_MS = 760;
 const PAPER_PAIR_HOLD_MS = 250;
 const PAPER_TOUCH_DRAG_PX = 8;
@@ -441,6 +441,15 @@ function toolsAvailableBetweenBatches() {
   return arrival?.action === 'next' && arrival.hasVisitor && arrival.stage === 'waiting' && !arrival.handingReceipt;
 }
 
+function waitingRegister() {
+  if (arrival?.action !== 'next' || !arrival.hasVisitor || arrival.stage !== 'waiting') return null;
+  const paper = nightRegisterForReceipt(run);
+  if (!paper?.available) return null;
+  const isRegister = (entry) => entry?.id === paper.id && entry.index === paper.index;
+  const held = (panel === 'archive' && isRegister(archivePaper)) || (panel === 'phone' && interaction.pinned.some(isRegister));
+  return { ...paper, held };
+}
+
 function windowCase() {
   return run && !arrival && !activeVisit() ? getCase(run) : null;
 }
@@ -677,16 +686,19 @@ function setScene() {
   const packed = item?.sample.kind === 'yellow' && !inspection.unpacked;
   const side = inspection.back && !packed ? '-back' : '';
   const delivered = visitDocument(visit, sceneRun);
-  const documents = item?.documents ?? (delivered ? [delivered] : []);
+  const retainedPaper = waitingRegister();
+  const paperCase = item ?? (retainedPaper ? getCase(run) : null);
+  const documents = paperCase?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
   const shipment = !visit && !closingShot ? sceneShipment(sceneRun, item, waiting) : {};
   const phoneHeld = panel === 'phone' || (panel === 'archive' && archiveReturn?.panel === 'phone');
   view.setRoomCargo(cargoHost, shipment.cargo);
   scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit), shutterClosed, catPassing,
-    documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
+    documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, paperCase, visit) })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind, cuffSplit: cuffSplitVisible(item.sample, inspection) } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
     keepVisitor, visitorWaiting: Boolean(waitingNpc),
+    retainedPaper,
     phoneHeld, phoneRinging: Boolean(incomingAtWindow()),
     approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
     presentedEvidence: phase === 'case' && presentedEvidence && item?.shownFinding === presentedEvidence
@@ -727,9 +739,11 @@ function render(resumeScroll, resumeScrollLeft = 0) {
   const previewVisit = preview ? activeVisit(preview) : null;
   const previewItem = preview && !previewVisit ? getCase(preview) : null;
   const delivered = visit ? visitDocument(visit) : visitDocument(previewVisit, preview);
+  const retainedPaper = waitingRegister();
   desktop.innerHTML = delivered ? view.visitSlip(delivered, visit ?? previewVisit, panel === 'visit') : item ? view.desk(run, item, deskGuide, {
     ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), filmCue, ...heldObjects(item),
-  }) : previewItem ? view.desk(preview, previewItem, null, { ...freshInteraction(), stampBlocked: true }) : '';
+  }) : previewItem ? view.desk(preview, previewItem, null, { ...freshInteraction(), stampBlocked: true })
+    : retainedPaper && !retainedPaper.held ? view.retainedRegister(retainedPaper) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
   showModeledScene();
   if (root.dataset.modeled === 'true') placeFixtures();
@@ -855,7 +869,10 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const finished = run.phase === 'ending';
     const historyLabel = reviewedWeekLabel();
     const original = archivePaper && archivedPaper(archivePaper.id, archivePaper.index);
-    markup = original ? view.archiveSourcePaper(original, pinned, { returnTo: reportIndex ? 'report-index' : returnTo, finished, historyLabel })
+    markup = original ? view.archiveSourcePaper(original, pinned, {
+      returnTo: reportIndex ? 'report-index' : returnTo, finished, historyLabel,
+      fromDesk: toolsAvailableBetweenBatches() && !reportIndex && !returnTo,
+    })
       : reportIndex && sources.length
       ? view.archiveReportPanel(reportIndex, sources, pinned, {
         returnTo, finished, historyLabel, fromInquiry: archiveFocus === TRACE_INQUIRY_KEY,
@@ -1465,7 +1482,7 @@ function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready
     return;
   }
   const firstBreak = run.day === 0 && run.index === 0;
-  const duration = action === 'next' ? (firstBreak ? FIRST_BATCH_PAUSE_MS : NEXT_BATCH_PAUSE_MS)
+  const duration = action === 'next' ? (firstBreak || waitingRegister() ? LONG_BATCH_PAUSE_MS : NEXT_BATCH_PAUSE_MS)
     : action === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
   const advance = () => {
     arrivalTimer = 0;
@@ -2250,6 +2267,17 @@ function openArchivePaper(id, index, opener) {
   }
 }
 
+function openRetainedRegister(opener) {
+  if (panel || !toolsAvailableBetweenBatches()) return;
+  const paper = waitingRegister();
+  if (!paper) return;
+  focusArchiveRow(paper.id);
+  interaction.archiveQuery = '';
+  archivePaper = { id: paper.id, index: paper.index, scrollTop: 0, scrollLeft: 0 };
+  playSound('paper');
+  openPanel('archive', opener);
+}
+
 function openHandoff(opener) {
   if (run?.phase !== 'handoff') return;
   const exception = opener?.dataset.key === 'exception' ? getShipmentException(run) : null;
@@ -2467,6 +2495,7 @@ root.addEventListener('click', (event) => {
       facts.scrollIntoView({ block: 'start', inline: 'nearest' });
       break;
     }
+    case 'retained-register': openRetainedRegister(target); break;
     case 'visit-paper':
       if (!arrival && visitDocument(activeVisit())) {
         playSound('paper');

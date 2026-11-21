@@ -881,6 +881,10 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
           }
         }
       }
+    } else if (frame.retainedPaper) {
+      const { index } = frame.retainedPaper;
+      updatePaperSet(frame.documents, false);
+      setPaperOffset(index, frame.positions?.[index]);
     }
     const visitor = visibleVisitor(frame);
     const previousVisitor = visibleVisitor(before);
@@ -940,6 +944,12 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
       object.rotation.y = THREE.MathUtils.lerp(lane * .13, yaw, bench);
     }
     paperSet.forEach((paper, index) => {
+      if (frame.retainedPaper?.index === index) {
+        paper.visible = !frame.retainedPaper.held;
+        paper.position.copy(paper.userData.rest);
+        paper.rotation.set(0, paper.userData.restYaw, 0);
+        return;
+      }
       place(paper, paper.userData.rest, paper.userData.onDesk, index * 24, -.51 + (index % 3) * .36, 0, paper.userData.restYaw);
     });
     place(sample, sampleRest, sampleOnDesk && sample.material.map?.image, 74, .56, -Math.PI / 2);
@@ -1080,6 +1090,11 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
         const rect = projectBox(new THREE.Box3().setFromObject(paper.userData.paperBounds), camera, width, height);
         if (rect) controls[`doc${index}`] = rect;
       });
+    }
+    const retained = paperSet[frame.retainedPaper?.index];
+    if (retained?.visible) {
+      const rect = projectBox(new THREE.Box3().setFromObject(retained.userData.paperBounds), camera, width, height);
+      if (rect) controls['retained-register'] = rect;
     }
     onLayout(controls);
   }

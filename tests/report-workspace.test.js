@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRun, dispatch, getDay } from '../src/engine.js';
+import { relabelComparison } from '../src/document-comparison.js';
+import { createRun, dispatch, getCase, getDay } from '../src/engine.js';
 import { reportWorkspace, TRACE_INQUIRY_KEY } from '../src/report-workspace.js';
 
 function atReportLookup() {
@@ -19,6 +20,25 @@ const indexed = {
 function afterTraceInquiry(run) {
   return dispatch(run, { type: 'dial', number: '204', papers: [{ id: 7, index: 1 }, { id: 14, index: 2 }] });
 }
+
+test('an open register or connected call restores to the eligible desk original only', () => {
+  const week = { ...createRun(21), phase: 'case', day: 2, seen: [11] };
+  const run = { ...week, index: getDay(week).cases.findIndex(({ id }) => id === 11) };
+  const finding = relabelComparison(getCase(run), 2).pairs.find(({ side }) => side === 'current').finding;
+  const receipt = dispatch(run, { type: 'stamp', value: 'review', findings: [finding] });
+  const archivePaper = { id: 11, index: 2, scrollTop: 0, scrollLeft: 0 };
+  const open = { ...indexed, caseId: 11, reportIndex: null, archiveQuery: '', archiveFocus: 11, archiveReturn: null, archivePaper };
+  const options = { betweenBatches: true };
+  assert.deepEqual(reportWorkspace(receipt, open, options), open);
+  assert.equal(reportWorkspace(receipt, { ...open, archivePaper: { ...archivePaper, index: 1 } }, options).archivePaper, null);
+  assert.equal(reportWorkspace(dispatch(run, { type: 'stamp', value: 'review' }), open, options).archivePaper, null);
+
+  const phoned = dispatch(receipt, { type: 'dial', number: '107', papers: [{ id: 11, index: 2 }] });
+  const phoneReturn = { panel: 'archive', opener: { act: 'phone-document' }, reportIndex: null, archiveFocus: 11,
+    archiveQuery: '', archiveReturn: null, archivePaper, scrollTop: 8, scrollLeft: 0 };
+  const phone = { ...open, panel: 'phone', archivePaper: null, phoneReturn };
+  assert.deepEqual(reportWorkspace(phoned, JSON.parse(JSON.stringify(phone)), options), phone);
+});
 
 test('keeps the exact archived paper and its index viewport and docs return through JSON', () => {
   const run = atReportLookup();

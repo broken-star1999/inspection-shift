@@ -154,6 +154,11 @@ function paperCard(doc, index, target, offset, lifted, disabled = false) {
     <small>${types[doc.type] ?? '归档'}</small><h3>${esc(doc.title)}</h3><b class="paper-num">${esc(doc.fields[0]?.[1])}</b><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">${doc.type === 'label' ? '批' : doc.type === 'report' ? '检' : '联'}</span></button>`;
 }
 
+export function retainedRegister({ document }) {
+  return `<button type="button" class="paper-card paper-archive retained-register" data-act="retained-register" data-fixture="retained-register">
+    <h3>${esc(document.title)}</h3><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">联</span></button>`;
+}
+
 const visitPaperLabels = {
   trace: ['实验室原件', '收下原件'],
   night: ['夜班存根', '收下存根'],
@@ -916,12 +921,16 @@ export function archiveReportPanel(number, sources, pinned, { returnTo, finished
     'archive-surface report-index-surface', closeText, number, { headerActions: back + phoneAction, closeLabel: closeText });
 }
 
-export function archiveSourcePaper({ id, index, batch, day, document }, pinned, { returnTo, finished, historyLabel } = {}) {
-  const closeText = { phone: '回到电话', 'report-index': '回到编号索引' }[returnTo] ?? '合上单据';
-  const pin = finished ? '' : phonePinButton(id, index, document.title, pinned, 'archive-source-pin');
+export function archiveSourcePaper({ id, index, batch, day, document }, pinned, { returnTo, finished, historyLabel, fromDesk } = {}) {
+  const closeText = { phone: '回到电话', 'report-index': '回到编号索引' }[returnTo] ?? (fromDesk ? '放回台面' : '合上单据');
+  const contactField = fromDesk ? document.fields.findIndex(documentExtension) : -1;
+  const extension = documentExtension(document.fields[contactField]);
+  const action = finished ? '' : extension ? button(`问${esc(CHARACTERS[PHONE[extension].npc].name)} ${extension}`, 'phone-document', 'secondary archive-source-pin',
+    `data-i="${index}" data-field="${contactField}" data-key="${id}" aria-label="带${esc(document.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`)
+    : phonePinButton(id, index, document.title, pinned, 'archive-source-pin');
   const heading = [batch, DAYS[day]?.title, historyLabel].filter(Boolean).join(' · ');
-  const paper = sheet(document, index, null, { phoneSource: !finished ? id : null });
-  return deskSurface(heading, paper, 'archive-surface archive-source-surface', closeText, `${id}:${index}`, { closeLabel: closeText, headerActions: pin });
+  const paper = sheet(document, index, null, { phoneSource: !finished && !extension ? id : null });
+  return deskSurface(heading, paper, 'archive-surface archive-source-surface', closeText, `${id}:${index}`, { closeLabel: closeText, headerActions: action });
 }
 
 function contactSlip(extension, number, phoneBottom, batchPaper = null, carry = false) {

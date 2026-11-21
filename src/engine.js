@@ -296,6 +296,21 @@ function isVisitQueued(state, key) {
   return state.pending.includes(key) || activeVisits(state).some((visit) => visit.key === key);
 }
 
+export function nightRegisterForReceipt(state) {
+  if (state?.phase !== 'receipt') return null;
+  const record = state.records.at(-1);
+  const item = getCase(state);
+  if (record?.id !== 11 || item?.id !== record.id) return null;
+  const index = item.documents.findIndex(({ fields }) => fields.some((field) => documentExtension(field) === '107'));
+  const finding = relabelComparison(item, index)?.pairs.find(({ side }) => side === 'current')?.finding;
+  const filed = [record, ...(record.amendments ?? []).filter(({ atWindow }) => atWindow)];
+  if (!finding || !filed.some((receipt) => normalizeFindings(receipt.findings).some((entry) => sameFinding(entry, finding)))) return null;
+  return {
+    id: record.id, index, batch: record.batch, day: record.day, document: item.documents[index],
+    available: !state.flags.nightDocument && !isVisitQueued(state, 'night'),
+  };
+}
+
 function visitForKey(state, key) {
   if (key !== REWORK_KEY) return VISITS[key];
   if (state.phase !== 'brief' || state.day !== 1) return null;
@@ -848,6 +863,7 @@ function dialNight(state, action, number) {
   let delivery = '下次交接，我到窗口递给你。';
   if (activeVisits(state)[0]?.key === 'night') delivery = '回执已经递到窗口了。';
   else if (state.phase === 'case') delivery = '你先把手上这批办完。我到窗口递给你。';
+  else if (state.phase === 'receipt') delivery = '等窗口空下来，我把存根带过去。';
   else if (state.phase === 'handoff') delivery = '我这就到窗口。';
   if (isVisitQueued(state, 'night')) return callResult(state, number, script.npc, ['退回联已经找出来了。', delivery]);
   const hasNightRegister = Object.hasOwn(action, 'papers')

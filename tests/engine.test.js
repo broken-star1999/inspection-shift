@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
-import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPhoneReportLookup, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceHandoffReview, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
+import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPhoneReportLookup, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceHandoffReview, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, nightRegisterForReceipt, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 import { sampleFinding } from '../src/samples.js';
 
 function act(state, type, details) {
@@ -1080,6 +1080,26 @@ test('two late calls survive reload and grant one document per receipt', () => {
   state = act(state, 'attach', { key: 'night' });
   assert.equal(state.flags.nightAttached, true);
   assert.equal(getEnding(act(state, 'finish')).id, 'trace');
+});
+
+test('only the filed current-box comparison leaves the original night register at the window', () => {
+  const receipt = receiptAt(11, 'review');
+  const [original, current] = relabelComparison(getCase(receipt), 2).pairs.map(({ finding }) => finding);
+  assert.equal(nightRegisterForReceipt(receipt), null);
+  assert.equal(nightRegisterForReceipt(receiptAt(11, 'review', { findings: [original] })), null);
+  assert.equal(nightRegisterForReceipt(receiptAt(11, 'review', { findings: [{ ...current, text: original.text }] })), null);
+
+  const filed = receiptAt(11, 'pass', { findings: [current] });
+  const paper = nightRegisterForReceipt(filed);
+  assert.equal(paper.available, true);
+  assert.equal(paper.document, getCase(filed).documents[2]);
+  assert.equal(nightRegisterForReceipt(act(receipt, 'recheck-receipt', { id: 11, value: 'fail', findings: [current] }))?.available, true);
+  assert.equal(nightRegisterForReceipt(act(filed, 'dial', { number: '107', papers: [] }))?.available, true);
+
+  const called = act(filed, 'dial', { number: '107', papers: [{ id: 11, index: 2 }] });
+  assert.equal(nightRegisterForReceipt(called)?.available, false);
+  assert.equal(act(called, 'next').event?.key, 'night');
+  assert.equal(nightRegisterForReceipt(act(filed, 'next')), null);
 });
 
 test('a v1 save with previously granted evidence can still acknowledge the listed visit', () => {

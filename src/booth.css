@@ -599,6 +599,16 @@
   background: linear-gradient(#8c7650, #5b4731 32%, #392b21 43%, #2a2219);
 }
 
+#game:not([data-modeled='true']) .booth-layout .retained-register {
+  position: absolute;
+  inset: 52% auto auto 33%;
+  inline-size: clamp(5.2rem, 13cqw, 9rem);
+  min-block-size: 44px;
+  translate: -50% -50%;
+  rotate: -2deg;
+  touch-action: manipulation;
+}
+
 .booth-layout .paper-work,
 .booth-layout .sample-work,
 .booth-layout .stamp-rail {

@@ -1,4 +1,4 @@
-import { archive, archivedReportSources, getCase, getTraceInquiry } from './engine.js';
+import { archive, archivedReportSources, getCase, getTraceInquiry, nightRegisterForReceipt } from './engine.js';
 
 export const TRACE_INQUIRY_KEY = 'call:trace:R-071';
 
@@ -28,10 +28,11 @@ function indexEntry(run, value) {
   return sources.length ? { number: sources[0].number, sources } : null;
 }
 
-function exactPaper(value, filed, report, fromPhone = false) {
+function exactPaper(value, filed, report, { fromPhone = false, retained } = {}) {
   const { id, index } = value ?? {};
   if (!Number.isInteger(id) || !Number.isInteger(index) || !filed.get(id)?.documents[index]) return null;
-  if (report ? !report.sources.some((source) => source.id === id && source.index === index) : !fromPhone) return null;
+  const matches = (paper) => paper?.id === id && paper.index === index;
+  if (report ? !report.sources.some(matches) : !fromPhone && !matches(retained)) return null;
   return { id, index, ...scroll(value) };
 }
 
@@ -39,12 +40,12 @@ function selectedArchiveFocus(focus, filed, hasTraceInquiry, supportingKeys) {
   return filed.has(focus) || (focus === TRACE_INQUIRY_KEY && hasTraceInquiry) || supportingKeys?.has(focus) ? focus : null;
 }
 
-function phoneOrigin(run, value, filed, hasTraceInquiry, betweenBatches, supportingKeys) {
+function phoneOrigin(run, value, filed, hasTraceInquiry, betweenBatches, supportingKeys, retained) {
   if (value?.panel !== 'archive') return betweenBatches ? null : parent(value, ['docs', 'sample']);
   const report = indexEntry(run, value.reportIndex);
   const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry, supportingKeys);
   if (!report && archiveFocus === null) return null;
-  const archivePaper = exactPaper(value.archivePaper, filed, report);
+  const archivePaper = exactPaper(value.archivePaper, filed, report, { retained });
   return {
     panel: 'archive', opener: opener(value.opener), ...scroll(value),
     reportIndex: report?.number ?? null,
@@ -65,8 +66,9 @@ export function reportWorkspace(run, value, { betweenBatches = false, supporting
   const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry, supportingKeys);
   const report = indexEntry(run, value.reportIndex);
   const archiveReturn = parent(value.archiveReturn, betweenBatches ? ['phone'] : ['docs', 'sample', 'phone']);
-  const archivePaper = exactPaper(value.archivePaper, filed, report, archiveReturn?.panel === 'phone');
-  const phoneReturn = phoneOrigin(run, value.phoneReturn, filed, hasTraceInquiry, betweenBatches, supportingKeys);
+  const retained = betweenBatches ? nightRegisterForReceipt(run) : null;
+  const archivePaper = exactPaper(value.archivePaper, filed, report, { fromPhone: archiveReturn?.panel === 'phone', retained });
+  const phoneReturn = phoneOrigin(run, value.phoneReturn, filed, hasTraceInquiry, betweenBatches, supportingKeys, retained);
   const indexedView = value.panel === 'archive'
     ? report || archivePaper || archiveFocus === TRACE_INQUIRY_KEY
     : phoneReturn?.reportIndex || phoneReturn?.archiveFocus === TRACE_INQUIRY_KEY;
