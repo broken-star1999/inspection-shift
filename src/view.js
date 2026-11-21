@@ -776,13 +776,14 @@ function correctionPanel(record, findings, selected, supportingBasis) {
   </section>`;
 }
 
-function correctionStamps(row, followup) {
+function correctionStamps(row, followup, traceReview) {
   const { record, previousReceipt } = row;
   const disposition = receiptDisposition(record);
   const source = disposition === 'supplementHeld' || disposition === 'supplementReturned' ? '补验联'
     : previousReceipt?.sameLot === false ? '留厂件'
       : followup?.previousReceipt?.sameLot === false ? '原批' : '出货回执';
-  return `<p id="correction-target" class="correction-target"><b>${esc(record.batch)}</b><small>${esc(DAYS[record.day]?.title)} · ${source}</small></p>
+  const reviewEffect = { recallPending: '审查后发出召回', held: '审查后留厂复检' }[traceReview?.status];
+  return `<p id="correction-target" class="correction-target"><b>${esc(record.batch)}</b><small>${esc(DAYS[record.day]?.title)} · ${source}</small>${reviewEffect ? `<small>${reviewEffect}</small>` : ''}</p>
     <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, false, 'recheck', record.decision)}</div>`;
 }
 
@@ -950,8 +951,25 @@ function handoffPairSide(row, source, original) {
 
 function handoffAttach(run, key, document) {
   const attached = run.flags[`${key}Attached`];
-  return button(attached ? '已夹入 · 取回' : '夹入交接板', 'attach', attached ? 'primary' : 'secondary',
-    `data-key="${key}" aria-label="${attached ? '取回' : '夹入'}${esc(document.title)}"`);
+  const label = attached ? '已夹入 · 取回' : key === 'trace' ? '随板提交' : '夹入交接板';
+  return button(label, 'attach', attached ? 'primary' : 'secondary',
+    `data-key="${key}"${active(attached)} aria-label="${attached ? '取回' : label} ${esc(document.title)}"`);
+}
+
+function traceHandoffNotice(row, review, attached) {
+  const disposition = receiptDisposition(row.record);
+  const submission = {
+    recallPending: '交班时发出召回申请，等收货方回签。',
+    held: '交班时撤下待发货，留厂复检。',
+  }[review?.status];
+  const current = {
+    recallPending: '召回已发出，可先取收货方回执。',
+    recalled: '收货方已回签，下一班复检。',
+    held: '这批已经留厂，原件可随板交给下一班。',
+    returned: '这批已经退回，原件可与退件记录一同留存。',
+  }[disposition];
+  const note = submission && !attached ? `随板提交后，${submission}` : submission ?? current;
+  return note ? `<p class="trace-handoff-status" role="status">${esc(note)}</p>` : '';
 }
 
 function traceExcerpt(document, names) {
@@ -968,7 +986,7 @@ function traceEvidencePair(row, original) {
     ${traceExcerpt(original, ['样品来源', '检验范围'])}</div>`;
 }
 
-export function handoffPanel(run, evidence, rows, { focus, documentIndex, correctionFindings = null, batchPapers = [], supportingBasis, comparison = null, canCompare = false } = {}) {
+export function handoffPanel(run, evidence, rows, { focus, documentIndex, correctionFindings = null, batchPapers = [], supportingBasis, comparison = null, canCompare = false, traceReview = null } = {}) {
   const following = new Map(rows.filter(({ previousReceipt }) => previousReceipt).map((row) => [row.previousReceipt.record.id, row]));
   const batchPaperNotes = new Map(batchPapers.map(({ caseId, document }) => [caseId, ` · 有${batchPaperLabels[document.kind].tab}`]));
   const provenance = (row) => {
@@ -993,17 +1011,24 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
   const comparing = row && comparison;
   let header = '<h3>出货回执</h3>';
   let detail = '<p class="handoff-empty">从板上选一张回执核对。</p>';
-  let actions = `${button('回看全周出货', 'archive')}${button('拉铃交班', 'finish', 'primary')}`;
+  const finishNote = run.flags.traceAttached && { recallPending: '登记 G-241 召回', held: '留厂复检 G-241' }[traceReview?.status];
+  const finish = button(finishNote ? `<span>拉铃交班</span><small>${finishNote}</small>` : '拉铃交班', 'finish',
+    finishNote ? 'primary trace-handoff-finish' : 'primary');
+  let actions = button('回看全周出货', 'archive') + finish;
+  let notice = '';
 
   if (focus === 'attachments' && attachmentKeys.length) {
-    header = '<h3>交接附件</h3>';
-    const traceRow = rows.find(({ id }) => id === TRACE_CASE_ID);
+    const traceRow = run.flags.traceDocument && rows.find(({ id }) => id === TRACE_CASE_ID);
+    header = traceRow ? `<div class="trace-attachment-heading"><h3>交接附件</h3><small>${esc(traceRow.batch)} · ${esc(dispositionLabel(traceRow.record))}</small></div>`
+      : '<h3>交接附件</h3>';
+    if (traceRow) notice = traceHandoffNotice(traceRow, traceReview, run.flags.traceAttached);
     detail = `<div class="handoff-attachments">${attachmentKeys.map((key) => {
       const document = evidence[key];
       const clip = handoffAttach(run, key, document);
       if (key === 'trace' && traceRow) {
-        const open = button('核对 G-241 随货联', 'handoff-focus', 'secondary', `data-i="${traceRow.id}" data-doc="trace"`);
-        return `<div class="handoff-evidence"><div class="modal-actions trace-evidence-actions">${open}${clip}</div>${traceEvidencePair(traceRow, document)}</div>`;
+        const open = button('看 G-241 回执', 'handoff-focus', 'secondary', `data-i="${traceRow.id}" data-doc="receipt"`);
+        const cite = traceReview ? button('用原件更正', 'edit-record', 'secondary', `data-i="${traceRow.id}" data-key="trace"`) : '';
+        return `<div class="handoff-evidence"><div class="modal-actions trace-evidence-actions">${open}${cite}${clip}</div>${traceEvidencePair(traceRow, document)}</div>`;
       }
       return `<div class="handoff-evidence">${sheet(document)}${clip}</div>`;
     }).join('')}</div>`;
@@ -1023,12 +1048,15 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const attachedPapers = batchPapers.filter(({ caseId }) => caseId === row.id);
     const attached = attachedPapers.find(({ document }) => document.kind === documentIndex);
     const doc = attached?.document ?? documents[documentIndex];
+    const tracePaper = attached?.document.kind === 'trace';
     const tabs = `<nav class="doc-tabs handoff-detail-tabs" aria-label="本批归档单据">
       ${button('回执', 'handoff-doc', 'tab', `data-key="receipt"${active(!doc)}`)}${documents.map(({ title, type }, index) =>
         button(types[type] ?? '归档', 'handoff-doc', 'tab', `data-i="${index}"${active(index === documentIndex)} aria-label="${esc(title)}" title="${esc(title)}"`)).join('')}
       ${attachedPapers.map(({ document }) => button(batchPaperLabels[document.kind].tab, 'handoff-doc', 'tab',
         `data-key="${esc(document.kind)}"${active(document === doc)} aria-label="${esc(document.title)}"`)).join('')}</nav>`;
-    const editAction = !latestReceipt && !editing ? button('更正开单', 'edit-record', 'secondary handoff-detail-edit', `data-i="${esc(row.id)}"`) : '';
+    const citeTrace = tracePaper && traceReview;
+    const editAction = !latestReceipt && !editing ? button(citeTrace ? '用原件更正' : '更正开单', 'edit-record', 'secondary handoff-detail-edit',
+      `data-i="${esc(row.id)}"${citeTrace ? ' data-key="trace"' : ''}`) : '';
     const compareAction = canCompare && !editing ? button('并排核对', 'handoff-compare', 'secondary handoff-detail-compare', active(false)) : '';
     const tools = compareAction ? `<div class="handoff-detail-tools">${compareAction}${editAction}</div>` : editAction;
     const status = !latestReceipt && !editing && record.status === 'recallPending'
@@ -1041,20 +1069,23 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
       (latestReceipt || next) && button(next?.previousReceipt.sameLot === false ? '留厂件回执' : '后续回执', 'handoff-focus', 'secondary', `data-i="${esc(latestReceipt?.id ?? next.id)}"`),
     ].filter(Boolean).join('');
     const draft = correction ? correctionPanel(record, findings, correction.selected, supportingBasis) : '';
-    const tracePaper = attached?.document.kind === 'trace';
     const paper = tracePaper ? traceEvidencePair(row, doc)
       : doc ? sheet(doc, documentIndex, attached ? null : correction) : archivedReceipt(record, latestReceipt, previousReceipt);
     const quotingActivePaper = attached && attached.document.kind === supportingBasis?.kind;
     detail = `${quotingActivePaper ? draft + paper : paper + draft}
       ${related && !editing ? `<div class="modal-actions handoff-related">${related}</div>` : ''}`;
-    if (tracePaper && !editing) actions = handoffAttach(run, 'trace', doc) + actions;
-    if (editing) actions = correctionStamps(row, next) + button('取消更正', 'edit-record', 'secondary handoff-cancel', `data-i="${esc(row.id)}"`);
+    if (tracePaper && !editing) {
+      actions = handoffAttach(run, 'trace', doc) + actions;
+      notice = traceHandoffNotice(row, traceReview, run.flags.traceAttached);
+    }
+    if (editing) actions = correctionStamps(row, next, row.id === TRACE_CASE_ID ? traceReview : null) +
+      button('取消更正', 'edit-record', 'secondary handoff-cancel', `data-i="${esc(row.id)}"`);
   }
 
   return dialog('周五交接', `<div class="handoff-paper handoff-sheet"><p class="handoff-instruction">点批号核对原单，改章另开更正联。</p>
     <div class="handoff-workspace"><nav class="handoff-board" aria-label="批次与附件">${attachmentIndex}${groups || '<p>没有可查的回执。</p>'}</nav>
     <section class="handoff-detail${cls('handoff-comparing', comparing)}" aria-label="${comparing ? '两次来件的交接单' : '选中的交接单'}"><header class="handoff-detail-head">${header}</header><div class="handoff-detail-scroll">${detail}</div></section></div></div>`, 'handoff-modal',
-  `<footer class="modal-actions handoff-actions">${actions}</footer>`);
+  `<footer class="modal-actions handoff-actions">${notice}${actions}</footer>`);
 }
 
 export function egg(key, caseId) {

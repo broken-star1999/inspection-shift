@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
-import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPhoneReportLookup, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
+import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPhoneReportLookup, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceHandoffReview, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -908,8 +908,13 @@ test('trace needs both archived records, the lab visit and submission at handoff
   state = act(state, 'attach', { key: 'trace' });
   assert.equal(getEnding(state).id, 'trace');
   assert.match(getEnding(state).traceDisposition, /尚未登记召回/);
+  assert.deepEqual(getTraceHandoffReview(state), {
+    id: TRACE_CASE_ID, value: 'review', findings: [TRACE_FINDING], status: 'recallPending',
+  });
+  assert.equal(getEnding(state).traceReceipt.status, 'shipped');
   const findings = [{ key: 'trace:source', source: 'R-071 实验室原件', text: '样品来源 · 试样 S-019' }];
   const corrected = act(state, 'recheck', { id: TRACE_CASE_ID, value: 'review', findings });
+  assert.equal(getTraceHandoffReview(corrected), null);
   assert.match(getEnding(corrected).traceDisposition, /等待收货方确认/);
   const tracedCorrection = getEnding(act(corrected, 'finish'));
   assert.equal(tracedCorrection.id, 'trace');
@@ -955,6 +960,7 @@ test('report filed during handoff can still lead to an on-site hold', () => {
   assert.equal(state.event.npc, 'chen');
   state = act(state, 'ack-visit');
   state = act(state, 'attach', { key: 'trace' });
+  assert.equal(getTraceHandoffReview(state), null);
   state = act(state, 'finish');
   assert.equal(getEnding(state).id, 'trace');
   assert.match(getEnding(state).traceDisposition, /留厂隔离/);
@@ -966,6 +972,7 @@ test('trace evidence keeps an existing return and intercepts a new permit before
   state = act(state, 'dial', { number: '204', caseIds: [TRACE_CASE_ID, 14] });
   state = act(act(state, 'ack-visit'), 'attach', { key: 'trace' });
   const oldReceipt = getEnding(state).traceReceipt;
+  assert.equal(getTraceHandoffReview(state), null);
   const returned = getEnding(act(state, 'finish'));
   assert.equal(returned.id, 'issue');
   assert.deepEqual(returned.issues.map(({ id }) => id), [4]);
@@ -974,6 +981,7 @@ test('trace evidence keeps an existing return and intercepts a new permit before
   assert.match(returned.traceDisposition, /已退回/);
 
   const queued = act(state, 'recheck', { id: TRACE_CASE_ID, value: 'pass' });
+  assert.equal(getTraceHandoffReview(queued)?.status, 'held');
   assert.equal(getEnding(queued).traceReceipt.status, 'shipping');
   assert.match(getEnding(queued).traceDisposition, /尚未出库/);
   const intercepted = getEnding(act(queued, 'finish'));

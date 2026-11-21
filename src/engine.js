@@ -888,11 +888,15 @@ function nextCase(state) {
   return state.day === 1 ? queueIncomingCall(summary, 'lab-close') : summary;
 }
 
+export function getTraceHandoffReview(state) {
+  const record = getRecord(state, TRACE_CASE_ID);
+  if (!record || !['shipping', 'shipped'].includes(record.status) || record.decision === 'review' || findVerifiedReceipt(state.records, record)) return null;
+  return { id: record.id, value: 'review', findings: [TRACE_FINDING], status: amendedDisposition(state.records, record, 'review') };
+}
+
 function finish(state) {
-  const record = state.flags.traceAttached ? getRecord(state, TRACE_CASE_ID) : null;
-  const reviewed = record?.status === 'shipped' || record?.status === 'shipping'
-    ? recheck(state, { id: TRACE_CASE_ID, value: 'review', findings: [TRACE_FINDING] })
-    : state;
+  const review = state.flags.traceAttached && getTraceHandoffReview(state);
+  const reviewed = review ? recheck(state, review) : state;
   return { ...reviewed, phase: 'ending', records: ship(reviewed.records), event: null, events: [], incomingCalls: [], ringbackArmed: false };
 }
 

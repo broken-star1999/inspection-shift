@@ -1368,6 +1368,26 @@
 .handoff-detail-scroll > :is(.archive-receipt, .sheet):last-child { margin-block-end: 0; }
 .handoff-detail-scroll .handoff-attachments { margin-block-start: 0; }
 .handoff-detail-scroll .handoff-evidence:first-child { margin-block-start: 0; }
+.trace-attachment-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .3rem;
+}
+.trace-attachment-heading small {
+  color: #eed2a1;
+  font: 750 .74rem / 1.25 var(--mono);
+}
+.handoff-actions .trace-handoff-status {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin: 0 auto 0 0;
+  padding-inline-start: .42rem;
+  border-inline-start: 2px solid #b58c59;
+  color: #f0ddb4;
+  font: 690 .76rem / 1.28 var(--mono);
+}
+.handoff-actions:has(.trace-handoff-status) .button { flex: 0 0 auto; white-space: nowrap; }
 .handoff-detail-scroll .trace-evidence-actions {
   justify-content: flex-start;
   gap: .35rem;
@@ -1395,6 +1415,15 @@
 .handoff-empty { margin: .12rem 0; padding: .47rem .54rem; color: #ebd8b4; background: #392c23; font-size: .84rem; }
 .handoff-modal:has(.handoff-workspace) > .handoff-actions { flex-wrap: nowrap; }
 .handoff-modal:has(.handoff-workspace) > .handoff-actions :is(.button, .stamp) { min-block-size: 2.75rem; }
+.handoff-actions .trace-handoff-finish {
+  display: grid;
+  justify-items: center;
+  gap: .08rem;
+  padding-block: .13rem;
+  line-height: 1.13;
+  white-space: nowrap;
+}
+.trace-handoff-finish small { font-size: .71rem; }
 .handoff-actions :is(.archive-correction, .handoff-correction) {
   flex: 0 1 26rem;
   min-inline-size: 0;

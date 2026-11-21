@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, getTraceHandoffReview, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint } from './devices.js';
@@ -814,6 +814,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     markup = view.handoffPanel(run, EVIDENCE, rows, {
       focus: handoffFocus, documentIndex: handoffDocument, correctionFindings, batchPapers, supportingBasis,
       canCompare: Boolean(pair), comparison: handoffPairOpen ? pair : null,
+      traceReview: run.flags.traceDocument ? getTraceHandoffReview(run) : null,
     });
   }
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
@@ -1140,7 +1141,12 @@ function enter(restore) {
     }
     playSound('paper');
     render(correctionDraft.scrollTop);
-    if (panel === 'handoff') revealHandoffSelection();
+    if (panel === 'handoff') {
+      revealHandoffSelection();
+      if (handoffDocument === 'trace' && correctionDraft.keys.includes(TRACE_FINDING.key)) {
+        focusControl(modalLayer, { act: 'correction-original', key: TRACE_FINDING.key });
+      }
+    }
     return;
   }
   const resumeSound = { docs: 'paper', sample: 'slide', carton: 'slide', phone: 'click' }[panel];
@@ -2128,7 +2134,8 @@ function selectHandoff(id, reveal, documentIndex) {
   handoffPairOpen = false;
   handoffFocus = id;
   const draft = correctionDraft?.id === id ? correctionDraft : null;
-  handoffDocument = hasHandoffDocument(row, documentIndex) ? documentIndex : draft?.documentIndex ?? null;
+  handoffDocument = documentIndex === 'receipt' ? null
+    : hasHandoffDocument(row, documentIndex) ? documentIndex : draft?.documentIndex ?? null;
   playSound('paper');
   render(draft?.scrollTop ?? 0);
   if (reveal) {
@@ -2409,19 +2416,32 @@ root.addEventListener('click', (event) => {
     }
     case 'edit-record': {
       if (panel === 'handoff' && handoffPairOpen) break;
-      const row = correctableRow(correctionFocus());
+      const citeTrace = key === 'trace' && panel === 'handoff' && (handoffFocus === 'attachments' ||
+        (handoffFocus === TRACE_CASE_ID && handoffDocument === 'trace'));
+      const row = correctableRow(citeTrace ? TRACE_CASE_ID : correctionFocus());
       if (!row) break;
-      const editing = activeCorrection();
+      const citation = citeTrace && filedCorrectionBasis(row);
+      if (key === 'trace' && citation?.kind !== 'trace') break;
+      const editing = !citeTrace && activeCorrection();
       if (editing) correctionDraft = null;
       else {
         const fromBoard = panel === 'handoff';
-        if (fromBoard && handoffDocument === null && row.documents.length) {
+        if (citeTrace) {
+          handoffFocus = row.id;
+          handoffDocument = 'trace';
+        } else if (fromBoard && handoffDocument === null && row.documents.length) {
           handoffDocument = row.id === TRACE_CASE_ID && hasHandoffDocument(row, 'trace') ? 'trace' : 0;
         }
-        correctionDraft = { id: row.id, keys: [], fromBoard, documentIndex: fromBoard ? handoffDocument : null, scrollTop: 0 };
+        const previousKeys = correctionDraft?.id === row.id ? correctionDraft.keys : [];
+        const keys = citation ? [...new Set([...previousKeys, citation.finding.key])] : [];
+        correctionDraft = { id: row.id, keys, fromBoard, documentIndex: fromBoard ? handoffDocument : null, scrollTop: 0 };
       }
       playSound('paper');
       render(!editing && (panel === 'handoff' || run.phase === 'receipt') ? 0 : undefined);
+      if (citation) {
+        revealHandoffSelection();
+        focusControl(modalLayer, { act: 'correction-original', key: citation.finding.key });
+      }
       if (!editing && run.phase === 'receipt') {
         const finding = modalLayer.querySelector('.correction-original');
         if (finding) {
