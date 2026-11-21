@@ -368,6 +368,7 @@ function viewedDocument() {
 function heldObjects(item) {
   const sampleHeld = panel === 'sample';
   let heldDocuments = [];
+  if (panel === 'visit') heldDocuments = [0];
   if (panel === 'docs') {
     if (interaction.deliveryCheck !== null) heldDocuments = [interaction.deliveryCheck];
     else if (interaction.previousDoc !== null) heldDocuments = [viewedDocument()];
@@ -502,7 +503,7 @@ function render(resumeScroll) {
   const previewVisit = preview ? activeVisit(preview) : null;
   const previewItem = preview && !previewVisit ? getCase(preview) : null;
   const delivered = visit ? visitDocument(visit) : visitDocument(previewVisit, preview);
-  desktop.innerHTML = delivered ? view.visitSlip(delivered) : item ? view.desk(run, item, deskGuide, {
+  desktop.innerHTML = delivered ? view.visitSlip(delivered, visit ?? previewVisit, panel === 'visit') : item ? view.desk(run, item, deskGuide, {
     ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(item),
   }) : previewItem ? view.desk(preview, previewItem, null, { ...freshInteraction(), stampBlocked: true }) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
@@ -548,6 +549,11 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const work = { ...interaction, incomingCall };
   let markup = '';
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
+  if (panel === 'visit' && !arrival) {
+    const visit = activeVisit();
+    const doc = visitDocument(visit);
+    if (doc) markup = view.visitPaper(doc, visit);
+  }
   if (panel === 'docs' && item) markup = view.documents(item, viewedDocument(), compare, step, work, previousInspection(item));
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, work);
   if (panel === 'archive' && run) {
@@ -916,7 +922,7 @@ function finishShift() {
 function focusNextWindowAction() {
   requestAnimationFrame(() => {
     if (document.activeElement !== document.body) return;
-    const target = desktop.querySelector('[data-act="event-next"]')
+    const target = desktop.querySelector('[data-act="visit-paper"]')
       ?? screenLayer.querySelector('.primary')
       ?? desktop.querySelector('.paper-card');
     target?.focus({ preventScroll: true });
@@ -1626,9 +1632,16 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
+    case 'visit-paper':
+      if (!arrival && visitDocument(activeVisit())) {
+        playSound('paper');
+        openPanel('visit', target);
+      }
+      break;
     case 'next':
     case 'event-next':
     case 'receive-recall': {
+      if (act === 'event-next' && (panel !== 'visit' || key !== activeVisit()?.key)) break;
       const action = act === 'receive-recall' ? { type: act, id: index } : act === 'next' ? 'next' : 'ack-visit';
       const next = !arrival && windowAdvance(action);
       if (!next) break;
@@ -1880,7 +1893,7 @@ document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.isComposing) return;
   const target = event.target;
   if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
-      target.matches('[data-act="stamp"], [data-act="next"], [data-act="event-next"], .sample-hotspot[data-drag]')) {
+      target.matches('[data-act="stamp"], [data-act="next"], [data-act="visit-paper"], [data-act="event-next"], .sample-hotspot[data-drag]')) {
     event.preventDefault();
     return;
   }

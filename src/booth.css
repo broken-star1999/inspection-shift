@@ -794,3 +794,16 @@
   .booth-layout .stamp-rail .stamp { font-size: .68rem; }
   .booth-layout .speaker small { display: none; }
 }
+
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  #game:not([data-modeled='true']) .booth-layout .room-hud .speech.dispatch-event {
+    inset-block: .38rem auto;
+    inset-inline: .38rem auto;
+    inline-size: min(40%, calc(50% - 2.25rem), 13rem);
+    max-block-size: none;
+    padding: .35rem .45rem;
+    overflow: visible;
+    translate: none;
+    pointer-events: none;
+  }
+}

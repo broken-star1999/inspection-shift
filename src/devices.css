@@ -52,7 +52,8 @@ html[data-shift-immersive] body {
     --guide-width: min(82cqw, 32rem);
   }
 
-  #game[data-phase='case'] .booth-layout .room-hud :is(.speech:not(.dispatch-event), .training) {
+  #game[data-phase='case'] .booth-layout .room-hud :is(.speech:not(.dispatch-event), .training),
+  #game[data-modeled='true'] .booth-layout .room-hud .speech.dispatch-event {
     inset-inline: 50% auto;
     inline-size: max-content;
     max-block-size: none;
@@ -62,7 +63,8 @@ html[data-shift-immersive] body {
     pointer-events: none;
   }
 
-  #game[data-phase='case'] .booth-layout .room-hud .speech:not(.dispatch-event) {
+  #game[data-phase='case'] .booth-layout .room-hud .speech:not(.dispatch-event),
+  #game[data-modeled='true'] .booth-layout .room-hud .speech.dispatch-event {
     inset-block: var(--dialogue-top, .3rem) auto;
     max-inline-size: var(--dialogue-width, calc(100% - .6rem));
     display: grid;
@@ -72,7 +74,8 @@ html[data-shift-immersive] body {
     row-gap: .2rem;
   }
 
-  #game[data-phase='case'] .room-hud .speech:not(.dispatch-event) .speaker {
+  #game[data-phase='case'] .room-hud .speech:not(.dispatch-event) .speaker,
+  #game[data-modeled='true'] .room-hud .speech.dispatch-event .speaker {
     display: grid;
     gap: .08rem;
     margin: 0;

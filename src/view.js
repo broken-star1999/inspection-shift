@@ -127,14 +127,18 @@ function paperCard(doc, index, target, offset, lifted, disabled = false) {
     <small>${types[doc.type] ?? '归档'}</small><h3>${esc(doc.title)}</h3><b class="paper-num">${esc(doc.fields[0]?.[1])}</b><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">${doc.type === 'label' ? '批' : doc.type === 'report' ? '检' : '联'}</span></button>`;
 }
 
-export function visitSlip(doc) {
-  const [category, label] = {
-    recall: ['收货方回签', '收下回执'],
-    rework: ['周二复核', '收下复核联'],
-    acceptance: ['到货验收', '收下验收联'],
-  }[doc.kind] ?? ['回访留底', '收下留底'];
-  return `<section class="paper-work visit-work"><div class="papers"><button type="button" class="paper-card paper-archive visit-slip" data-act="event-next" data-fixture="doc0" aria-label="收下${esc(doc.title)}">
-    <small>${category}</small><h3>${label}</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
+const visitPaperLabels = {
+  trace: ['实验室原件', '收下原件'],
+  night: ['夜班存根', '收下存根'],
+  recall: ['收货方回执', '收下回签'],
+  rework: ['返工复核联', '收下复核联'],
+  acceptance: ['到货验收联', '收下验收联'],
+};
+
+export function visitSlip(doc, visit, lifted = false) {
+  const [label] = visitPaperLabels[visit.kind ?? visit.key] ?? ['回访留底'];
+  return `<section class="paper-work visit-work"><div class="papers"><button type="button" class="paper-card paper-archive visit-slip" data-act="visit-paper" data-fixture="doc0"${lifted ? ' data-lifted' : ''} aria-label="查看${esc(doc.title)}">
+    <h3>${label}</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
 }
 
 function stampButtons(instructed, disabled = false, action = 'stamp', currentVerdict = null) {
@@ -285,7 +289,7 @@ export function instructions(how) {
     ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。可以先记下查验依据。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
-function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, fieldActions, phoneSource, pinAction = '' } = {}) {
+function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, fieldActions, phoneSource, pinAction = '', showTitle = true } = {}) {
   const action = inspection?.action ?? 'basis';
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
@@ -301,9 +305,18 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const layout = lookup ? 'report-number-value' : extraAction ? 'document-action-value' : '';
     return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${extraAction ?? ''}</dd></div>`;
   }).join('');
-  const heading = `<h3>${esc(doc.title)}</h3>`;
+  const heading = showTitle ? `<h3>${esc(doc.title)}</h3>` : '';
   return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}"${Number.isInteger(index) ? ` data-doc-index="${index}"` : ''}><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small>${pinAction ? `<div class="sheet-pin-heading">${heading}${pinAction}</div>` : heading}${clipboardFront ? clipboardFlip(false) : ''}<dl class="fields">
     ${rows}</dl>${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
+}
+
+export function visitPaper(doc, visit) {
+  const [, accept] = visitPaperLabels[visit.kind ?? visit.key] ?? ['', '收下留底'];
+  return deskSurface(doc.title, sheet(doc, undefined, undefined, { showTitle: false }),
+    'visit-paper-surface', '放回窗口', visit.key, {
+      closeLabel: '放回窗口',
+      footer: button(accept, 'event-next', 'primary visit-accept', `data-key="${esc(visit.key)}"`),
+    });
 }
 
 function orderFieldActions(item, orderIndex, visible, selected) {

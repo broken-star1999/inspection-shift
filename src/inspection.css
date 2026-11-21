@@ -88,6 +88,37 @@
   border-radius: 2px 2px 6px 6px;
   box-shadow: 0 5px 0 #2a261f91, 5px 10px 18px #13160fb0, inset 0 1px #afad7a70;
 }
+.visit-paper-surface { inline-size: min(46cqw, 34rem); }
+.visit-paper-surface .desk-surface-bar { gap: .28rem; }
+.visit-paper-surface .desk-surface-content { padding: .38rem; }
+.visit-paper-surface .fields > div {
+  grid-template-columns: minmax(4.3rem, .55fr) minmax(0, 1fr);
+}
+.visit-paper-surface .desk-surface-footer {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  padding: .35rem .25rem 0;
+}
+.visit-paper-surface :is(.surface-close, .visit-accept) { min-block-size: 2.75rem; }
+
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  .desk-surface.visit-paper-surface {
+    inset-inline-start: .65rem;
+    inline-size: min(45cqw, 27rem);
+  }
+
+  #game[data-modeled='true'] .visit-paper-surface { max-block-size: calc(100% - 4.15rem); }
+  #game[data-modeled='true'] .visit-paper-surface .desk-surface-footer { justify-content: flex-start; }
+  #game:not([data-modeled='true']) .desk-surface.visit-paper-surface {
+    inset-inline-start: auto;
+    inset-inline-end: .65rem;
+  }
+
+  .visit-paper-surface .sheet { padding: .36rem .52rem; }
+  .visit-paper-surface .fields > div { gap: .32rem; padding-block: .2rem; }
+}
+
 .desk-surface .modal-guide { margin-block-end: .52rem; }
 .playfield:has(.tutorial-guide) .room-hud .training { visibility: hidden; }
 .desk-surface-content:has(.tutorial-guide) { scroll-padding-block-start: 2.65rem; }
