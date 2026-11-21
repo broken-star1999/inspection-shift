@@ -1,6 +1,7 @@
 import { DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
-import { intakeComparison, projectComparison } from './document-comparison.js';
+import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
 import { normalizeFindings } from './inspection-findings.js';
+import { sampleFinding } from './samples.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
 const CASES = DAYS.flatMap((day) => day.cases);
@@ -168,10 +169,19 @@ function sameFinding(first, second) {
   return Boolean(first && second && first.key === second.key && first.source === second.source && first.text === second.text);
 }
 
+function inspectionReplyFinding(item) {
+  const reply = item?.inspectionReply;
+  if (!reply) return null;
+  if (reply.sample) return sampleFinding(item.sample, reply.sample);
+  const { register, side } = reply.relabel;
+  return relabelComparison(item, register)?.pairs.find((pair) => pair.side === side)?.finding;
+}
+
 export function canShowFinding(item, value) {
-  if (value === undefined) return Boolean(item?.pressure || item?.id === 5);
+  if (value === undefined) return Boolean(item?.pressure || item?.id === 5 || item?.inspectionReply);
   const [finding] = normalizeFindings([value]);
-  return Boolean(finding && (item?.pressure || sameFinding(finding, supplementFinding(item))));
+  return Boolean(finding && (item?.pressure || sameFinding(finding, supplementFinding(item)) ||
+    sameFinding(finding, inspectionReplyFinding(item))));
 }
 
 export function getWindowSupplementRequest(state) {
@@ -201,6 +211,15 @@ function pressureFindingKind(key) {
   return comparison ?? (key.startsWith('sample:') ? 'sample' : 'paper');
 }
 
+function replyToFinding(item, finding, script) {
+  if (!finding) return null;
+  if (sameFinding(finding, inspectionReplyFinding(item))) return item.inspectionReply.line;
+  if (!script) return item.id === 5 ? G205_SUPPLEMENT_REQUEST.shown : null;
+  const kind = pressureFindingKind(finding.key);
+  const replyKind = item.id === 5 && kind === 'intake' && !sameFinding(finding, supplementFinding(item)) ? 'paper' : kind;
+  return script.shown?.[replyKind] ?? null;
+}
+
 export function getCase(state) {
   if (!['case', 'receipt'].includes(state.phase)) return null;
   const base = getDay(state)?.cases[state.index];
@@ -210,10 +229,8 @@ export function getCase(state) {
   const script = pressure ? PRESSURE[pressure === 'favor' ? 0 : 1] : null;
   const saved = state.shownFinding;
   const shownFinding = saved?.caseId === item.id && canShowFinding({ ...item, pressure }, saved) ? saved : null;
-  const kind = shownFinding ? pressureFindingKind(shownFinding.key) : null;
-  const replyKind = item.id === 5 && kind === 'intake' && !sameFinding(shownFinding, supplementFinding(item)) ? 'paper' : kind;
-  const pressureReply = shownFinding ? (script ? script.shown?.[replyKind] : G205_SUPPLEMENT_REQUEST.shown) ?? null : null;
-  return { ...item, line: getDialogue(state, item), pressure, pressureLine: script?.line ?? null, shownFinding, pressureReply };
+  const findingReply = replyToFinding(item, shownFinding, script);
+  return { ...item, line: getDialogue(state, item), pressure, pressureLine: script?.line ?? null, shownFinding, findingReply };
 }
 
 export function getPreviousReceipt(state, item = getCase(state)) {

@@ -188,7 +188,7 @@ test('a G-216 relabel finding draws a paper-specific pressure reply without deci
   assert.equal(current.pressure, 'favor');
   const { finding } = relabelComparison(current, 2).pairs[1];
   const shown = dispatch(run, { type: 'show-finding', finding });
-  assert.equal(getCase(shown).pressureReply, PRESSURE[0].shown.relabel);
+  assert.equal(getCase(shown).findingReply, PRESSURE[0].shown.relabel);
   assert.equal(getCase(shown).answer, current.answer);
   assert.equal(shown.records, run.records);
 });

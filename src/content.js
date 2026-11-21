@@ -318,13 +318,18 @@ export const DAYS = [
           { ...archive('耳罩外壳工艺示意', [['图号', 'WX-3'], ['合模线允许位置', '耳杯外壳下沿'], ['目视限制', '不得贯穿壳体或延伸到软垫']], '逆着这张纸看，夹板背面还压了东西。'), kind: 'mold-sketch' },
         ],
         sample: { kind: 'line', appearance: 'earmuff', front: '耳杯外壳下沿有一道细线，边缘很整齐。', back: '细线沿外壳收住，内侧壳体没有裂口，软垫也完整。' },
+        inspectionReply: { sample: { back: true }, line: '线到壳边就收住了，软垫边上没接过去。' },
         variants: [
           {},
-          { answer: 'fail', reason: '裂纹跨过外壳与软垫的接缝', sample: {
-            earCupSplit: true,
-            front: '耳杯下沿有一道细线，靠近外壳和软垫的接缝时转向内侧。',
-            back: '沿内侧看，那道线越过外壳边缘，在软垫边上也能看到一截。',
-          } },
+          {
+            answer: 'fail', reason: '裂纹跨过外壳与软垫的接缝',
+            sample: {
+              earCupSplit: true,
+              front: '耳杯下沿有一道细线，靠近外壳和软垫的接缝时转向内侧。',
+              back: '沿内侧看，那道线越过外壳边缘，在软垫边上也能看到一截。',
+            },
+            inspectionReply: { sample: { back: true }, line: '软垫边上这截我也看到了。工艺图只画到壳边。' },
+          },
         ],
       },
       {
@@ -336,6 +341,7 @@ export const DAYS = [
           ...clear, kind: 'crack', front: '一道分叉白纹伸进镜片中间。',
           afterFilm: '膜角已经掀起，分叉白纹还留在镜片上。',
         },
+        inspectionReply: { sample: { film: true }, line: '膜都掀开了，那道分叉还在镜片上。装货台我去回话。' },
       },
     ],
   },
@@ -409,6 +415,7 @@ export const DAYS = [
         line: '还是昨晚那一摞。这个我对过，应该一样。',
         answer: 'review', reason: '登记的新签号不是本箱', receiptAside: '这摞单昨晚也送来过。我问了两个人，都叫我先送来看看。',
         documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签登记', [['原箱批号', 'G-111'], ['现箱批号', 'G-216'], ['夜班退单', '请核对实物对应批号'], ['经手窗口', '夜班窗口·孙姐　内线 107']], '右下是前一晚的退单章。')], sample: glove,
+        inspectionReply: { relabel: { register: 2, side: 'current' }, line: '现箱那栏？这张是昨晚夜班退回来的。经手窗口写在下面。' },
       },
       {
         id: 12, batch: 'G-212', npc: 'xu', title: '响了一声的卡扣',

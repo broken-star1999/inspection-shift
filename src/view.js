@@ -135,7 +135,7 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCu
   const day = DAYS[run.day];
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
   const record = run.phase === 'receipt' ? run.records.at(-1) : null;
-  const reply = run.phase === 'case' && !sceneEvent ? item?.pressureReply : null;
+  const reply = run.phase === 'case' && !sceneEvent ? item?.findingReply : null;
   const exchange = pressure && !sceneEvent && !record;
   const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? reply ?? item?.line ?? day.intro;
   const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
@@ -143,7 +143,7 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCu
     ? `<div class="training" aria-live="polite"><span class="tutorial-index">${run.tutorial + 1} / 5</span><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>`
     : filmCue ? `<div class="training" id="film-bench-cue" aria-live="polite"><small>老周</small><p>${esc(FILM_BENCH_TUTORIAL)}</p></div>` : '';
   return `<div class="speech${cls('dispatch-event', sceneEvent)}${cls('pressure-exchange', exchange)}"${sceneEvent?.kind ? ` data-visit-kind="${esc(sceneEvent.kind)}"` : ''} aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
-      <p${reply ? ' class="pressure-reply"' : ''}>${esc(line)}</p>${exchange && !reply ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
+      <p${reply ? ' class="finding-reply"' : ''}>${esc(line)}</p>${exchange && !reply ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
       ${earlier}</div>${training}`;
 }
 
@@ -417,13 +417,15 @@ function intakeSlip(item, comparison, orderIndex, selected, supplement) {
     <div class="modal-actions intake-actions">${button(checked ? '取回依据' : '记下点收', 'delivery-evidence', 'secondary intake-evidence', `data-i="${orderIndex}"${active(checked)}`)}${show}</div></article>`;
 }
 
-function relabelSlip(comparison, selected) {
+function relabelSlip(item, comparison, selected) {
   const field = ({ title, field, value }) => `<span class="relabel-field"><small>${esc(title)}</small><span>${esc(field)}</span><strong>${esc(value)}</strong></span>`;
   const pairs = comparison.pairs.map(({ side, left, right, finding }) => {
     const recorded = selected.has(finding.key);
     const record = button(recorded ? '取回这组' : '记下这组', 'relabel-evidence', 'secondary relabel-evidence',
       `data-i="${comparison.registerIndex}" data-key="${side}"${active(recorded)} aria-label="${recorded ? '取回' : '记下'}${side === 'original' ? '原箱批号对照' : '现箱批号对照'}"`);
-    return `<div class="relabel-pair" data-side="${side}">${field(left)}${field(right)}${record}</div>`;
+    const show = recorded ? findingShowButton(finding, item, item.shownFinding, null, 'source') : '';
+    const actions = show ? `<div class="modal-actions relabel-actions">${record}${show}</div>` : record;
+    return `<div class="relabel-pair" data-side="${side}">${field(left)}${field(right)}${actions}</div>`;
   }).join('');
   return `<article class="sheet relabel-slip"><h3>批号对照</h3>${pairs}</article>`;
 }
@@ -599,7 +601,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   if (relabel) {
     const register = item.documents[relabel.registerIndex];
     const collapse = button('收起对照', 'relabel-check', 'secondary relabel-close', `data-i="${relabel.registerIndex}"${active(true)}`);
-    return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair relabel-comparison">${relabelSlip(relabel, inspection.selected)}
+    return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair relabel-comparison">${relabelSlip(item, relabel, inspection.selected)}
       <div class="relabel-register">${sheet(register, relabel.registerIndex, inspection, { phoneSource: item.id })}${extras ? `<div class="modal-actions">${extras}</div>` : ''}</div></div>`,
     'documents-surface', '放回台面', `relabel:${relabel.registerIndex}`, { headerActions: collapse + phoneAction + draft.header });
   }

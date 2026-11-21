@@ -478,6 +478,12 @@
   padding-block: .3rem;
   border-block-start: 1px solid #a1865f72;
 }
+.relabel-slip .relabel-pair:has(.relabel-actions) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.relabel-slip .relabel-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  margin: 0;
+}
 .relabel-field { display: grid; gap: .06rem; min-inline-size: 0; }
 .relabel-field > :is(small, span) { color: #654f38; font: 730 .71rem / 1.16 var(--mono); }
 .relabel-field strong { color: #33291f; font: 850 clamp(.84rem, 1.5cqw, 1.12rem) / 1.25 var(--mono); white-space: nowrap; }
@@ -1623,7 +1629,7 @@
   min-block-size: 2.75rem;
 }
 :is(.bench-facing-visitor, .working-findings) .finding-show,
-:is(.documents-surface .intake-actions, .sample-surface .modal-actions) .button.evidence-show-control {
+:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface .modal-actions) .button.evidence-show-control {
   flex: 0 0 auto;
   min-inline-size: 2.75rem;
   min-block-size: 2.75rem;
@@ -1637,11 +1643,11 @@
   white-space: nowrap;
 }
 :is(.bench-facing-visitor, .working-findings) .finding-show:is(:hover, :focus-visible),
-:is(.documents-surface .intake-actions, .sample-surface .modal-actions) .evidence-show-control:is(:hover, :focus-visible) {
+:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface .modal-actions) .evidence-show-control:is(:hover, :focus-visible) {
   background: #ecd6a2;
 }
 :is(.bench-facing-visitor, .working-findings) .finding-show[aria-pressed='true'],
-:is(.documents-surface .intake-actions, .sample-surface .modal-actions) .evidence-show-control[aria-pressed='true'] {
+:is(.documents-surface :is(.intake-actions, .relabel-actions), .sample-surface .modal-actions) .evidence-show-control[aria-pressed='true'] {
   background: #bfa36d;
 }
 

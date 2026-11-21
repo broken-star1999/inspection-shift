@@ -3,6 +3,7 @@ import test from 'node:test';
 import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
 import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPhoneReportLookup, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceHandoffReview, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
+import { sampleFinding } from '../src/samples.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -681,7 +682,7 @@ test('a finding shown during pressure survives reload and records independently 
     assert.deepEqual(shown.shownFinding, expected);
     const restored = JSON.parse(JSON.stringify(shown));
     assert.deepEqual(getCase(restored).shownFinding, expected);
-    assert.equal(getCase(restored).pressureReply, PRESSURE[0].shown.intake);
+    assert.equal(getCase(restored).findingReply, PRESSURE[0].shown.intake);
     assert.equal(act(restored, 'show-finding', { finding }), restored);
     assert.equal(act(restored, 'show-finding', { finding: { key: finding.key, text: ' ' } }), restored);
 
@@ -732,7 +733,7 @@ test('showing the exact G-205 intake at a quiet window prioritizes the next-day 
   const questioned = act(shown, 'dial', { number: '204', papers: [{ id: 5, index: 1 }] });
   assert.equal(questioned.phone.kind, 'lab-request');
   const beforeStamp = restoreRun(JSON.parse(JSON.stringify(questioned)));
-  assert.equal(getCase(beforeStamp).pressureReply, G205_SUPPLEMENT_REQUEST.shown);
+  assert.equal(getCase(beforeStamp).findingReply, G205_SUPPLEMENT_REQUEST.shown);
   assert.equal(getWindowSupplementRequest(beforeStamp), null);
   assert.deepEqual(getDay({ ...beforeStamp, day: 2 }).cases.map(({ id }) => id), [12, 10, 11, 9]);
   const held = act(beforeStamp, 'stamp', { value: 'review', findings: [finding] });
@@ -798,12 +799,56 @@ test('only an actual G-205 intake presentation with a review persists a request,
   assert.equal(afterPass.records.find(({ id }) => id === 5).status, 'shipped');
 });
 
+test('the visitor responds to the actual back of the ear cup or the lens after peeling', () => {
+  const firstWeek = { ...createRun(25), phase: 'case' };
+  const splitEarCup = { ...firstWeek, sampleSet: 4, variantOverride: { caseId: 3, index: 1 } };
+  for (const { run, index, observation, reply } of [
+    { run: firstWeek, index: 2, observation: { back: true }, reply: /软垫边上没接过去/u },
+    { run: splitEarCup, index: 2, observation: { back: true }, reply: /软垫边上这截/u },
+    { run: firstWeek, index: 3, observation: { film: true }, reply: /分叉还在镜片上/u },
+  ]) {
+    const waiting = { ...run, index };
+    const item = getCase(waiting);
+    const earlier = sampleFinding(item.sample, {});
+    const evidence = sampleFinding(item.sample, observation);
+    assert.equal(canShowFinding(item, earlier), false);
+    assert.equal(canShowFinding(item, evidence), true);
+    assert.equal(act(waiting, 'show-finding', { finding: { ...evidence, text: '与实物不相符的观察' } }), waiting);
+
+    const shown = act(waiting, 'show-finding', { finding: evidence });
+    const resumed = restoreRun(JSON.parse(JSON.stringify(shown)));
+    assert.match(getCase(resumed).findingReply, reply);
+    assert.equal(shown.records, waiting.records);
+    assert.equal(shown.flags, waiting.flags);
+    const passed = act(shown, 'stamp', { value: 'pass', findings: [evidence] });
+    assert.equal(passed.records.at(-1).status, 'shipping');
+    assert.deepEqual(passed.records.at(-1).shownFinding, { ...evidence, caseId: item.id });
+  }
+});
+
+test('G-211 lets the player question the current box number without registering a call or clearing the hold', () => {
+  const week = { ...createRun(21), day: 2, phase: 'case' };
+  const waiting = { ...week, index: getDay(week).cases.findIndex(({ id }) => id === 11) };
+  const item = getCase(waiting);
+  const [original, current] = relabelComparison(item, 2).pairs;
+  assert.equal(canShowFinding(item, original.finding), false);
+  assert.equal(canShowFinding(item, current.finding), true);
+  assert.equal(getCase(waiting).findingReply, null);
+  const shown = act(waiting, 'show-finding', { finding: current.finding });
+  assert.match(getCase(shown).findingReply, /昨晚夜班退回来的/u);
+  assert.equal(shown.phoneLog, waiting.phoneLog);
+  assert.equal(shown.pending, waiting.pending);
+  const held = act(shown, 'stamp', { value: 'review', findings: [current.finding] });
+  assert.equal(held.records.at(-1).status, 'held');
+  assert.deepEqual(held.records.at(-1).shownFinding, { ...current.finding, caseId: 11 });
+});
+
 test('pressure replies follow the latest evidence and cannot be triggered before a visitor arrives', () => {
   const sample = { key: 'sample:正面', source: '防护面屏 · 正面', text: '视野内没有划伤。' };
   const ordinary = act(createRun(0), 'start-day');
   const { shownFinding: _initialFinding, ...legacy } = ordinary;
   assert.equal(getCase(legacy).shownFinding, null);
-  assert.equal(getCase(legacy).pressureReply, null);
+  assert.equal(getCase(legacy).findingReply, null);
   assert.equal(act(legacy, 'show-finding', { finding: sample }), legacy);
 
   let checked = false;
@@ -811,12 +856,12 @@ test('pressure replies follow the latest evidence and cannot be triggered before
     if (item.id !== 10) return state;
     const project = projectComparison(item, 2, 1).finding;
     let shown = act(state, 'show-finding', { finding: project });
-    assert.equal(getCase(shown).pressureReply, PRESSURE[1].shown.projects);
+    assert.equal(getCase(shown).findingReply, PRESSURE[1].shown.projects);
     shown = act(shown, 'show-finding', { finding: sample });
-    assert.equal(getCase(shown).pressureReply, PRESSURE[1].shown.sample);
+    assert.equal(getCase(shown).findingReply, PRESSURE[1].shown.sample);
     const paper = { key: 'doc:2:1', source: '送检联', text: '必查项目 · 外观、耐冲击' };
     shown = act(shown, 'show-finding', { finding: paper });
-    assert.equal(getCase(shown).pressureReply, PRESSURE[1].shown.paper);
+    assert.equal(getCase(shown).findingReply, PRESSURE[1].shown.paper);
     assert.deepEqual(getCase(shown).shownFinding, { ...paper, caseId: item.id });
     const another = act(shown, 'show-finding', { finding: { ...paper, text: '修订后的条目' } });
     assert.equal(another.shownFinding.text, '修订后的条目');
