@@ -27,7 +27,7 @@ const SAVE_KEY = 'nandu-inspection-save-v1';
 const COLLECTION_KEY = 'nandu-inspection-endings-v1';
 const COMPLETED_KEY = 'nandu-inspection-completed-v1';
 const ARRIVAL_PAUSE_MS = 1150;
-const NEXT_BATCH_PAUSE_MS = 1650;
+const NEXT_BATCH_PAUSE_MS = 2350;
 const VISIT_HANDOVER_MS = 760;
 const PAPER_PAIR_HOLD_MS = 250;
 const RECEIPT_LIFT_MS = 235;
@@ -108,7 +108,7 @@ const windowReadback = root.querySelector('#window-readback');
 const utility = root.querySelector('.topbar .utility');
 const windowGlance = document.createElement('button');
 windowGlance.id = 'window-glance';
-windowGlance.className = 'window-glance';
+windowGlance.className = 'window-glance window-glance-live';
 windowGlance.type = 'button';
 windowGlance.dataset.act = 'window-glance';
 const desktop = root.querySelector('#desk');
@@ -691,6 +691,7 @@ function renderArrivalStatus() {
     : arrival?.action === 'next' && !arrival.hasVisitor ? (arrival.nextPhase === 'handoff' ? '去交班…' : '本班收工…')
     : arrival ? '等下一位…' : '';
   root.toggleAttribute('data-receipt-handover', handingReceipt);
+  root.toggleAttribute('data-between-batches', Boolean(!panel && toolsAvailableBetweenBatches()));
   arrivalStatus.toggleAttribute('data-visitor-waiting', Boolean(someoneWaiting));
   if (arrivalStatus.textContent !== message) arrivalStatus.textContent = message;
 }
@@ -726,17 +727,14 @@ function syncWindowGlance() {
     windowGlance.remove();
     return;
   }
-  windowGlance.classList.toggle('window-glance-live', live);
+  const someoneWaiting = waiting && !looking;
   const command = looking
     ? (waiting && panel === 'archive' ? '继续看单' : glanceReturnLabels[panel])
     : waiting ? '窗口有人等候 · 抬头看' : '抬头看';
-  windowGlance.textContent = looking && live ? '回到查验' : command;
+  windowGlance.toggleAttribute('data-visitor-waiting', someoneWaiting);
+  windowGlance.textContent = someoneWaiting ? '有人等\n抬头看' : looking && live ? '回到查验' : command;
   windowGlance.setAttribute('aria-label', command);
-  const host = live ? utility : modalLayer;
-  if (windowGlance.parentElement !== host) {
-    if (live) host.prepend(windowGlance);
-    else host.append(windowGlance);
-  }
+  if (windowGlance.parentElement !== utility) utility.prepend(windowGlance);
 }
 
 function toggleWindowGlance() {
@@ -954,15 +952,21 @@ function workspaceBody() {
   return null;
 }
 
+function reportWorkspaceContext(betweenBatches) {
+  if (!betweenBatches) return undefined;
+  return { betweenBatches, supportingKeys: new Set(filedSupportingPapers('').map(([key]) => key)) };
+}
+
 function persistRun() {
   if (!run || reviewingHistory) return;
   captureCorrectionScroll();
   const body = workspaceBody();
   const item = getCase(run);
+  const betweenBatches = toolsAvailableBetweenBatches() && ['archive', 'phone'].includes(panel);
   const lookup = reportWorkspace(run, {
     caseId: item?.id, panel, reportIndex, archivePaper, archiveFocus: interaction.archiveFocus,
     archiveQuery: interaction.archiveQuery, archiveReturn, phoneReturn, scrollTop: body?.scrollTop, scrollLeft: body?.scrollLeft,
-  });
+  }, reportWorkspaceContext(betweenBatches));
   const originalWork = lookup && [lookup.archiveReturn, lookup.phoneReturn?.archiveReturn, lookup.phoneReturn]
     .find((origin) => ['docs', 'sample'].includes(origin?.panel));
   const archived = originalWork ?? (panel === 'archive' && ['phone', 'docs', 'sample'].includes(archiveReturn?.panel) ? archiveReturn : null);
@@ -976,6 +980,7 @@ function persistRun() {
   saved = {
     ...run,
     ...(arrival ? { arrivalAction: arrival.action } : {}),
+    ...(betweenBatches && arrival.ready ? { arrivalReady: true } : {}),
     ...(correctionDraft && (run.phase === 'handoff' || (!arrival && canRecheckReceipt(run, correctionDraft.id))) ? { correctionDraft } : {}),
     ...(pairWorkspace ? { handoffPair: pairWorkspace } : {}),
     ...(lookup ? { reportWorkspace: lookup } : {}),
@@ -1071,15 +1076,21 @@ function enter(restore) {
   let savedCorrection;
   let savedPair;
   let lookup;
+  let resumeWaitingTools = false;
+  let visitorWaiting = false;
   if (restore && saved) {
-    const { inspectionProgress, arrivalAction: savedArrival, correctionDraft: draft, handoffPair: pair, reportWorkspace: savedLookup, ...savedRun } = saved;
+    const { inspectionProgress, arrivalAction: savedArrival, arrivalReady, correctionDraft: draft, handoffPair: pair,
+      reportWorkspace: savedLookup, ...savedRun } = saved;
     arrivalAction = savedArrival;
     savedCorrection = draft;
     savedPair = pair;
     run = restoreRun(savedRun);
     const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
-    lookup = reportWorkspace(run, savedLookup);
+    const betweenBatches = savedArrival === 'next' && run.phase === 'receipt' && Boolean(needsArrival(windowAdvance(savedArrival)));
+    lookup = reportWorkspace(run, savedLookup, reportWorkspaceContext(betweenBatches));
+    resumeWaitingTools = betweenBatches && Boolean(lookup);
+    visitorWaiting = resumeWaitingTools && arrivalReady === true;
   } else {
     const lastCompleted = saved?.phase === 'ending' ? saved : completedShifts.values().next().value;
     const newWeek = endings.length ? createFollowingRun(lastCompleted) : createRun();
@@ -1095,7 +1106,7 @@ function enter(restore) {
   advanceTutorial();
   phoneReturn = lookup ? lookup.phoneReturn : workspace?.returnTo
     ? { ...workspace.returnTo, opener: { act: workspace.returnTo.panel === 'archive' ? 'phone-document' : 'phone' } } : null;
-  if (panel !== 'phone') run = dispatch(run, { type: 'hang-up' });
+  if (panel !== 'phone' && lookup?.archiveReturn?.panel !== 'phone') run = dispatch(run, { type: 'hang-up' });
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
   archiveReturn = lookup?.archiveReturn ?? null;
@@ -1114,8 +1125,12 @@ function enter(restore) {
   const recallId = visit?.kind === 'recall' ? visit.caseId : windowAction(arrivalAction)?.id;
   if (Number.isInteger(recallId)) recallPairReturn = pairForRecall(savedPair, recallId);
   if (needsArrival(next)) {
-    panel = null;
-    pauseBeforeArrival(arrivalAction, next, true, true);
+    if (!resumeWaitingTools) panel = null;
+    pauseBeforeArrival(arrivalAction, next, true, {
+      resumed: true, ready: visitorWaiting,
+      scrollTop: resumeWaitingTools ? lookup.scrollTop : undefined,
+      scrollLeft: resumeWaitingTools ? lookup.scrollLeft : undefined,
+    });
     return;
   }
   if (arrivalAction === 'next' && next) {
@@ -1332,15 +1347,19 @@ function beginWindowApproach() {
   render();
 }
 
-function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
-  modalOpener = null;
+function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready = false, scrollTop, scrollLeft } = {}) {
+  if (!panel) modalOpener = null;
   const npc = visitorAt(next);
   const hasVisitor = Boolean(needsArrival(next));
   const handingReceipt = action === 'next' && !resumed && !reducedMotion.matches;
   arrival = {
     action, restoreFocus, stage: 'waiting', keepVisitor: !resumed && npc !== null && npc === visitorAt(run),
-    approach: arrivalApproach(next), hasVisitor, nextPhase: next.phase, handingReceipt,
+    approach: arrivalApproach(next), hasVisitor, nextPhase: next.phase, handingReceipt, ready,
   };
+  if (ready) {
+    render(scrollTop, scrollLeft);
+    return;
+  }
   if (action === 'start-day' && activeVisit(next)?.kind !== 'rework') {
     beginWindowApproach();
     return;
@@ -1354,6 +1373,7 @@ function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
       syncWindowGlance();
       setScene();
       playSound('knock');
+      persistRun();
     } else beginWindowApproach();
   };
   if (handingReceipt) {
@@ -1370,7 +1390,7 @@ function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
       arrivalTimer = setTimeout(advance, wait);
     }, RECEIPT_HANDOVER_MS);
   } else arrivalTimer = setTimeout(advance, duration - ARRIVAL_APPROACH_MS);
-  render();
+  render(scrollTop, scrollLeft);
 }
 
 function advanceTutorial() {

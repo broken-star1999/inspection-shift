@@ -260,6 +260,10 @@
   opacity: 1;
 }
 
+#game[data-modeled='true'][data-between-batches] .booth-layout .wall-tool[data-fixture-visible]::before {
+  opacity: .72;
+}
+
 #game[data-modeled='true'] .booth-layout button[data-fixture]:focus-visible:not(:disabled) {
   outline: 1px solid #ffdfa49c;
   outline-offset: .16rem;

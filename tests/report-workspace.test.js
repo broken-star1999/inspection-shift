@@ -61,6 +61,27 @@ test('an exact phone-pinned page can restore without a report index', () => {
   assert.equal(reportWorkspace(run, { ...phonePaper, archivePaper: { id: 7, index: null } }), null);
 });
 
+test('a handed receipt can save the held phone or open archive while the next visitor waits', () => {
+  const run = dispatch(atReportLookup(), { type: 'stamp', value: 'pass' });
+  const options = { betweenBatches: true, supportingKeys: new Set(['call:lab-request:5']) };
+  const phone = {
+    ...indexed, panel: 'phone', reportIndex: null, archivePaper: null, archiveFocus: null, archiveQuery: '',
+    archiveReturn: null, phoneReturn: null, scrollTop: 41,
+  };
+  const archive = {
+    ...phone, panel: 'archive', archiveFocus: 'call:lab-request:5', archiveQuery: 'G-205',
+    archiveReturn: { panel: 'phone', opener: { act: 'archive' }, scrollTop: 31, scrollLeft: 0 },
+  };
+  assert.equal(reportWorkspace(run, phone), null);
+  for (const workspace of [phone, archive]) {
+    assert.deepEqual(reportWorkspace(run, JSON.parse(JSON.stringify(workspace)), options), workspace);
+  }
+  const report = { ...archive, archiveFocus: 14, archiveQuery: 'R-071', reportIndex: 'R-071', archivePaper: indexed.archivePaper };
+  assert.deepEqual(reportWorkspace(run, report, options), report);
+  assert.equal(reportWorkspace(run, { ...archive, archiveFocus: 'invented' }, options).archiveFocus, null);
+  assert.equal(reportWorkspace(run, { ...archive, archiveReturn: docs }, options).archiveReturn, null);
+});
+
 test('invalid exact selection falls back to a valid index while unsafe offsets and opener data are pruned', () => {
   const run = atReportLookup();
   const unsafe = {

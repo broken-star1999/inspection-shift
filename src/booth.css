@@ -531,6 +531,10 @@
   font: 730 clamp(.73rem, 1.4cqw, .86rem) / 1.2 var(--mono);
 }
 .utility .window-glance-live:is(:hover, :focus-visible) { border-color: #d0af72; background: #494233; }
+.utility .window-glance-live[data-visitor-waiting] {
+  border-color: #c9ab73;
+  white-space: pre-line;
+}
 #game[data-window-glance] .utility .window-glance-live { border-color: #c9ab73; background: #4d422e; }
 .utility .window-glance-live:focus-visible { outline-offset: -3px; }
 

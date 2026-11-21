@@ -35,14 +35,14 @@ function exactPaper(value, filed, report, fromPhone = false) {
   return { id, index, ...scroll(value) };
 }
 
-function selectedArchiveFocus(focus, filed, hasTraceInquiry) {
-  return filed.has(focus) || (focus === TRACE_INQUIRY_KEY && hasTraceInquiry) ? focus : null;
+function selectedArchiveFocus(focus, filed, hasTraceInquiry, supportingKeys) {
+  return filed.has(focus) || (focus === TRACE_INQUIRY_KEY && hasTraceInquiry) || supportingKeys?.has(focus) ? focus : null;
 }
 
-function phoneOrigin(run, value, filed, hasTraceInquiry) {
-  if (value?.panel !== 'archive') return parent(value, ['docs', 'sample']);
+function phoneOrigin(run, value, filed, hasTraceInquiry, betweenBatches, supportingKeys) {
+  if (value?.panel !== 'archive') return betweenBatches ? null : parent(value, ['docs', 'sample']);
   const report = indexEntry(run, value.reportIndex);
-  const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry);
+  const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry, supportingKeys);
   if (!report && archiveFocus === null) return null;
   const archivePaper = exactPaper(value.archivePaper, filed, report);
   return {
@@ -50,27 +50,27 @@ function phoneOrigin(run, value, filed, hasTraceInquiry) {
     reportIndex: report?.number ?? null,
     archiveFocus,
     archiveQuery: query(value.archiveQuery),
-    archiveReturn: parent(value.archiveReturn, ['docs', 'sample']),
+    archiveReturn: betweenBatches ? null : parent(value.archiveReturn, ['docs', 'sample']),
     ...(archivePaper ? { archivePaper } : {}),
   };
 }
 
-export function reportWorkspace(run, value) {
-  if (run?.phase !== 'case' || (run.events?.length ?? Boolean(run.event)) ||
+export function reportWorkspace(run, value, { betweenBatches = false, supportingKeys } = {}) {
+  if (run?.phase !== (betweenBatches ? 'receipt' : 'case') || (run.events?.length ?? Boolean(run.event)) ||
       !['archive', 'phone'].includes(value?.panel) || !Number.isInteger(value.caseId) || getCase(run)?.id !== value.caseId) return null;
 
   const filed = new Map(archive(run).map((item) => [item.id, item]));
   const hasTraceInquiry = (value.archiveFocus === TRACE_INQUIRY_KEY || value.phoneReturn?.archiveFocus === TRACE_INQUIRY_KEY) &&
     Boolean(getTraceInquiry(run));
-  const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry);
+  const archiveFocus = selectedArchiveFocus(value.archiveFocus, filed, hasTraceInquiry, supportingKeys);
   const report = indexEntry(run, value.reportIndex);
-  const archiveReturn = parent(value.archiveReturn, ['docs', 'sample', 'phone']);
+  const archiveReturn = parent(value.archiveReturn, betweenBatches ? ['phone'] : ['docs', 'sample', 'phone']);
   const archivePaper = exactPaper(value.archivePaper, filed, report, archiveReturn?.panel === 'phone');
-  const phoneReturn = phoneOrigin(run, value.phoneReturn, filed, hasTraceInquiry);
-  const newView = value.panel === 'archive'
+  const phoneReturn = phoneOrigin(run, value.phoneReturn, filed, hasTraceInquiry, betweenBatches, supportingKeys);
+  const indexedView = value.panel === 'archive'
     ? report || archivePaper || archiveFocus === TRACE_INQUIRY_KEY
     : phoneReturn?.reportIndex || phoneReturn?.archiveFocus === TRACE_INQUIRY_KEY;
-  if (!newView) return null;
+  if (!betweenBatches && !indexedView) return null;
 
   return {
     caseId: value.caseId, panel: value.panel,
