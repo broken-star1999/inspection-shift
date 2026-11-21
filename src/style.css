@@ -1374,6 +1374,48 @@ button:disabled { opacity: .46; }
 .phone-pinned { margin: .45rem 0 .25rem; }
 .phone-side { min-inline-size: 0; }
 
+.phone-directory { display: grid; gap: .28rem; }
+.phone-contact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: .01rem .58rem;
+  inline-size: 100%;
+  min-block-size: 44px;
+  padding: .29rem .54rem;
+  border: 1px solid #b5a176;
+  border-inline-start: 3px solid #8d6946;
+  border-radius: .09rem;
+  background: linear-gradient(102deg, #efe1b9, #decda1);
+  color: #352e20;
+  box-shadow: 1px 2px 2px #1e231ca6;
+  font-size: .84rem;
+  line-height: 1.24;
+  text-align: start;
+  touch-action: manipulation;
+}
+.phone-contact strong {
+  grid-row: 1 / -1;
+  align-self: stretch;
+  display: grid;
+  place-content: center;
+  padding-inline-end: .5rem;
+  border-inline-end: 1px solid #b6a173;
+  font: 800 1.27rem / 1 var(--mono);
+  color: #5e4630;
+}
+.phone-contact small { color: #5e4d36; font-size: .73rem; }
+.phone-contact:not(:disabled):is(:hover, :focus-visible) { background: #f6eac9; }
+.phone-contact[aria-pressed='true'] { border-inline-start-color: #37624a; background: #e9e4c2; }
+.phone-contact:disabled { opacity: .63; }
+.phone-guide {
+  margin: 0;
+  color: #d6d8bc;
+  font-size: .76rem;
+  line-height: 1.45;
+}
+
 .phone-papers ul { display: grid; gap: .25rem; margin: .25rem 0 0; padding: 0; list-style: none; }
 .phone-paper {
   display: grid;
@@ -1411,8 +1453,7 @@ button:disabled { opacity: .46; }
   background: #303d2e;
 }
 .phone-modal .phone-hangup,
-.phone-modal .phone-actions .button,
-.phone-modal .phone-directory .button { min-block-size: 44px; }
+.phone-modal .phone-actions .button { min-block-size: 44px; }
 
 @container workstation (max-height: 440px) and (min-width: 500px) {
   .phone-modal {

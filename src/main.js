@@ -799,7 +799,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       const row = filed.find((item) => item.id === id);
       return row ? [{ id, index, batch: row.batch, document: row.documents[index] ?? null }] : [];
     });
-    markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, interaction.phoneBottom, item, {
+    markup = view.phone(phoneNumber, run.phone, papers, interaction.phoneBottom, item, {
       returnTo: phoneReturn?.archivePaper ? 'archive-paper' : phoneReturn?.reportIndex ? 'report-index' : phoneReturn?.panel,
       incomingCall,
     });
@@ -1950,6 +1950,20 @@ function setPhoneNumber(value) {
   persistRun();
 }
 
+function selectPhoneContact(number, caseId, docIndex) {
+  if (panel !== 'phone' || interaction.phoneBottom) return;
+  const item = windowCase();
+  const order = number === '204' && item?.id === caseId && item.documents[docIndex];
+  if (order?.type === 'order' && order.fields.some((field) => documentExtension(field) === number) &&
+      !interaction.pinned.some(({ id, index }) => id === caseId && index === docIndex)) {
+    const displaced = pinPhonePaper(caseId, docIndex);
+    if (displaced) toast(`${displaced} 已收回交接簿`);
+    playSound('paper');
+  }
+  setPhoneNumber(number);
+  focusControl(modalLayer, { act: 'dial' });
+}
+
 function flipPhone() {
   if (panel !== 'phone' || !run) return;
   const bottom = !interaction.phoneBottom;
@@ -2434,7 +2448,7 @@ root.addEventListener('click', (event) => {
       playSound('click');
       break;
     case 'phone-clear': setPhoneNumber(interaction.phoneNumber.slice(0, -1)); break;
-    case 'phone-select': setPhoneNumber(key); break;
+    case 'phone-select': selectPhoneContact(key, index, Number(target.dataset.doc)); break;
     case 'phone-back': flipPhone(); break;
     case 'dial': dial(); break;
     case 'clipboard-back': {

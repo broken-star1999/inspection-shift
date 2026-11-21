@@ -185,6 +185,8 @@ export const PRESSURE = [
 export const PHONE = {
   '204': {
     npc: 'chen',
+    department: '实验室',
+    purpose: '查报告、补件',
     greeting: '实验室，小陈。把单据放到电话旁，我按批号或报告号查。',
     requests: {
       5: {
@@ -213,6 +215,8 @@ export const PHONE = {
   },
   '107': {
     npc: 'sun',
+    department: '夜班窗口',
+    purpose: '查夜班退单',
     greeting: '夜班窗口。把你要查的单据放到电话旁，我照手上的登记查。',
     found: '周二晚上唐禾来问过。我退了那份批号不对的单。',
     delivery: '给你，周二夜班那份。时间写在右边，我签过了。',
@@ -336,7 +340,7 @@ export const DAYS = [
   },
   {
     title: '周二', subtitle: '装货台在等回单',
-    intro: '小罗把送检联往窗里推了推。「缺报告找小陈，实验室的内线写这张纸上。」',
+    intro: '小罗把送检联往窗里推了推。「缺报告找实验室的小陈。二零四，送检联上也有。」',
     cases: [
       {
         id: 5, batch: 'G-205', npc: 'luo', title: '少来了一张报告',
@@ -403,7 +407,7 @@ export const DAYS = [
         id: 11, batch: 'G-211', npc: 'tang', title: '记录差了一行',
         line: '还是昨晚那一摞。这个我对过，应该一样。',
         answer: 'review', reason: '登记的新签号不是本箱', receiptAside: '这摞单昨晚也送来过。我问了两个人，都叫我先送来看看。',
-        documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签登记', [['原箱批号', 'G-111'], ['现箱批号', 'G-216'], ['夜班退单', '请核对实物对应批号'], ['经手窗口', '内线 107']], '右下是前一晚的退单章。')], sample: glove,
+        documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签登记', [['原箱批号', 'G-111'], ['现箱批号', 'G-216'], ['夜班退单', '请核对实物对应批号'], ['经手窗口', '夜班窗口·孙姐　内线 107']], '右下是前一晚的退单章。')], sample: glove,
       },
       {
         id: 12, batch: 'G-212', npc: 'xu', title: '响了一声的卡扣',

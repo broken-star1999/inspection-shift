@@ -353,8 +353,8 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
       ? button('带这张问', 'phone-document', 'secondary report-lookup',
         `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}到电话旁"`) : '';
     const extension = phoneSource && documentExtension([key, value]);
-    const extraAction = extension ? button('带这张拨号', 'phone-document', 'secondary document-field-action',
-      `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}拨内线 ${extension}"`) : fieldActions?.get(key);
+    const extraAction = extension ? button(`带单问 ${extension}`, 'phone-document', 'secondary document-field-action',
+      `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`) : fieldActions?.get(key);
     const layout = lookup ? 'report-number-value' : extraAction ? 'document-action-value' : '';
     return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${carry}${extraAction ?? ''}</dd></div>`;
   }).join('');
@@ -530,14 +530,15 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const spreading = canSpread && progress.spreadAll === true;
   const spreadAction = canSpread ? button(spreading ? '收起三张' : '摊开三张', 'compare-all', 'reference-control', active(spreading)) : '';
   const visible = spreading ? item.documents.map((_, position) => position) : [index, compare];
-  const heldOrder = (progress.deliveryCheck == null ? visible : [progress.deliveryCheck])
-    .find((position) => item.documents[position]?.type === 'order');
-  const orderFields = item.documents[heldOrder]?.fields;
-  const contactIndex = orderFields?.findIndex(documentExtension);
-  const extension = !comparing && !progress.incomingCall && documentExtension(orderFields?.[contactIndex]);
+  const relabel = !tutorial && !comparing && relabelComparison(item, progress.relabelCheck);
+  const phoneSources = relabel ? [relabel.registerIndex] : progress.deliveryCheck == null ? visible : [progress.deliveryCheck];
+  const contactPaper = phoneSources.find((position) => item.documents[position]?.fields.some(documentExtension));
+  const contactDocument = item.documents[contactPaper];
+  const contactIndex = contactDocument?.fields.findIndex(documentExtension);
+  const extension = !comparing && !progress.incomingCall && documentExtension(contactDocument?.fields[contactIndex]);
   const phoneAction = tutorial ? '' : extension
-    ? button(`带单问 ${extension}`, 'phone-document', 'reference-control phone-work-tool phone-bring-order',
-      `data-i="${heldOrder}" data-field="${contactIndex}" data-key="${item.id}" aria-label="带送检联拨内线 ${extension}"`)
+    ? button(`问${esc(CHARACTERS[PHONE[extension].npc].name)} ${extension}`, 'phone-document', 'reference-control phone-work-tool phone-bring-order',
+      `data-i="${contactPaper}" data-field="${contactIndex}" data-key="${item.id}" aria-label="带${esc(contactDocument.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`)
     : button(progress.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
   const headerActions = guidedCompare + draft.header + previousAction + spreadAction + sampleAction + phoneAction;
   const activeSheet = (page, position) => {
@@ -559,7 +560,6 @@ export function documents(item, index, compare, tutorial, progress, previous) {
       ${intakeSlip(intake, intakeIndex, inspection.selected)}</div>`, 'documents-surface', '放回台面', `intake:${intakeIndex}`,
     { headerActions: draft.header + closeIntake + phoneAction });
   }
-  const relabel = !tutorial && !comparing && relabelComparison(item, progress.relabelCheck);
   if (relabel) {
     const register = item.documents[relabel.registerIndex];
     const collapse = button('收起对照', 'relabel-check', 'secondary relabel-close', `data-i="${relabel.registerIndex}"${active(true)}`);
@@ -860,9 +860,21 @@ export function archiveSourcePaper({ id, index, batch, day, document }, pinned, 
   return deskSurface(heading, paper, 'archive-surface archive-source-surface', closeText, `${id}:${index}`, { closeLabel: closeText, headerActions: pin });
 }
 
-export function phone(number, call, pinned, numberGuide, phoneBottom, current, { returnTo, incomingCall } = {}) {
-  const order = current && PHONE['204'].requests[current.id] ? current.documents.findIndex(({ type }) => type === 'order') : -1;
-  const canBring = order >= 0 && !pinned.some(({ id, index }) => id === current.id && index === order);
+function contactSlip(extension, number, phoneBottom, batchPaper = null, carry = false) {
+  const { department, purpose, npc } = PHONE[extension];
+  const source = batchPaper ? ` · ${carry ? '带 ' : ''}${batchPaper.batch} ${batchPaper.title}` : '';
+  const attributes = carry ? ` data-i="${batchPaper.id}" data-doc="${batchPaper.index}"` : '';
+  return `<button type="button" class="phone-contact" data-act="phone-select" data-key="${extension}"${attributes}${active(number === extension)}${phoneBottom ? ' disabled' : ''}>
+    <strong>${extension}</strong><b>${esc(department)} · ${esc(CHARACTERS[npc].name)}</b><small>${esc(purpose + source)}</small>
+  </button>`;
+}
+
+export function phone(number, call, pinned, phoneBottom, current, { returnTo, incomingCall } = {}) {
+  const order = current?.documents.findIndex(({ type, fields }) =>
+    type === 'order' && fields.some((field) => documentExtension(field) === '204')) ?? -1;
+  const labOrder = order >= 0 ? { id: current.id, index: order, batch: current.batch, title: current.documents[order].title } : null;
+  const canBring = labOrder && !pinned.some(({ id, index }) => id === labOrder.id && index === labOrder.index);
+  const nightPaper = pinned.findLast(({ document }) => document?.fields.some((field) => documentExtension(field) === '107'));
   const papers = pinned.length ? `<div class="phone-pinned phone-papers" aria-label="电话旁的单据"><b>电话旁</b><ul>
     ${pinned.map(({ id, index, batch, document }) => {
     const title = document?.title ?? '批次留底';
@@ -870,7 +882,7 @@ export function phone(number, call, pinned, numberGuide, phoneBottom, current, {
     return `<li><button type="button" class="phone-paper" data-act="phone-paper" data-i="${id}"${index === null ? '' : ` data-doc="${index}"`} aria-label="查看 ${esc(batch)} ${esc(title)}${reportNumber ? ` ${esc(reportNumber)}` : ''}"><b>${esc(batch)}</b><span>${esc(title)}</span>${reportNumber ? `<small>${esc(reportNumber)}</small>` : ''}</button></li>`;
   }).join('')}
   </ul></div>` : '';
-  const actions = `<footer class="modal-actions phone-actions">${incomingCall ? button('接电话', 'phone-answer', 'secondary phone-answer') : ''}${canBring ? button('带本批送检联', 'archive-pin', 'secondary', `data-i="${current.id}" data-doc="${order}"`) : ''}${button('交接簿', 'archive')}${button(phoneBottom ? '翻回正面' : '翻看机底', 'phone-back')}</footer>`;
+  const actions = `<footer class="modal-actions phone-actions">${incomingCall ? button('接电话', 'phone-answer', 'secondary phone-answer') : ''}${button('交接簿', 'archive')}${button(phoneBottom ? '翻回正面' : '翻看机底', 'phone-back')}</footer>`;
   const returnLabel = { docs: '回到单据', sample: '回到检样', archive: '回到交接簿', 'report-index': '回到编号索引', 'archive-paper': '回到原单' }[returnTo];
   const closeText = returnLabel || '放下听筒';
   const closeLabel = returnLabel ? `放下听筒，${returnLabel}` : closeText;
@@ -881,11 +893,15 @@ export function phone(number, call, pinned, numberGuide, phoneBottom, current, {
   const face = phoneBottom
     ? `<div class="phone-face phone-face-bottom" role="group" aria-label="电话机底"><span class="phone-base-hardware" aria-hidden="true"></span><span class="phone-service-label"><span>内线</span><strong>880</strong><small>回铃自测</small></span></div>`
     : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div></div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
-  const directory = numberGuide ? `<div class="phone-directory">${button('实验室 204 · 小陈', 'phone-select', 'secondary', `data-key="204"${phoneBottom ? ' disabled' : ''}`)}</div>` : '';
+  const directory = `<section class="phone-directory" aria-label="窗口内线">
+    ${nightPaper ? contactSlip('107', number, phoneBottom, { batch: nightPaper.batch, title: nightPaper.document.title }) : ''}
+    ${contactSlip('204', number, phoneBottom, labOrder, canBring)}
+    ${!phoneBottom && !call ? '<p class="phone-guide">点内线填号，再按「拨出」。若单据另写了经手窗口，可带那张纸来问。</p>' : ''}
+  </section>`;
   return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine" data-phone-face="${phoneBottom ? 'bottom' : 'front'}">${face}</div>
     <div class="phone-side">${directory}
     ${papers}
-    <div class="phone-log" aria-live="polite">${call ? `<b>${caller}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : '<p>拨出内线，或从交接簿拿一张单来问。</p>'}${registration}</div>
+    <div class="phone-log" aria-live="polite"${call ? '' : ' hidden'}>${call ? `<b>${caller}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : ''}${registration}</div>
     </div></div>`, 'phone-modal', actions, { closeText, closeLabel, closeClass: 'phone-hangup' });
 }
 
