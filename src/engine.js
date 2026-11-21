@@ -947,9 +947,13 @@ export function dispatch(state, action) {
   }
 }
 
-export function shipmentIssueFeedback(record) {
-  const { reason, status, answer } = record;
-  const action = status === 'recallPending' ? '召回待确认' : answer === 'review' ? '暂缓入库' : '收货方复核';
+export function shipmentIssueFeedback(record, exceptionCaseId) {
+  const { id, reason, status, answer } = record;
+  if (status === 'recallPending') return { action: '已申请召回，尚未回签', reason };
+  if (id === exceptionCaseId) return { action: '收货方暂缓入库', reason };
+  const destination = status === 'shipping' ? '排车待发' : '已出库';
+  const nextStep = answer === 'review' ? '待核材料' : '待复核';
+  const action = `${destination} · ${nextStep}`;
   return { action, reason };
 }
 
@@ -959,6 +963,7 @@ export function getEnding(state) {
   const confirmedRecalls = [];
   const heldReceipts = [];
   const traceReceipt = state.flags.traceAttached ? getRecord(state, TRACE_CASE_ID) ?? null : null;
+  const exceptionCaseId = getShipmentException(state)?.caseId ?? null;
   const acceptance = getShipmentAcceptance(state);
   const acceptedReceipt = isAcceptedShipment(state.records, acceptance?.record, acceptance?.day) ? acceptance.record : null;
   const traceDisposition = {
@@ -989,10 +994,10 @@ export function getEnding(state) {
   const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
   const delayedReceipts = [...delayedByBatch.values()];
   const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已登记追加复检，去向待核。');
-  const shared = { issues, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
+  const shared = { issues, exceptionCaseId, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
   if (issues.length) {
     const detail = issues.map((record) => {
-      const { action, reason } = shipmentIssueFeedback(record);
+      const { action, reason } = shipmentIssueFeedback(record, exceptionCaseId);
       return `${record.batch} · ${action} · ${reason}`;
     }).join('\n');
     return { id: 'issue', ...HANDOFF.escaped, detail, ...shared };

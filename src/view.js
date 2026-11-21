@@ -1,4 +1,4 @@
-import { CHARACTERS, DAYS, EASTER_EGGS, FILM_BENCH_TUTORIAL, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
+import { CHARACTERS, DAYS, EASTER_EGGS, FILM_BENCH_TUTORIAL, FILM_TUTORIAL, PHONE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { cartonModel } from './carton-inspector.js';
 import { canShowFinding, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
@@ -257,8 +257,8 @@ function endingView(ending, historyLabel) {
   let note = esc(ending.detail);
   if (ending.issues.length) {
     note = `<ul class="ending-receipts">${ending.issues.map((record) => {
-      const { action, reason } = shipmentIssueFeedback(record);
-      return `<li>${endingReceipt(record, `${pendingIds.has(record.id) ? pendingText : action} · ${reason}`)}</li>`;
+      const { action, reason } = shipmentIssueFeedback(record, ending.exceptionCaseId);
+      return `<li>${endingReceipt(record, `${action} · ${reason}`)}</li>`;
     }).join('')}</ul>`;
   }
   const trace = traceReceipt ? endingReceipt(traceReceipt, traceDisposition.replace(`${traceReceipt.batch} `, '')) : esc(traceDisposition);
@@ -750,17 +750,19 @@ function amendmentDisposition(record, count, decision, status) {
   return dispositionLabel({ ...record, status, decision, amendments: record.amendments.slice(0, count) });
 }
 
-function archivedReceipt(record, latestReceipt, previousReceipt, receivingIssue) {
+function archivedReceipt(record, latestReceipt, previousReceipt, { receivedException, unresolvedIssue } = {}) {
   if (!record) return '';
   const changed = record.amendments?.length > 0;
   const latestAmendment = latestReceipt?.amendments?.at(-1);
   const windowAmendment = record.amendments?.findLast(({ atWindow }) => atWindow);
-  const receiving = receivingIssue ? shipmentIssueFeedback(receivingIssue) : null;
+  const followup = receivedException
+    ? `<dl class="receipt-facts receiving-facts" aria-label="到货复核联摘录"><div><dt>收货处置</dt><dd>${esc(SHIPMENT_EXCEPTION.result)}</dd></div><div><dt>复核记录</dt><dd>${esc(record.reason)}</dd></div></dl>`
+    : unresolvedIssue ? `<dl class="receipt-facts receiving-facts"><div><dt>交班待查</dt><dd>${esc(record.reason)}</dd></div></dl>` : '';
   return `<article class="archive-receipt receipt-${record.decision}" aria-label="出票留底">
     <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
       <span class="receipt-result">${esc(labels[record.decision])}</span></div>
     ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true, changed ? '原开单依据' : '开单依据')}
-    ${receiving ? `<dl class="receipt-facts receiving-facts" aria-label="收货方反馈"><div><dt>收货方反馈</dt><dd>${esc(receiving.action)}</dd></div><div><dt>复核记录</dt><dd>${esc(receiving.reason)}</dd></div></dl>` : ''}
+    ${followup}
     ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(dispositionLabel(latestReceipt))}</strong>。</p>` : ''}
     ${previousReceipt && previousReceipt.record.id === record.priorShipmentId ? `<p class="archive-current-disposition">补验时原批已出库，原出货单开于<strong>${esc(DAYS[previousReceipt.record.day]?.title)}</strong>。</p>` : ''}
     ${record.supplementRequest && windowAmendment && windowAmendment.to !== 'review' ? '<p class="archive-current-disposition">补件登记随当场更正撤回。</p>' : ''}
@@ -812,18 +814,17 @@ function correctionPanel(record, findings, selected, supportingBasis) {
   </section>`;
 }
 
-function correctionStamps(row, followup, traceReview) {
+function correctionStamps(row, followup, effect) {
   const { record, previousReceipt } = row;
   const disposition = receiptDisposition(record);
   const source = disposition === 'supplementHeld' || disposition === 'supplementReturned' ? '补验联'
     : previousReceipt?.sameLot === false ? '留厂件'
       : followup?.previousReceipt?.sameLot === false ? '原批' : '出货回执';
-  const reviewEffect = { recallPending: '审查后发出召回', held: '审查后留厂复检' }[traceReview?.status];
-  return `<p id="correction-target" class="correction-target"><b>${esc(record.batch)}</b><small>${esc(DAYS[record.day]?.title)} · ${source}</small>${reviewEffect ? `<small>${reviewEffect}</small>` : ''}</p>
+  return `<p id="correction-target" class="correction-target"><b>${esc(record.batch)}</b><small>${esc(DAYS[record.day]?.title)} · ${source}</small>${effect ? `<small>${effect}</small>` : ''}</p>
     <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, false, 'recheck', record.decision)}</div>`;
 }
 
-export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel, windowCorrection, receivingIssue } = {}) {
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel, windowCorrection, unresolvedIssue } = {}) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const isCall = ([key]) => key.startsWith('call:');
@@ -849,6 +850,8 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   }
   if (row) {
     const { latestReceipt, previousReceipt } = row;
+    const papers = batchPapers.filter(({ caseId }) => caseId === row.id);
+    const receivedException = papers.some(({ document }) => document.kind === 'exception');
     const canAmend = !finished && (handoff || windowCorrection) && row.record && !latestReceipt;
     const correcting = Boolean(editing && canAmend);
     const findings = correcting ? readFindings({ findings: correctionFindings }) : [];
@@ -858,7 +861,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
       canComparePrevious && button('放到桌上对照', 'previous-compare', 'secondary', `data-i="${row.id}"`),
       previousReceipt && button(previousReceipt.sameLot ? '查看前次回执' : '查看前次同号回执', 'archive-followup', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`),
       latestReceipt && button('查看后续回执', 'archive-followup', 'secondary', `data-i="${latestReceipt.id}"`),
-      ...batchPapers.filter(({ caseId }) => caseId === row.id).map(({ key, document }) =>
+      ...papers.map(({ key, document }) =>
         button(batchPaperLabels[document.kind].open, 'archive-evidence', 'secondary', `data-key="${esc(key)}"`)),
       canAmend && handoff && row.record.status === 'recallPending' && receiveRecallAction(row.record, 'archive-recall-action'),
       canAmend && button(editing ? '取消更正' : windowCorrection ? '更正本单' : '更正开单', 'edit-record',
@@ -866,7 +869,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
     ].filter(Boolean).join('');
     details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
       ${correction ? correctionPanel(row.record, findings, correction.selected, supportingBasis) : ''}
-      ${archivedReceipt(row.record, latestReceipt, previousReceipt, receivingIssue)}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction, {
+      ${archivedReceipt(row.record, latestReceipt, previousReceipt, { receivedException, unresolvedIssue })}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction, {
         reportLookup: !editing, phoneSource: !finished && !editing ? row.id : null,
         pinAction: !finished && !editing ? phonePinButton(row.id, index, doc.title, selected, 'archive-paper-pin') : '',
       })).join('')}</div>`;
@@ -1082,17 +1085,21 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const findings = editing ? readFindings({ findings: correctionFindings }) : [];
     const correction = editing ? { action: 'correction-basis', selected: new Set(findings.map(({ key }) => key)) } : null;
     const attachedPapers = batchPapers.filter(({ caseId }) => caseId === row.id);
+    const receivedException = attachedPapers.some(({ document }) => document.kind === 'exception');
     const attached = attachedPapers.find(({ document }) => document.kind === documentIndex);
     const doc = attached?.document ?? documents[documentIndex];
     const tracePaper = attached?.document.kind === 'trace';
     const tabs = `<nav class="doc-tabs handoff-detail-tabs" aria-label="本批归档单据">
-      ${button('回执', 'handoff-doc', 'tab', `data-key="receipt"${active(!doc)}`)}${documents.map(({ title, type }, index) =>
+      ${button(receivedException ? '原批回执' : '回执', 'handoff-doc', 'tab', `data-key="receipt"${active(!doc)}`)}${documents.map(({ title, type }, index) =>
         button(types[type] ?? '归档', 'handoff-doc', 'tab', `data-i="${index}"${active(index === documentIndex)} aria-label="${esc(title)}" title="${esc(title)}"`)).join('')}
       ${attachedPapers.map(({ document }) => button(batchPaperLabels[document.kind].tab, 'handoff-doc', 'tab',
         `data-key="${esc(document.kind)}"${active(document === doc)} aria-label="${esc(document.title)}"`)).join('')}</nav>`;
     const citeTrace = tracePaper && traceReview;
-    const editAction = !latestReceipt && !editing ? button(citeTrace ? '用原件更正' : '更正开单', 'edit-record', 'secondary handoff-detail-edit',
-      `data-i="${esc(row.id)}"${citeTrace ? ' data-key="trace"' : ''}`) : '';
+    const citeException = attached?.document.kind === 'exception' && record.status === 'shipped';
+    const editLabel = citeTrace ? '用原件更正' : citeException ? '引用并更正' : '更正开单';
+    const editSource = citeTrace ? ' data-key="trace"' : citeException ? ' data-key="exception" aria-label="引用到货复核联并更正"' : '';
+    const editAction = !latestReceipt && !editing
+      ? button(editLabel, 'edit-record', 'secondary handoff-detail-edit', `data-i="${esc(row.id)}"${editSource}`) : '';
     const compareAction = canCompare && !editing ? button('并排核对', 'handoff-compare', 'secondary handoff-detail-compare', active(false)) : '';
     const tools = compareAction ? `<div class="handoff-detail-tools">${compareAction}${editAction}</div>` : editAction;
     const status = !latestReceipt && !editing && record.status === 'recallPending'
@@ -1106,7 +1113,7 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     ].filter(Boolean).join('');
     const draft = correction ? correctionPanel(record, findings, correction.selected, supportingBasis) : '';
     const paper = tracePaper ? traceEvidencePair(row, doc)
-      : doc ? sheet(doc, documentIndex, attached ? null : correction) : archivedReceipt(record, latestReceipt, previousReceipt);
+      : doc ? sheet(doc, documentIndex, attached ? null : correction) : archivedReceipt(record, latestReceipt, previousReceipt, { receivedException });
     const quotingActivePaper = attached && attached.document.kind === supportingBasis?.kind;
     detail = `${quotingActivePaper ? draft + paper : paper + draft}
       ${related && !editing ? `<div class="modal-actions handoff-related">${related}</div>` : ''}`;
@@ -1114,8 +1121,12 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
       actions = handoffAttach(run, 'trace', doc) + actions;
       notice = traceHandoffNotice(row, traceReview, run.flags.traceAttached);
     }
-    if (editing) actions = correctionStamps(row, next, row.id === TRACE_CASE_ID ? traceReview : null) +
-      button('取消更正', 'edit-record', 'secondary handoff-cancel', `data-i="${esc(row.id)}"`);
+    if (editing) {
+      const effect = receivedException && record.status === 'shipped' ? '退回或审查后发出召回'
+        : row.id === TRACE_CASE_ID ? { recallPending: '审查后发出召回', held: '审查后留厂复检' }[traceReview?.status] : null;
+      actions = correctionStamps(row, next, effect) +
+        button('取消更正', 'edit-record', 'secondary handoff-cancel', `data-i="${esc(row.id)}"`);
+    }
   }
 
   return dialog('周五交接', `<div class="handoff-paper handoff-sheet"><p class="handoff-instruction">点批号核对原单，改章另开更正联。</p>

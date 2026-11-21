@@ -534,7 +534,7 @@ function recallPaper(record, day) {
   return {
     type: 'archive', kind: 'recall', title: `收货方回执 · ${record.batch}`,
     fields: [['批次', record.batch], ['原出货回执', `${DAYS[record.day]?.title ?? ''}开单`],
-      ['回签日', DAYS[day]?.title ?? '已登记'], ['处置', '暂停入库，召回已确认']],
+      ['处置', '暂停入库，召回已确认'], ['回签日', DAYS[day]?.title ?? '已登记']],
   };
 }
 
@@ -787,7 +787,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
         returnTo, historyLabel,
-        receivingIssue: finished ? getEnding(run).issues.find(({ id }) => id === archiveFocus) : null,
+        unresolvedIssue: finished && getEnding(run).issues.some(({ id }) => id === archiveFocus),
         windowCorrection: !arrival && canRecheckReceipt(run, archiveFocus),
         reportSuggestion: !correction && sources.length > 1 ? sources[0].number : null,
         canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
@@ -1160,8 +1160,10 @@ function enter(restore) {
     render(correctionDraft.scrollTop);
     if (panel === 'handoff') {
       revealHandoffSelection();
-      if (handoffDocument === 'trace' && correctionDraft.keys.includes(TRACE_FINDING.key)) {
-        focusControl(modalLayer, { act: 'correction-original', key: TRACE_FINDING.key });
+      const row = activeCorrection();
+      const citation = row && filedCorrectionBasis(row);
+      if (citation && citation.kind === handoffDocument && correctionDraft.keys.includes(citation.finding.key)) {
+        focusControl(modalLayer, { act: 'correction-remove', key: citation.finding.key });
       }
     }
     return;
@@ -2498,17 +2500,18 @@ root.addEventListener('click', (event) => {
       if (panel === 'handoff' && handoffPairOpen) break;
       const citeTrace = key === 'trace' && panel === 'handoff' && (handoffFocus === 'attachments' ||
         (handoffFocus === TRACE_CASE_ID && handoffDocument === 'trace'));
+      const citeException = key === 'exception' && panel === 'handoff' && handoffDocument === 'exception';
       const row = correctableRow(citeTrace ? TRACE_CASE_ID : correctionFocus());
-      if (!row) break;
-      const citation = citeTrace && filedCorrectionBasis(row);
-      if (key === 'trace' && citation?.kind !== 'trace') break;
-      const editing = !citeTrace && activeCorrection();
+      if (!row || (citeException && row.record.status !== 'shipped')) break;
+      const citation = (citeTrace || citeException) && filedCorrectionBasis(row);
+      if (key && citation?.kind !== key) break;
+      const editing = !citation && activeCorrection();
       if (editing) correctionDraft = null;
       else {
         const fromBoard = panel === 'handoff';
-        if (citeTrace) {
+        if (citation) {
           handoffFocus = row.id;
-          handoffDocument = 'trace';
+          handoffDocument = citation.kind;
         } else if (fromBoard && handoffDocument === null && row.documents.length) {
           handoffDocument = row.id === TRACE_CASE_ID && hasHandoffDocument(row, 'trace') ? 'trace' : 0;
         }
@@ -2520,7 +2523,7 @@ root.addEventListener('click', (event) => {
       render(!editing && (panel === 'handoff' || run.phase === 'receipt') ? 0 : undefined);
       if (citation) {
         revealHandoffSelection();
-        focusControl(modalLayer, { act: 'correction-original', key: citation.finding.key });
+        focusControl(modalLayer, { act: 'correction-remove', key: citation.finding.key });
       }
       if (!editing && run.phase === 'receipt') {
         const finding = modalLayer.querySelector('.correction-original');

@@ -590,8 +590,6 @@ test('Friday files exactly one exception for a shipped fault and keeps the picku
   assert.equal(delivered.record.status, 'shipped');
   assert.equal(delivered.day, 4);
   assert.match(delivered.title, /G-204.*到货复核联/u);
-  assert.deepEqual(shipmentIssueFeedback(delivered.record), { action: '收货方复核', reason: delivered.record.reason });
-
   const filed = act(restored, 'ack-visit');
   assert.deepEqual(filed.exceptionReceipt, { caseId: 4, day: 4 });
   assert.deepEqual(getShipmentException(filed), delivered);
@@ -612,12 +610,25 @@ test('Friday files exactly one exception for a shipped fault and keeps the picku
   assert.equal(getEnding(finished).issues.some(({ id }) => id === 4), false);
 });
 
+test('the ending attributes a receiving hold only to the batch with the actual filed exception', () => {
+  const week = untilHandoff(21, { decisions: { 4: 'pass', 17: 'pass' } });
+  assert.deepEqual(week.exceptionReceipt, { caseId: 4, day: 4 });
+  assert.match(getEnding(week).detail, /G-217 · 排车待发 · 待核材料/u);
+
+  const finished = restoreRun(JSON.parse(JSON.stringify(act(week, 'finish'))));
+  const ending = getEnding(finished);
+  assert.equal(ending.exceptionCaseId, 4);
+  assert.deepEqual(ending.issues.map(({ id }) => id), [4, 17]);
+  assert.match(ending.detail, /G-204 · 收货方暂缓入库/u);
+  assert.match(ending.detail, /G-217 · 已出库 · 待核材料/u);
+});
+
 test('Friday exception prioritizes earlier missing proof and skips a same-lot release that was verified later', () => {
   const arrive = (decisions) => act(receiptAt(18, 'fail', { decisions }), 'next');
   const missing = arrive({ 5: 'pass', 9: 'review', 10: 'pass', 14: 'review', 17: 'pass' });
   const first = getShipmentException(missing, missing.event);
   assert.equal(first.caseId, 5);
-  assert.deepEqual(shipmentIssueFeedback(first.record), { action: '暂缓入库', reason: first.record.reason });
+  assert.deepEqual(shipmentIssueFeedback(first.record, first.caseId), { action: '收货方暂缓入库', reason: first.record.reason });
 
   const verified = arrive({ 5: 'pass', 9: 'pass', 10: 'pass', 14: 'review', 17: 'pass' });
   assert.equal(getShipmentException(verified, verified.event).caseId, 10);
@@ -1170,7 +1181,7 @@ test('an unconfirmed recall leaves bad freight unresolved and reports sound frei
   assert.deepEqual(ending.pendingRecalls.map(({ id }) => id), [1, 4]);
   assert.deepEqual(ending.confirmedRecalls, []);
   assert.deepEqual(ending.delayedReceipts, []);
-  assert.match(ending.detail, /G-204 · 召回待确认/);
+  assert.match(ending.detail, /G-204 · 已申请召回，尚未回签/);
   assert.equal(act(requested, 'receive-recall', { id: 15 }), requested);
   assert.equal(act(requested, 'ack-visit'), requested);
 
