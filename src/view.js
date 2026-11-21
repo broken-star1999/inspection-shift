@@ -1,7 +1,7 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
 import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { cartonModel } from './carton-inspector.js';
-import { canShowFinding, receiptDisposition, receiptFeedback, TRACE_CASE_ID } from './engine.js';
+import { canShowFinding, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { CUFF_SPLIT_PATCHES, cuffSplitVisible, earCupMark, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
 
@@ -17,6 +17,7 @@ const completedDate = new Intl.DateTimeFormat('zh-CN', {
 const batchPaperLabels = {
   rework: { tab: '复核联', original: '查看周一原单', open: '查看周二复核联' },
   acceptance: { tab: '验收联', original: '查看对应出货单', open: '查看到货验收联' },
+  exception: { tab: '到货复核联', original: '查看原批出货单', open: '查看到货复核联' },
   trace: { tab: '实验室原件', original: '查看 G-241 原单', open: '查看 R-071 原件' },
   supplement: { tab: '补件联', original: '查看周二原单', open: '查看补件登记联' },
 };
@@ -150,6 +151,7 @@ const visitPaperLabels = {
   recall: ['收货方回执', '收下回签'],
   rework: ['返工复核联', '收下复核联'],
   acceptance: ['到货验收联', '收下验收联'],
+  exception: ['到货复核联', '收下到货复核联'],
 };
 
 export function visitSlip(doc, visit, lifted = false) {
@@ -252,8 +254,8 @@ function endingView(ending, historyLabel) {
   let note = esc(ending.detail);
   if (ending.issues.length) {
     note = `<ul class="ending-receipts">${ending.issues.map((record) => {
-      const disposition = pendingIds.has(record.id) ? pendingText : record.answer === 'review' ? '暂缓入库' : '收货方复核';
-      return `<li>${endingReceipt(record, `${disposition} · ${record.reason}`)}</li>`;
+      const { action, reason } = shipmentIssueFeedback(record);
+      return `<li>${endingReceipt(record, `${pendingIds.has(record.id) ? pendingText : action} · ${reason}`)}</li>`;
     }).join('')}</ul>`;
   }
   const trace = traceReceipt ? endingReceipt(traceReceipt, traceDisposition.replace(`${traceReceipt.batch} `, '')) : esc(traceDisposition);
@@ -296,7 +298,14 @@ export function overlay(run, ending, historyLabel = '', incomingCall = null) {
       <footer class="summary-footer">${incomingCall ? button('接电话', 'phone', 'secondary summary-phone') : ''}${button('下一班', 'advance-day', 'primary')}</footer>
     </section>`;
   }
-  if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button(incomingCall ? '接电话' : '打电话', 'phone')}${button('打开交接板', 'handoff', 'primary')}</div></section></div>`;
+  if (run.phase === 'handoff') {
+    const exception = getShipmentException(run);
+    const needsReview = exception?.record.status === 'shipped';
+    const line = needsReview ? `老周「收货方给 ${exception.record.batch} 补来一张复核联。夹在原批旁边了，你看一眼再交班。」`
+      : '老周「最后一趟车先等你。核对完这些单，再把板给我。」';
+    const open = needsReview ? button('核对到货复核联', 'handoff', 'primary', 'data-key="exception"') : button('打开交接板', 'handoff', 'primary');
+    return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>${esc(line)}</p><div class="brief-actions">${button('核对与更正', 'archive')}${button(incomingCall ? '接电话' : '打电话', 'phone')}${open}</div></section></div>`;
+  }
   if (run.phase === 'ending') return endingView(ending, historyLabel);
   return '';
 }
@@ -349,8 +358,11 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
 
 export function visitPaper(doc, visit) {
   const [, accept] = visitPaperLabels[visit.kind ?? visit.key] ?? ['', '收下留底'];
-  return deskSurface(doc.title, sheet(doc, undefined, undefined, { showTitle: false }),
-    'visit-paper-surface', '放回窗口', visit.key, {
+  const exception = visit.kind === 'exception';
+  const surface = exception ? 'visit-paper-surface receiving-exception-surface' : 'visit-paper-surface';
+  const paper = exception ? { ...doc, fields: doc.fields.filter(([field]) => field !== '批号') } : doc;
+  return deskSurface(doc.title, sheet(paper, undefined, undefined, { showTitle: false }),
+    surface, '放回窗口', visit.key, {
       closeLabel: '放回窗口',
       footer: button(accept, 'event-next', 'primary visit-accept', `data-key="${esc(visit.key)}"`),
     });
@@ -667,15 +679,17 @@ function amendmentDisposition(record, count, decision, status) {
   return dispositionLabel({ ...record, status, decision, amendments: record.amendments.slice(0, count) });
 }
 
-function archivedReceipt(record, latestReceipt, previousReceipt) {
+function archivedReceipt(record, latestReceipt, previousReceipt, receivingIssue) {
   if (!record) return '';
   const changed = record.amendments?.length > 0;
   const latestAmendment = latestReceipt?.amendments?.at(-1);
   const windowAmendment = record.amendments?.findLast(({ atWindow }) => atWindow);
+  const receiving = receivingIssue ? shipmentIssueFeedback(receivingIssue) : null;
   return `<article class="archive-receipt receipt-${record.decision}" aria-label="出票留底">
     <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
       <span class="receipt-result">${esc(labels[record.decision])}</span></div>
     ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true, changed ? '原开单依据' : '开单依据')}
+    ${receiving ? `<dl class="receipt-facts receiving-facts" aria-label="收货方反馈"><div><dt>收货方反馈</dt><dd>${esc(receiving.action)}</dd></div><div><dt>复核记录</dt><dd>${esc(receiving.reason)}</dd></div></dl>` : ''}
     ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(dispositionLabel(latestReceipt))}</strong>。</p>` : ''}
     ${previousReceipt && previousReceipt.record.id === record.priorShipmentId ? `<p class="archive-current-disposition">补验时原批已出库，原出货单开于<strong>${esc(DAYS[previousReceipt.record.day]?.title)}</strong>。</p>` : ''}
     ${record.supplementRequest && windowAmendment && windowAmendment.to !== 'review' ? '<p class="archive-current-disposition">补件登记随当场更正撤回。</p>' : ''}
@@ -737,7 +751,7 @@ function correctionStamps(row, followup) {
     <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, false, 'recheck', record.decision)}</div>`;
 }
 
-export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel, windowCorrection } = {}) {
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel, windowCorrection, receivingIssue } = {}) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const isCall = ([key]) => key.startsWith('call:');
@@ -777,7 +791,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
     ].filter(Boolean).join('');
     details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
       ${correction ? correctionPanel(row.record, findings, correction.selected, supportingBasis) : ''}
-      ${archivedReceipt(row.record, latestReceipt, previousReceipt)}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction, {
+      ${archivedReceipt(row.record, latestReceipt, previousReceipt, receivingIssue)}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction, {
         reportLookup: !editing, phoneSource: !finished && !editing ? row.id : null,
         pinAction: !finished && !editing ? phonePinButton(row.id, index, doc.title, selected, 'archive-paper-pin') : '',
       })).join('')}</div>`;

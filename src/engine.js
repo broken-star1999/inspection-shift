@@ -1,4 +1,4 @@
-import { DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, TUTORIAL as tutorialContent, documentExtension } from './content.js';
+import { DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
 import { intakeComparison } from './document-comparison.js';
 import { normalizeFindings } from './inspection-findings.js';
 
@@ -309,10 +309,11 @@ function acknowledgeVisit(state) {
   if (!visit) return state;
   const afterVisit = { ...state, event: events[0] ?? null, events };
   if (visit.kind === 'recall') return acknowledgeRecall(afterVisit, visit);
-  const acceptance = visit.kind === 'acceptance' ? getShipmentAcceptance(state, visit) : null;
-  const accepted = visit.kind === 'acceptance'
-    ? (acceptance ? { ...afterVisit, acceptanceReceipt: { caseId: acceptance.caseId, day: acceptance.day } } : afterVisit)
-    : setFlags(afterVisit, { [`${visit.key}Document`]: true });
+  let accepted = afterVisit;
+  if (visit.kind === 'exception' || visit.kind === 'acceptance') {
+    const paperwork = visit.kind === 'exception' ? getShipmentException(state, visit) : getShipmentAcceptance(state, visit);
+    if (paperwork) accepted = { ...afterVisit, [`${visit.kind}Receipt`]: { caseId: paperwork.caseId, day: paperwork.day } };
+  } else accepted = setFlags(afterVisit, { [`${visit.key}Document`]: true });
   return !events.length && accepted.phase === 'case' ? startCase(accepted, accepted.index) : accepted;
 }
 
@@ -321,11 +322,13 @@ function startCase(state, index) {
   if (!id) return state;
   const arrived = { ...state, phase: 'case', index };
   if (activeVisits(arrived).length || arrived.seen.includes(id)) return arrived;
-  if (id === 20 && !arrived.acceptanceReceipt) {
-    const record = chooseShipmentAcceptance(arrived);
-    if (record) {
-      const { key, caseId, title, line } = shipmentAcceptance(arrived.day, record);
-      const visit = { kind: 'acceptance', key, caseId, npc: 'zhou', title, line };
+  if (id === 20 && !arrived.exceptionReceipt && !arrived.acceptanceReceipt) {
+    const exception = chooseShipmentException(arrived);
+    const acceptance = exception ? null : chooseShipmentAcceptance(arrived);
+    const paperwork = exception ? shipmentException(arrived.day, exception) : acceptance && shipmentAcceptance(arrived.day, acceptance);
+    if (paperwork) {
+      const { key, caseId, title, line } = paperwork;
+      const visit = { kind: exception ? 'exception' : 'acceptance', key, caseId, npc: 'zhou', title, line };
       return { ...arrived, event: visit, events: [visit] };
     }
   }
@@ -405,14 +408,52 @@ function shipmentAcceptance(day, record) {
   };
 }
 
+function hasExceptionObservation(record, day) {
+  return record && record.id !== TRACE_CASE_ID && record.id !== 20 && record.day < day &&
+    (record.answer === 'fail' || record.answer === 'review');
+}
+
+function chooseShipmentException(state) {
+  const candidates = state.records.filter((record) => hasExceptionObservation(record, state.day) &&
+    record.status === 'shipped' && record.decision === 'pass' && !findVerifiedReceipt(state.records, record));
+  return candidates.find(({ answer }) => answer === 'fail') ?? candidates[0] ?? null;
+}
+
+function shipmentException(day, record) {
+  return {
+    key: `exception:${record.id}`, caseId: record.id, record, day,
+    title: `${record.batch} ${SHIPMENT_EXCEPTION.title}`, line: SHIPMENT_EXCEPTION.delivery(record.batch),
+  };
+}
+
+function isFridayShipmentVisit(state, visit, kind) {
+  if (visit.kind !== kind || state.phase !== 'case' || state.day !== DAYS.length - 1 ||
+      getDay(state)?.cases[state.index]?.id !== 20 || state.seen.includes(20) ||
+      state.acceptanceReceipt || state.exceptionReceipt) return false;
+  const active = activeVisits(state)[0];
+  return active?.kind === kind && active.key === visit.key && active.caseId === visit.caseId;
+}
+
+export function getShipmentException(state, visit) {
+  if (!state) return null;
+  if (visit) {
+    if (!isFridayShipmentVisit(state, visit, 'exception')) return null;
+    const record = chooseShipmentException(state);
+    if (!record || visit.caseId !== record.id || visit.key !== `exception:${record.id}`) return null;
+    return shipmentException(state.day, record);
+  }
+  const filed = state.exceptionReceipt;
+  if (!filed || filed.day !== DAYS.length - 1) return null;
+  const record = getRecord(state, filed.caseId);
+  return hasExceptionObservation(record, filed.day) && decisionAsHanded(record) === 'pass'
+    ? shipmentException(filed.day, record) : null;
+}
+
 export function getShipmentAcceptance(state, visit) {
   if (!state) return null;
   const closingDay = DAYS.length - 1;
   if (visit) {
-    if (visit.kind !== 'acceptance' || state.phase !== 'case' || state.day !== closingDay ||
-        getDay(state)?.cases[state.index]?.id !== 20 || state.seen.includes(20) || state.acceptanceReceipt) return null;
-    const active = activeVisits(state)[0];
-    if (active?.kind !== 'acceptance' || active.key !== visit.key || active.caseId !== visit.caseId) return null;
+    if (!isFridayShipmentVisit(state, visit, 'acceptance')) return null;
     const record = chooseShipmentAcceptance(state);
     if (!record || visit.caseId !== record.id || visit.key !== `acceptance:${record.id}`) return null;
     return shipmentAcceptance(state.day, record);
@@ -847,6 +888,12 @@ export function dispatch(state, action) {
   }
 }
 
+export function shipmentIssueFeedback(record) {
+  const { reason, status, answer } = record;
+  const action = status === 'recallPending' ? '召回待确认' : answer === 'review' ? '暂缓入库' : '收货方复核';
+  return { action, reason };
+}
+
 export function getEnding(state) {
   const issues = [];
   const pendingRecalls = [];
@@ -885,9 +932,9 @@ export function getEnding(state) {
   const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已登记追加复检，去向待核。');
   const shared = { issues, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
   if (issues.length) {
-    const detail = issues.map(({ batch, reason, answer, status }) => {
-      const action = status === 'recallPending' ? '召回待确认' : answer === 'review' ? '暂缓入库' : '收货方复核';
-      return `${batch} · ${action} · ${reason}`;
+    const detail = issues.map((record) => {
+      const { action, reason } = shipmentIssueFeedback(record);
+      return `${record.batch} · ${action} · ${reason}`;
     }).join('\n');
     return { id: 'issue', ...HANDOFF.escaped, detail, ...shared };
   }

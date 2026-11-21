@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
-import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
+import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -526,11 +526,69 @@ test('Friday chooses prior valid shipments in order and leaves the window clear 
   const supplement = arrive({ 5: 'pass', 7: 'pass', 9: 'pass' });
   assert.equal(getShipmentAcceptance(supplement, supplement.event)?.caseId, 9);
 
-  const none = arrive({ 5: 'pass', 7: 'pass', 10: 'pass' });
+  const none = arrive({ 7: 'pass', 17: 'pass' });
   assert.equal(none.event, null);
   assert.equal(none.acceptanceReceipt, undefined);
   assert.equal(none.seen.includes(20), true);
   assert.equal(getCase(none).id, 20);
+});
+
+test('Friday files exactly one exception for a shipped fault and keeps the pickup and the disposition independent', () => {
+  const prior = receiptAt(18, 'fail', { decisions: { 4: 'pass', 5: 'pass', 9: 'review', 10: 'pass' } });
+  assert.equal(getShipmentException(prior), null);
+  const waiting = act(prior, 'next');
+  assert.equal(getCase(waiting).id, 20);
+  assert.equal(waiting.seen.includes(20), false);
+  assert.deepEqual(waiting.events.map(({ kind, key, npc }) => ({ kind, key, npc })), [
+    { kind: 'exception', key: 'exception:4', npc: 'zhou' },
+  ]);
+  assert.equal(getShipmentException(waiting, { ...waiting.event, caseId: 10 }), null);
+  assert.equal(getShipmentException(waiting), null);
+  assert.equal(getShipmentAcceptance(waiting, waiting.event), null);
+  assert.equal(act(waiting, 'stamp', { value: 'pass' }), waiting);
+
+  const restored = restoreRun(JSON.parse(JSON.stringify(waiting)));
+  const delivered = getShipmentException(restored, restored.event);
+  assert.equal(delivered.caseId, 4);
+  assert.equal(delivered.record.status, 'shipped');
+  assert.equal(delivered.day, 4);
+  assert.match(delivered.title, /G-204.*到货复核联/u);
+  assert.deepEqual(shipmentIssueFeedback(delivered.record), { action: '收货方复核', reason: delivered.record.reason });
+
+  const filed = act(restored, 'ack-visit');
+  assert.deepEqual(filed.exceptionReceipt, { caseId: 4, day: 4 });
+  assert.deepEqual(getShipmentException(filed), delivered);
+  assert.equal(filed.records, restored.records);
+  assert.equal(filed.acceptanceReceipt, undefined);
+  assert.equal(filed.event, null);
+  assert.equal(filed.seen.filter((id) => id === 20).length, 1);
+  assert.equal(act(filed, 'ack-visit'), filed);
+
+  const handoff = untilHandoff(21, { initialState: filed });
+  assert.equal(getShipmentException(handoff).record.status, 'shipped');
+  assert.ok(getEnding(act(handoff, 'finish')).issues.some(({ id }) => id === 4));
+  const amended = act(handoff, 'recheck', { id: 4, value: 'fail' });
+  assert.equal(getShipmentException(amended).record.status, 'recallPending');
+  const confirmed = takeRecallReceipt(amended, 4);
+  const finished = restoreRun(JSON.parse(JSON.stringify(act(confirmed, 'finish'))));
+  assert.equal(getShipmentException(finished).record.status, 'recalled');
+  assert.equal(getEnding(finished).issues.some(({ id }) => id === 4), false);
+});
+
+test('Friday exception prioritizes earlier missing proof and skips a same-lot release that was verified later', () => {
+  const arrive = (decisions) => act(receiptAt(18, 'fail', { decisions }), 'next');
+  const missing = arrive({ 5: 'pass', 9: 'review', 10: 'pass', 14: 'review', 17: 'pass' });
+  const first = getShipmentException(missing, missing.event);
+  assert.equal(first.caseId, 5);
+  assert.deepEqual(shipmentIssueFeedback(first.record), { action: '暂缓入库', reason: first.record.reason });
+
+  const verified = arrive({ 5: 'pass', 9: 'pass', 10: 'pass', 14: 'review', 17: 'pass' });
+  assert.equal(getShipmentException(verified, verified.event).caseId, 10);
+
+  const stillAtFactory = arrive({ 5: 'pass', 9: 'pass', 10: 'pass', 14: 'pass', 17: 'pass' });
+  assert.equal(stillAtFactory.records.find(({ id }) => id === 17).status, 'shipping');
+  assert.equal(getShipmentException(stillAtFactory, stillAtFactory.event), null);
+  assert.equal(stillAtFactory.event.kind, 'acceptance');
 });
 
 test('Friday waits for earlier visitors and resumes existing saves that already reached case 20', () => {

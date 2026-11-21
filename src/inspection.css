@@ -191,6 +191,13 @@
   .visit-paper-surface .fields > div { gap: .32rem; padding-block: .2rem; }
 }
 
+.desk-surface.receiving-exception-surface { inline-size: min(61cqw, 38rem); }
+.receiving-exception-surface .fields > div { grid-template-columns: 6em minmax(0, 1fr); }
+@container workstation (max-height: 440px) {
+  .receiving-exception-surface .sheet > small { display: none; }
+  .receiving-exception-surface .fields > div { padding-block: .15rem; }
+}
+
 .desk-surface .modal-guide { margin-block-end: .52rem; }
 .playfield:has(.tutorial-guide) .room-hud .training { visibility: hidden; }
 .desk-surface-content:has(.tutorial-guide) { scroll-padding-block-start: 2.65rem; }
@@ -1612,6 +1619,12 @@
 .archive-receipt-head small { display: block; margin-block-start: .14rem; color: #6d5538; font-size: .72rem; }
 .archive-receipt .receipt-result { flex: 0 0 auto; padding: .15rem .35rem; font-size: .78rem; transform: none; }
 .archive-receipt .receipt-facts { margin-block-start: .4rem; }
+.archive-receipt .receiving-facts {
+  padding-block-start: .35rem;
+  border-block-start: 1px dashed #a27552;
+  background: #a36d4412;
+}
+.archive-receipt .receiving-facts dt { color: #75492f; }
 .receipt-amendments { display: grid; gap: .28rem; list-style: none; margin: .48rem 0 0; padding: 0; }
 .receipt-amendments > li {
   display: flex;

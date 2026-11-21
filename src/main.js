@@ -1,5 +1,5 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
-import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, documentExtension } from './content.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
@@ -295,6 +295,18 @@ function acceptancePaper(state, visit) {
   return { ...acceptance, document: { type: 'archive', kind: 'acceptance', title, fields } };
 }
 
+function exceptionPaper(state, visit) {
+  const exception = getShipmentException(state, visit);
+  if (!exception) return null;
+  const { record, day, title } = exception;
+  const fields = [
+    ['批号', record.batch], ['对应出货单', `${DAYS[record.day]?.title}开单`],
+    ['复核记录', record.reason], ['收货处置', SHIPMENT_EXCEPTION.result],
+    ['登记日', DAYS[day]?.title], ['复核单位', SHIPMENT_EXCEPTION.receiver],
+  ];
+  return { ...exception, document: { type: 'archive', kind: 'exception', title, fields } };
+}
+
 function filedWindowSupplement() {
   const request = run && getWindowSupplementRequest(run);
   if (!request) return null;
@@ -311,7 +323,7 @@ function filedWindowSupplement() {
 function filedBatchPapers() {
   const trace = run.flags.traceDocument
     ? { caseId: TRACE_CASE_ID, key: 'trace', document: { ...EVIDENCE.trace, kind: 'trace' } } : null;
-  return [filedRework(), acceptancePaper(run), trace, filedWindowSupplement()].filter(Boolean);
+  return [filedRework(), acceptancePaper(run), exceptionPaper(run), trace, filedWindowSupplement()].filter(Boolean);
 }
 
 function labRegistrationKey(caseId) {
@@ -422,6 +434,7 @@ function visitDocument(visit, state = run) {
   }
   if (visit?.kind === 'rework') return getReworkFollowup(state)?.document;
   if (visit?.kind === 'acceptance') return acceptancePaper(state, visit)?.document;
+  if (visit?.kind === 'exception') return exceptionPaper(state, visit)?.document;
   return visit && EVIDENCE[visit.key];
 }
 
@@ -429,6 +442,7 @@ function scenePaperBatch(doc, item, visit) {
   if (visit?.kind === 'recall') return `${doc.fields[0][1]} · ${doc.fields[1][1]}`;
   if (visit?.kind === 'rework') return `${doc.fields[0][1]} · 周二复核`;
   if (visit?.kind === 'acceptance') return `${doc.fields[0][1]} · 收货方回签`;
+  if (visit?.kind === 'exception') return `${doc.fields[0][1]} · 到货复核`;
   return visit ? '回访留底' : doc.fields[0]?.[1] ?? item.batch;
 }
 
@@ -615,6 +629,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
         returnTo, historyLabel,
+        receivingIssue: finished ? getEnding(run).issues.find(({ id }) => id === archiveFocus) : null,
         windowCorrection: !arrival && canRecheckReceipt(run, archiveFocus),
         reportSuggestion: !correction && sources.length > 1 ? sources[0].number : null,
         canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
@@ -1098,7 +1113,7 @@ function finishWindowAdvance(value, restoreFocus) {
       handoffDocument = null;
       handoffPairOpen = false;
     } else {
-      const paper = { rework: '复核联', acceptance: '到货验收联' }[visit.kind] ?? '留底';
+      const paper = { rework: '返工复核联', acceptance: '到货验收联', exception: '到货复核联' }[visit.kind] ?? '留底';
       toast(`${paper}已收入交接簿`);
     }
   }
@@ -1290,6 +1305,13 @@ function activeCorrection() {
 function filedCorrectionBasis(row) {
   if (row.id === TRACE_CASE_ID && run.flags.traceDocument) {
     return { kind: 'trace', label: '引用实验室原件', finding: TRACE_FINDING };
+  }
+  const exception = getShipmentException(run);
+  if (row.id === exception?.caseId) {
+    return {
+      kind: 'exception', label: '引用到货复核联',
+      finding: { key: exception.key, source: SHIPMENT_EXCEPTION.title, text: exception.record.reason },
+    };
   }
   const rework = filedRework();
   if (!rework || row.id !== rework.caseId) return null;
@@ -1747,7 +1769,12 @@ function openArchivePaper(id, index, opener) {
 
 function openHandoff(opener) {
   if (run?.phase !== 'handoff') return;
-  if (handoffFocus === null) {
+  const exception = opener?.dataset.key === 'exception' ? getShipmentException(run) : null;
+  if (exception) {
+    handoffFocus = exception.caseId;
+    handoffDocument = 'exception';
+    handoffPairOpen = false;
+  } else if (handoffFocus === null) {
     const current = archive(run).filter(({ record, latestReceipt }) => record && !latestReceipt);
     handoffFocus = (current.find(({ record }) => record.status === 'recallPending')
       ?? current.find(({ record }) => record.status === 'shipping') ?? current[0])?.id ?? null;

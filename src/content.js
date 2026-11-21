@@ -244,6 +244,13 @@ export const SHIPMENT_ACCEPTANCE = {
   result: '已签收，验收通过',
 };
 
+export const SHIPMENT_EXCEPTION = {
+  title: '到货复核联',
+  delivery: (batch) => `收货方把 ${batch} 留在待验区了。这张复核联你夹回原单，交班时一起看。`,
+  receiver: '收货方仓库 · 验收岗',
+  result: '暂缓入库，等待厂方回复',
+};
+
 export const HANDOFF = {
   normal: { title: '周五交班', line: '老周把交接单翻到最后一页。「该留下一班的都在这儿。行，你下班吧。」', stamp: '本周交班完成' },
   investigation: { title: '第二张复检单', line: '老周把两份原件摊在交接板上，圈住二四一。「这批单独复检。货在哪儿，按交接回执办。」', stamp: 'G-241 追加复检' },
