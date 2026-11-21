@@ -64,7 +64,6 @@ export function shell() {
         <div class="console" id="desk"></div>
       </div>
       <p class="arrival-status" id="arrival-status" role="status"></p>
-      <button type="button" class="waiting-window-receive" data-act="receive-waiting" aria-describedby="arrival-status" hidden>接件</button>
       <p class="visually-hidden" id="window-readback" role="status"></p>
       <div class="paper-drag-cue" id="paper-drag-cue" role="status" hidden><strong></strong><span></span></div>
       <div class="screen-layer" id="screen"></div>

@@ -117,7 +117,6 @@ const booth = root.querySelector('.booth-layout');
 const wallShift = root.querySelector('#wall-shift');
 const hud = root.querySelector('#room-hud');
 const arrivalStatus = root.querySelector('#arrival-status');
-const waitingReceive = root.querySelector('.waiting-window-receive');
 const windowReadback = root.querySelector('#window-readback');
 const paperDragCue = root.querySelector('#paper-drag-cue');
 const utility = root.querySelector('.topbar .utility');
@@ -125,7 +124,6 @@ const windowGlance = document.createElement('button');
 windowGlance.id = 'window-glance';
 windowGlance.className = 'window-glance window-glance-live';
 windowGlance.type = 'button';
-windowGlance.dataset.act = 'window-glance';
 const desktop = root.querySelector('#desk');
 const screenLayer = root.querySelector('#screen');
 const modalLayer = root.querySelector('#modal');
@@ -868,19 +866,18 @@ const glanceReturnLabels = {
 
 function syncWindowGlance() {
   const content = modalLayer.querySelector('.modal-shade, .desk-surface');
-  const waiting = Boolean(arrival?.ready && toolsAvailableBetweenBatches() && ['archive', 'phone'].includes(panel));
-  const live = Boolean(!arrival && !closingShot && Object.hasOwn(glanceReturnLabels, panel) &&
+  const receiving = Boolean(content && arrival?.ready && toolsAvailableBetweenBatches() && ['archive', 'phone'].includes(panel));
+  const live = Boolean(content && !arrival && !closingShot && Object.hasOwn(glanceReturnLabels, panel) &&
     (run?.phase === 'case' || run?.phase === 'receipt' || activeVisit()));
-  const available = content && (waiting || live);
-  if (glancedPanel && (!available || glancedPanel !== panel)) {
+  const available = receiving || live;
+  if (glancedPanel && (!live || glancedPanel !== panel)) {
     glancedPanel = null;
     setGazeTarget(gaze.targetX, gaze.targetY);
   }
   const looking = Boolean(glancedPanel);
   root.toggleAttribute('data-window-glance', looking);
   scheduleTutorialPointer();
-  waitingReceive.hidden = !waiting || !looking;
-  arrivalStatus.classList.toggle('visually-hidden', waiting && !looking);
+  arrivalStatus.classList.toggle('visually-hidden', receiving);
   if (content) content.inert = looking;
   const dialog = content?.querySelector('[aria-modal="true"]');
   if (dialog && available && !looking) dialog.setAttribute('aria-owns', windowGlance.id);
@@ -895,13 +892,13 @@ function syncWindowGlance() {
     windowGlance.remove();
     return;
   }
-  const someoneWaiting = waiting && !looking;
-  const command = looking
-    ? (waiting && panel === 'archive' ? '继续看单' : glanceReturnLabels[panel])
-    : waiting ? '窗口有人等候 · 抬头看' : '抬头看';
-  windowGlance.toggleAttribute('data-visitor-waiting', someoneWaiting);
-  windowGlance.textContent = someoneWaiting ? '有人等\n抬头看' : looking && live ? '回到查验' : command;
+  const command = receiving ? '接件' : looking ? glanceReturnLabels[panel] : '抬头看';
+  windowGlance.dataset.act = receiving ? 'receive-waiting' : 'window-glance';
+  windowGlance.toggleAttribute('data-visitor-waiting', receiving);
+  windowGlance.textContent = looking ? '回到查验' : command;
   windowGlance.setAttribute('aria-label', command);
+  if (receiving) windowGlance.setAttribute('aria-describedby', arrivalStatus.id);
+  else windowGlance.removeAttribute('aria-describedby');
   if (windowGlance.parentElement !== utility) utility.prepend(windowGlance);
 }
 
@@ -2502,7 +2499,7 @@ root.addEventListener('click', (event) => {
     case 'carton': case 'carton-turn': case 'carton-note': checkCarton(act, target); break;
     case 'window-glance': toggleWindowGlance(); break;
     case 'receive-waiting':
-      if (!waitingReceive.hidden && arrival?.ready && glancedPanel === panel) {
+      if (target === windowGlance && arrival?.ready && toolsAvailableBetweenBatches()) {
         arrival.restoreFocus = true;
         closePanel({ receiveWaiting: true });
       }
@@ -2912,13 +2909,12 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') { event.preventDefault(); toggleWindowGlance(); }
     if (event.key === 'Tab') {
       event.preventDefault();
-      const next = !waitingReceive.hidden && document.activeElement === windowGlance ? waitingReceive : windowGlance;
-      next.focus({ preventScroll: true });
+      windowGlance.focus({ preventScroll: true });
     }
     return;
   }
   if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
-      target.matches('[data-act="stamp"], [data-act="next"], [data-act="visit-paper"], [data-act="event-next"], .sample-hotspot[data-drag], .gauge-clamp')) {
+      target.matches('[data-act="stamp"], [data-act="next"], [data-act="receive-waiting"], [data-act="visit-paper"], [data-act="event-next"], .sample-hotspot[data-drag], .gauge-clamp')) {
     event.preventDefault();
     return;
   }
