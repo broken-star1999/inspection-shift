@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, canShowFinding, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
@@ -294,10 +294,23 @@ function acceptancePaper(state, visit) {
   return { ...acceptance, document: { type: 'archive', kind: 'acceptance', title, fields } };
 }
 
+function filedWindowSupplement() {
+  const request = run && getWindowSupplementRequest(run);
+  if (!request) return null;
+  const { record, proof } = request;
+  const fields = [
+    ['批号', record.batch], ['登记日', DAYS[record.day]?.title], ['经手', '罗诚 · 仓管'],
+    ['窗口点收', proof.text], ['待补', '本批检验报告'], ['开单时去向', '黄线隔离'],
+  ];
+  return { caseId: record.id, key: `supplement:${record.id}`, document: {
+    type: 'archive', kind: 'supplement', title: '补件登记联', fields,
+  } };
+}
+
 function filedBatchPapers() {
   const trace = run.flags.traceDocument
     ? { caseId: TRACE_CASE_ID, key: 'trace', document: { ...EVIDENCE.trace, kind: 'trace' } } : null;
-  return [filedRework(), acceptancePaper(run), trace].filter(Boolean);
+  return [filedRework(), acceptancePaper(run), trace, filedWindowSupplement()].filter(Boolean);
 }
 
 function labRegistrationKey(caseId) {
@@ -356,7 +369,9 @@ function previousInspection(item = windowCase()) {
   const previous = getPreviousReceipt(run, item);
   if (!previous) return null;
   const filed = archive(run).find(({ id }) => id === previous.record.id);
-  return filed ? { ...previous, documents: filed.documents } : null;
+  if (!filed) return null;
+  const supplement = item.id === 9 ? filedWindowSupplement()?.document : null;
+  return { ...previous, documents: supplement ? [...filed.documents, supplement] : filed.documents };
 }
 
 function viewedDocument() {
@@ -640,7 +655,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const record = run.records.at(-1);
     const previous = run.records.find(({ id }) => id === record.priorShipmentId);
     const next = windowAdvance('next');
-    markup = view.receipt(record, previous, activeVisit(next) ? null : next?.phase);
+    const supplement = filedWindowSupplement();
+    markup = view.receipt(record, previous, activeVisit(next) ? null : next?.phase, supplement?.caseId === record.id ? supplement.key : null);
   }
 
   const focused = document.activeElement;
@@ -1189,12 +1205,13 @@ function toggleFinding(finding) {
 }
 
 function presentFinding(key) {
-  if (panel || !interaction.benchFindingsOpen || !windowCase()?.pressure) return;
+  if (panel || !interaction.benchFindingsOpen) return;
   const finding = interaction.findings.find((entry) => entry.key === key);
-  if (!finding) return;
+  if (!finding || !canShowFinding(windowCase(), finding)) return;
   const scroll = desktop.querySelector('.bench-draft-body')?.scrollTop ?? 0;
   if (!update({ type: 'show-finding', finding }, false)) return;
   presentedEvidence = run.shownFinding;
+  toast('');
   playSound('slide');
   render();
   desktop.querySelector('.bench-draft-body')?.scrollTo(0, scroll);
@@ -1437,8 +1454,9 @@ function comparePrevious(opener) {
   } else {
     const type = item.documents[interaction.doc]?.type;
     const matching = previous.documents.findIndex((doc) => doc.type === type);
+    const supplement = previous.documents.findIndex((doc) => doc.kind === 'supplement');
     const order = previous.documents.findIndex((doc) => doc.type === 'order');
-    interaction.previousDoc = matching >= 0 ? matching : Math.max(order, 0);
+    interaction.previousDoc = [matching, supplement, order, 0].find((index) => index >= 0);
     interaction.previousCurrentDoc = interaction.doc;
   }
   playSound('paper');
@@ -1982,6 +2000,14 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'archive-focus': case 'archive-followup': case 'archive-evidence':
+      if (act === 'archive-evidence' && !panel && target.closest('.receipt-surface')) {
+        if (filedWindowSupplement()?.key !== key) break;
+        focusArchiveRow(key);
+        interaction.archiveQuery = '';
+        openArchive(target);
+        revealArchiveReceipt(true);
+        break;
+      }
       focusArchiveRow(act === 'archive-evidence' ? key : index);
       if (act === 'archive-followup' && !archive(run, interaction.archiveQuery).some((row) => row.id === index)) {
         interaction.archiveQuery = '';

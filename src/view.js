@@ -1,6 +1,6 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
 import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
-import { receiptDisposition, receiptFeedback, TRACE_CASE_ID } from './engine.js';
+import { canShowFinding, receiptDisposition, receiptFeedback, TRACE_CASE_ID } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { CUFF_SPLIT_PATCHES, cuffSplitVisible, earCupMark, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
 
@@ -17,6 +17,7 @@ const batchPaperLabels = {
   rework: { tab: '复核联', original: '查看周一原单', open: '查看周二复核联' },
   acceptance: { tab: '验收联', original: '查看对应出货单', open: '查看到货验收联' },
   trace: { tab: '实验室原件', original: '查看 G-241 原单', open: '查看 R-071 原件' },
+  supplement: { tab: '补件联', original: '查看周二原单', open: '查看补件登记联' },
 };
 
 export const esc = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -202,11 +203,12 @@ export function desk(run, item, tutorial, interaction) {
   const issued = run.phase === 'receipt';
   const target = tutorial?.key === 'signature' && !interaction.signed ? 'report' : tutorial?.target;
   const findings = readFindings(interaction);
-  const showTo = item.pressure ? CHARACTERS[item.npc]?.name : null;
+  const viewer = findings.some((finding) => canShowFinding(item, finding)) ? item : null;
   const shown = item.shownFinding;
+  const supplement = item.id === 5 ? run.supplementRequestDraft : null;
   const benchDraft = run.phase === 'case' && !stampBlocked && findings.length ? `<aside class="bench-draft" data-fixture="findings">
     ${button(`查验依据 ${findings.length}`, 'bench-findings', 'bench-draft-toggle', `aria-expanded="${Boolean(benchFindingsOpen)}" aria-controls="bench-findings"`)}
-    <div class="bench-draft-body${cls('bench-facing-visitor', showTo)}" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, 'remove-finding', { showTo, shown }) : ''}</div>
+    <div class="bench-draft-body${cls('bench-facing-visitor', viewer)}" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, 'remove-finding', { viewer, shown, supplement }) : ''}</div>
   </aside>` : '';
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, target, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
@@ -411,16 +413,19 @@ function sameFinding(finding, shown) {
   return shown?.key === finding.key && shown.text === finding.text && shown.source === finding.source;
 }
 
-function findingLines(findings, removeAction = '', { showTo, shown } = {}) {
+function findingLines(findings, removeAction = '', { viewer, shown, supplement } = {}) {
   return `<ul class="finding-lines">${findings.map((finding) => {
     const { key, source, text } = finding;
-    const wasShown = sameFinding(finding, shown);
-    const marker = !showTo && wasShown ? '<small class="finding-shown">开单前已出示</small>' : '';
+    const wasSupplied = sameFinding(finding, supplement);
+    const wasShown = wasSupplied || sameFinding(finding, shown);
+    const showTo = viewer && canShowFinding(viewer, finding) ? CHARACTERS[viewer.npc]?.name : null;
+    const marker = !viewer && wasShown ? `<small class="finding-shown">${wasSupplied ? '已列入补件联' : '开单前已出示'}</small>` : '';
     const remove = removeAction ? button('取回', removeAction, 'finding-remove', `data-key="${esc(key)}" aria-label="取回依据 ${esc(text)}"`) : '';
-    const show = showTo ? button(wasShown ? '已出示' : '递给他看', 'show-finding', 'finding-show',
+    const action = viewer?.id === 5 && key === 'compare:5:intake:1' ? '递点收联' : '递给他看';
+    const show = showTo ? button(wasSupplied ? '已递点收联' : wasShown ? '已出示' : action, 'show-finding', 'finding-show',
       `data-key="${esc(key)}"${active(wasShown)} aria-label="${wasShown ? '已递给' : '递给'}${esc(showTo)}看 ${esc(source || text)}"`) : '';
     return `<li><div class="finding-description">${source ? `<small class="finding-source">${esc(source)}</small>` : ''}<span>${esc(text)}</span>${marker}</div>
-      ${show ? `<div class="finding-actions">${show}${remove}</div>` : remove}</li>`;
+      ${viewer ? `<div class="finding-actions">${show}${remove}</div>` : remove}</li>`;
   }).join('')}</ul>`;
 }
 
@@ -612,7 +617,7 @@ function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false
   const shown = record.shownFinding;
   const separate = shown && !findings.some((finding) => sameFinding(finding, shown));
   return `<dl class="receipt-facts"><div><dt>${destinationLabel}</dt><dd>${esc(dispositionLabel(record))}</dd></div>
-    ${findings.length || showEmptyNote ? `<div class="receipt-findings"><dt>${basisLabel}</dt><dd>${findings.length ? findingLines(findings, '', { shown }) : '未另记'}</dd></div>` : ''}
+    ${findings.length || showEmptyNote ? `<div class="receipt-findings"><dt>${basisLabel}</dt><dd>${findings.length ? findingLines(findings, '', { shown, supplement: record.supplementRequest }) : '未另记'}</dd></div>` : ''}
     ${separate ? `<div class="receipt-findings"><dt>开单前出示</dt><dd>${findingLines([shown])}</dd></div>` : ''}</dl>`;
 }
 
@@ -653,7 +658,7 @@ function archivedReceipt(record, latestReceipt, previousReceipt) {
       <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(amendmentDisposition(record, index, entry.from, entry.previousStatus))} → ${esc(amendmentDisposition(record, index + 1, entry.to, entry.status))}</small>${amendmentFindings(entry)}${recallConfirmation(record.recallReceipt, index)}</li>`).join('')}</ol>` : ''}</article>`;
 }
 
-export function receipt(record, previous, nextPhase) {
+export function receipt(record, previous, nextPhase, supplementKey) {
   const disposition = {
     shipping: '这批货等装车，回执交装货台。',
     shipped: '这批货已经出库，补签回执归入原批留底。',
@@ -668,13 +673,14 @@ export function receipt(record, previous, nextPhase) {
     ? button('原出货回执', 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}" aria-label="查看原出货回执 · ${esc(DAYS[previous.day]?.title)}"`)
     : '';
   const copy = button('翻本批留底', 'archive-receipt', 'receipt-origin', `data-i="${esc(record.id)}"`);
+  const supplement = supplementKey ? button('补件登记联', 'archive-evidence', 'receipt-origin', `data-key="${esc(supplementKey)}"`) : '';
   const next = nextPhase === 'summary' ? '本班收工' : nextPhase === 'handoff' ? '去交班' : '接着值班';
   const findings = readFindings(record);
   const shownSeparately = record.shownFinding && !findings.some((finding) => sameFinding(finding, record.shownFinding));
   const findingCount = findings.length + (shownSeparately ? 1 : 0);
   const basis = findingCount ? button(`查看依据 <b>${findingCount} 条</b> <span aria-hidden="true">↓</span>`, 'receipt-basis', 'receipt-basis-link') : '';
   const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record, '去向', record.decision === 'review')}</div>`;
-  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + copy + button(next, 'next', 'primary') });
+  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + supplement + copy + button(next, 'next', 'primary') });
 }
 
 function correctionPanel(record, findings, selected, supportingBasis) {

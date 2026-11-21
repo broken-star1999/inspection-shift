@@ -1,4 +1,5 @@
-import { DAYS, G202_RECHECK, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, TUTORIAL as tutorialContent, documentExtension } from './content.js';
+import { DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, TUTORIAL as tutorialContent, documentExtension } from './content.js';
+import { intakeComparison } from './document-comparison.js';
 import { normalizeFindings } from './inspection-findings.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
@@ -116,7 +117,8 @@ export function getDay(state) {
   const permitsShuffle = state.schedule === 2 || (state.schedule === 1 && state.day < 4);
   if (!options || !permitsShuffle) return day ?? null;
   const order = options[seededChoice(state.seed, 120 + state.day, options.length)];
-  return { ...day, cases: order.map((id) => CASE_BY_ID.get(id)) };
+  const prioritized = state.day === 2 && getWindowSupplementRequest(state) ? [9, ...order.filter((id) => id !== 9)] : order;
+  return { ...day, cases: prioritized.map((id) => CASE_BY_ID.get(id)) };
 }
 
 function variantIndex(state, item) {
@@ -150,12 +152,37 @@ export function getReworkFollowup(state) {
   return { ...G202_RECHECK[decision], key: REWORK_KEY, caseId: receipt.id };
 }
 
+function supplementFinding(item) {
+  return item?.id === 5 ? intakeComparison(item, 1)?.finding : null;
+}
+
+function sameFinding(first, second) {
+  return Boolean(first && second && first.key === second.key && first.source === second.source && first.text === second.text);
+}
+
+export function canShowFinding(item, value) {
+  if (value === undefined) return Boolean(item?.pressure || item?.id === 5);
+  const [finding] = normalizeFindings([value]);
+  return Boolean(finding && (item?.pressure || sameFinding(finding, supplementFinding(item))));
+}
+
+export function getWindowSupplementRequest(state) {
+  const record = state?.records && getRecord(state, 5);
+  const proof = record?.supplementRequest;
+  if ((record?.original ?? record?.decision) !== 'review' || !sameFinding(proof, supplementFinding(CASE_BY_ID.get(5)))) return null;
+  return { record, proof };
+}
+
 function getDialogue(state, item) {
   const previous = getPreviousReceipt(state, item)?.record.decision;
   const line = item.followUp?.lines[previous] ?? item.line;
   const requestCaseId = item.followUp?.caseId;
   const request = PHONE['204'].requests?.[requestCaseId];
-  if (request?.followupId === item.id && labRequest(state, requestCaseId)) return `${line} ${request.delivery}`;
+  if (request?.followupId === item.id) {
+    const windowRequested = requestCaseId === 5 && getWindowSupplementRequest(state);
+    const phoned = labRequest(state, requestCaseId);
+    if (windowRequested || phoned) return [line, windowRequested && G205_SUPPLEMENT_REQUEST.delivery, phoned && request.delivery].filter(Boolean).join(' ');
+  }
   if (item.nightResponse && state.flags.nightDocument) return `${line} ${item.nightResponse}`;
   if (item.id === 12 && state.flags.pencil) return `${line} 你看，我给笔尾绑了截木头，这下它滚不了了。`;
   return line;
@@ -174,8 +201,10 @@ export function getCase(state) {
   const pressure = item.id === state.flags.offerCase ? 'favor' : item.id === state.flags.warningCase ? 'warning' : null;
   const script = pressure ? PRESSURE[pressure === 'favor' ? 0 : 1] : null;
   const saved = state.shownFinding;
-  const shownFinding = script && saved?.caseId === item.id && typeof saved.key === 'string' && typeof saved.text === 'string' ? saved : null;
-  const pressureReply = shownFinding ? script.shown?.[pressureFindingKind(shownFinding.key)] ?? null : null;
+  const shownFinding = saved?.caseId === item.id && canShowFinding({ ...item, pressure }, saved) ? saved : null;
+  const kind = shownFinding ? pressureFindingKind(shownFinding.key) : null;
+  const replyKind = item.id === 5 && kind === 'intake' && !sameFinding(shownFinding, supplementFinding(item)) ? 'paper' : kind;
+  const pressureReply = shownFinding ? (script ? script.shown?.[replyKind] : G205_SUPPLEMENT_REQUEST.shown) ?? null : null;
   return { ...item, line: getDialogue(state, item), pressure, pressureLine: script?.line ?? null, shownFinding, pressureReply };
 }
 
@@ -415,17 +444,20 @@ export function receiptFeedback(state) {
   let line = RECEIPT_HANDLING[record.npc]?.[kind] ?? RECEIPT_HANDLING.default[kind] ?? '';
   if (record.id === state.flags.warningCase && record.decision === 'review') line = '行，我先让他们挪进黄线里。';
   const umbrella = record.id === 17 && state.flags.umbrella ? '你也看见了？老周这两天看见我就催我晾伞。' : null;
-  return [line, umbrella, CASE_BY_ID.get(record.id)?.receiptAside].filter(Boolean).join(' ');
+  const aside = record.id === 5 && getWindowSupplementRequest(state) ? G205_SUPPLEMENT_REQUEST.receipt : CASE_BY_ID.get(record.id)?.receiptAside;
+  return [line, umbrella, aside].filter(Boolean).join(' ');
 }
 
 function showFinding(state, value) {
   const item = getCase(state);
-  if (!item?.pressure) return state;
   const [finding] = normalizeFindings([value]);
-  if (!finding) return state;
-  const previous = item.shownFinding;
-  if (previous?.key === finding.key && previous.source === finding.source && previous.text === finding.text) return state;
-  return { ...state, shownFinding: { ...finding, caseId: item.id } };
+  if (!finding || !canShowFinding(item, finding)) return state;
+  const newRequest = sameFinding(finding, supplementFinding(item)) && !sameFinding(finding, state.supplementRequestDraft);
+  if (!newRequest && sameFinding(item.shownFinding, finding)) return state;
+  return {
+    ...state, shownFinding: { ...finding, caseId: item.id },
+    ...(newRequest ? { supplementRequestDraft: { ...finding } } : {}),
+  };
 }
 
 function stamp(state, action) {
@@ -434,6 +466,7 @@ function stamp(state, action) {
   if (!item || !DECISIONS.includes(value) || (item.id === 1 && state.tutorial < TUTORIAL.length - 1)) return state;
   const findings = normalizeFindings(action.findings);
   const previous = previousSameLot(state.records, item);
+  const supplementRequest = value === 'review' && sameFinding(state.supplementRequestDraft, supplementFinding(item));
   const record = {
     id: item.id,
     batch: item.batch,
@@ -447,6 +480,7 @@ function stamp(state, action) {
     note: String(action.note ?? action.reason ?? '').trim().slice(0, 100),
     ...(findings.length ? { findings } : {}),
     ...(item.shownFinding ? { shownFinding: { ...item.shownFinding } } : {}),
+    ...(supplementRequest ? { supplementRequest: { ...state.supplementRequestDraft } } : {}),
     ...(isOffsite(previous?.status) ? { priorShipmentId: previous.id } : {}),
     status: disposition(state.records, item, value),
     amendments: [],
@@ -724,7 +758,8 @@ function attach(state, action) {
 }
 
 function nextCase(state) {
-  const next = deliverVisits(state.shownFinding ? { ...state, shownFinding: null } : state);
+  const next = deliverVisits(state.shownFinding || state.supplementRequestDraft
+    ? { ...state, shownFinding: null, supplementRequestDraft: null } : state);
   if (state.index + 1 < getDay(state).cases.length) return startCase(next, state.index + 1);
   if (state.day === DAYS.length - 1) return { ...next, phase: 'handoff' };
   const summary = { ...next, phase: 'summary', records: ship(next.records) };

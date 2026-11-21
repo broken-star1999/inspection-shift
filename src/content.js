@@ -139,6 +139,12 @@ export const TUTORIAL = [
 
 export const FILM_TUTORIAL = '点一下膜角，或往右上拉，看看白痕跟着哪一层。';
 
+export const G205_SUPPLEMENT_REQUEST = {
+  shown: '就这两张，报告没夹进来。你开审查，我拿补件联去趟实验室。',
+  receipt: '我带补件联去趟实验室，签好的那份我先送窗口。',
+  delivery: '周二那张补件联我带去了，这一箱我先推过来。',
+};
+
 export const PRESSURE = [
   {
     slots: [5, 16], line: '这车赶得上，周五我找人替你。',

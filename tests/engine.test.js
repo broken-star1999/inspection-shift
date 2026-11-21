@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PHONE, PRESSURE } from '../src/content.js';
+import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
-import { archive, archivedReportSources, createFollowingRun, createRun, dispatch, getCase, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, isSupplementOnly, receiptFeedback, restoreRun, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
+import { archive, archivedReportSources, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -535,10 +535,12 @@ test('a finding shown during pressure survives reload and records independently 
       const details = { value, findings: [other] };
       const stamped = act(restored, 'stamp', details);
       const control = act(state, 'stamp', details);
-      const { shownFinding, ...record } = stamped.records.at(-1);
+      const { shownFinding, supplementRequest, ...record } = stamped.records.at(-1);
       assert.deepEqual(shownFinding, expected);
       assert.deepEqual(record, control.records.at(-1));
-      assert.equal(receiptFeedback(stamped), receiptFeedback(control));
+      assert.deepEqual(supplementRequest, value === 'review' ? finding : undefined);
+      if (value === 'review') assert.ok(receiptFeedback(stamped).includes(G205_SUPPLEMENT_REQUEST.receipt));
+      else assert.equal(receiptFeedback(stamped), receiptFeedback(control));
       assert.equal(act(stamped, 'show-finding', { finding: other }), stamped);
       const next = act(stamped, 'next');
       assert.equal(next.shownFinding, null);
@@ -549,6 +551,96 @@ test('a finding shown during pressure survives reload and records independently 
     return state;
   } });
   assert.equal(checked, true);
+});
+
+function g205AtWindow(seed) {
+  let arrival;
+  untilHandoff(seed, { inspect: (state, item) => {
+    if (item.id === 5) arrival = state;
+    return state;
+  } });
+  return arrival;
+}
+
+test('showing the exact G-205 intake at a quiet window prioritizes the next-day supplement only after a review', () => {
+  const state = g205AtWindow(1);
+  const item = getCase(state);
+  const finding = intakeComparison(item, 1).finding;
+  const note = { key: 'sample:5:front', source: '耳罩检样', text: '外壳边沿平整' };
+  assert.equal(item.pressure, null);
+  assert.equal(canShowFinding(item), true);
+  assert.equal(canShowFinding(item, finding), true);
+  assert.equal(canShowFinding(item, note), false);
+  assert.equal(act(state, 'show-finding', { finding: note }), state);
+
+  const shown = act(state, 'show-finding', { finding });
+  const questioned = act(shown, 'dial', { number: '204', papers: [{ id: 5, index: 1 }] });
+  assert.equal(questioned.phone.kind, 'lab-request');
+  const beforeStamp = restoreRun(JSON.parse(JSON.stringify(questioned)));
+  assert.equal(getCase(beforeStamp).pressureReply, G205_SUPPLEMENT_REQUEST.shown);
+  assert.equal(getWindowSupplementRequest(beforeStamp), null);
+  assert.deepEqual(getDay({ ...beforeStamp, day: 2 }).cases.map(({ id }) => id), [12, 10, 11, 9]);
+  const held = act(beforeStamp, 'stamp', { value: 'review', findings: [finding] });
+  const record = held.records.at(-1);
+  assert.equal(record.status, 'held');
+  assert.deepEqual(getWindowSupplementRequest(held), { record, proof: finding });
+  assert.equal(archive(held).some(({ id }) => id === 9), false);
+  assert.deepEqual(archivedReportSources(held, 'R-065'), []);
+  assert.equal(act(held, 'next').supplementRequestDraft, null);
+
+  const wednesday = [];
+  const thursday = [];
+  const week = untilHandoff(state.seed, { initialState: restoreRun(JSON.parse(JSON.stringify(held))), inspect: (run, arrived) => {
+    if (run.day === 2) wednesday.push(arrived.id);
+    if (run.day === 3) thursday.push(arrived.id);
+    if (arrived.id === 9) {
+      assert.equal(run.index, 0);
+      assert.equal(getPreviousReceipt(run).record.status, 'held');
+      assert.equal(arrived.line, [arrived.followUp.lines.review, G205_SUPPLEMENT_REQUEST.delivery, PHONE['204'].requests[5].delivery].join(' '));
+      assert.equal(archivedReportSources(run, 'R-065')[0].id, 9);
+      assert.equal(act(run, 'stamp', { value: 'pass' }).records.at(-1).status, 'shipping');
+    }
+    return run;
+  } });
+  assert.deepEqual(wednesday, [9, 12, 10, 11]);
+  assert.deepEqual(thursday, [13, 16, 14, 15]);
+  assert.equal(week.records.filter(({ id }) => id === 9).length, 1);
+  assert.equal(week.records.find(({ id }) => id === 5).verifiedBy, 9);
+  assert.equal(getEnding(act(week, 'finish')).id, 'routine');
+});
+
+test('only an actual G-205 intake presentation with a review persists a request, even when another note is shown later', () => {
+  const state = g205AtWindow(0);
+  const item = getCase(state);
+  const finding = intakeComparison(item, 1).finding;
+  const sampleNote = { key: 'sample:5:front', source: '耳罩检样', text: '外壳边沿平整' };
+  const shown = act(state, 'show-finding', { finding });
+  const afterAnother = act(shown, 'show-finding', { finding: sampleNote });
+  const restored = restoreRun(JSON.parse(JSON.stringify(afterAnother)));
+  const review = act(restored, 'stamp', { value: 'review' });
+  assert.deepEqual(review.records.at(-1).shownFinding, { ...sampleNote, caseId: 5 });
+  assert.deepEqual(getWindowSupplementRequest(review).proof, finding);
+  assert.deepEqual(getDay({ ...review, day: 2 }).cases.map(({ id }) => id), [9, 12, 10, 11]);
+
+  const reviewWithout = [
+    act(state, 'stamp', { value: 'review', findings: [finding] }),
+    act(act(state, 'show-finding', { finding: sampleNote }), 'stamp', { value: 'review' }),
+    act(act(state, 'show-finding', { finding: { ...finding, text: '另一份送检联上的说明' } }), 'stamp', { value: 'review' }),
+    act({ ...state, shownFinding: { ...finding, caseId: 5 } }, 'stamp', { value: 'review' }),
+  ];
+  const passed = act(restored, 'stamp', { value: 'pass' });
+  const failed = act(restored, 'stamp', { value: 'fail' });
+  for (const alternative of [...reviewWithout, passed, failed]) {
+    assert.equal(getWindowSupplementRequest(alternative), null);
+    assert.deepEqual(getDay({ ...alternative, day: 2 }).cases.map(({ id }) => id), [12, 10, 11, 9]);
+  }
+  assert.equal(passed.records.at(-1).status, 'shipping');
+  assert.equal(failed.records.at(-1).status, 'returned');
+  const afterPass = untilHandoff(state.seed, { initialState: passed, decisions: { 9: 'review' } });
+  const later = afterPass.records.find(({ id }) => id === 9);
+  assert.equal(later.priorShipmentId, 5);
+  assert.equal(isSupplementOnly(later), true);
+  assert.equal(afterPass.records.find(({ id }) => id === 5).status, 'shipped');
 });
 
 test('pressure replies follow the latest evidence and cannot be triggered before a visitor arrives', () => {
