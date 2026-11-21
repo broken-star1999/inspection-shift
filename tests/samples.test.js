@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { DAYS } from '../src/content.js';
-import { gaugeArt } from '../src/gauge-art.js';
+import { gaugeArt, gaugeJawStyle } from '../src/gauge-art.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge, sampleObservation } from '../src/samples.js';
 
 const items = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
@@ -82,6 +82,10 @@ test('seating an insert exposes neither its reading nor its contact offset until
   const open = (spec) => gaugeArt(spec.reading, { loaded: true, measured: false });
   assert.equal(open(sample), open(alternate));
   assert.match(open(sample), /gauge-display[^>]*>—/u);
+  assert.equal(gaugeJawStyle(sample.reading, false), '');
+  assert.equal(gaugeJawStyle(alternate.reading, false), '');
+  assert.match(gaugeJawStyle(sample.reading, true), /--gauge-contact-offset:-0\.8px/u);
+  assert.match(gaugeJawStyle(alternate.reading, true), /--gauge-contact-offset:0\.4px/u);
   assert.doesNotMatch(sampleFinding(sample, seated).text, /1\.80 mm/u);
   assert.match(gaugeArt(alternate.reading, { loaded: true, measured: true }), /2\.10 mm/u);
 });

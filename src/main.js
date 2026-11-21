@@ -38,6 +38,7 @@ const VISIT_HANDOVER_MS = 760;
 const PAPER_PAIR_HOLD_MS = 250;
 const PAPER_TOUCH_DRAG_PX = 8;
 const CARTON_TURN_TRAVEL = 28;
+const TOOL_DRAG_PX = 9;
 const RECEIPT_LIFT_MS = 235;
 const cargoRoutes = new Set(['shipping', 'returned', 'held']);
 
@@ -143,6 +144,7 @@ let fixtureLayout = {};
 
 bindViewport(root, ({ fullscreen, immersive, rotated }) => {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
+  if (toolDrag?.kind === 'gauge') endToolDrag({ type: 'pointercancel', pointerId: toolDrag.pointerId });
   cancelDeskPress();
   const expanded = fullscreen || immersive;
   fullscreenToggle.setAttribute('aria-pressed', String(expanded));
@@ -321,6 +323,9 @@ function setGazeTarget(x, y) {
 
 root.addEventListener('pointerdown', (event) => {
   toolClickTarget = null;
+  if (toolDrag?.kind === 'gauge' && toolDrag.pointerId !== event.pointerId) {
+    endToolDrag({ type: 'pointercancel', pointerId: toolDrag.pointerId });
+  }
   if (!drag && !deskPress) suppressDeskClick = false;
   if (drag && drag.pointerId !== event.pointerId) {
     endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
@@ -961,6 +966,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
         pendingReceiptPrint = false;
         animatePrintedReceipt(object);
       }
+    } else if (object?.closest('.gauge-stage')) {
+      animateOnDesk(object, [{ opacity: .62 }, { opacity: 1 }], 155);
     } else {
       animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
     }
@@ -1961,7 +1968,7 @@ function checkSample(act) {
       advanceTutorial();
       break;
     case 'sample-measure':
-      if (!spec.reading) return;
+      if (!spec.reading || sample.measured) return;
       sample.gaugeLoaded = !inGauge;
       sample.measured = false;
       if (!thicknessComparison(item, sample, interaction.findings)) interaction.thicknessOpen = false;
@@ -2009,6 +2016,8 @@ function checkSample(act) {
   }
   playSound(sound);
   render();
+  if (act === 'sample-measure' && sample.gaugeLoaded) focusControl(modalLayer, { act: 'sample-gauge-clamp' });
+  if (act === 'sample-gauge-clamp' && !sample.measured) focusControl(modalLayer, { act: 'sample-measure' });
   if (step?.key === 'sample') {
     if (act === 'sample-flip' && sample.back) focusControl(modalLayer, { act: sample.clasp ? 'sample-tug' : 'sample-clasp' });
     if (act === 'sample-clasp') focusControl(modalLayer, { act: 'sample-tug' });
@@ -2031,7 +2040,8 @@ function checkSample(act) {
       }
     }
   } else if (act === 'sample-flip') {
-    animateOnDesk(graphic, [{ transform: 'perspective(600px) rotateY(-57deg)', opacity: .8 }, { transform: 'perspective(600px) rotateY(0deg)', opacity: 1 }], 220);
+    const face = spec.reading ? graphic?.querySelector('img') : graphic;
+    animateOnDesk(face, [{ transform: 'perspective(600px) rotateY(-57deg)', opacity: .8 }, { transform: 'perspective(600px) rotateY(0deg)', opacity: 1 }], 220);
   } else if (act === 'sample-film' && previousFold) {
     const film = modalLayer.querySelector('.sample-film-sheet');
     if (film) animateOnDesk(film, [{ transform: previousFold }, { transform: getComputedStyle(film).transform }], 225);
@@ -2370,7 +2380,7 @@ root.addEventListener('click', (event) => {
   if (suppressDeskClick && pointerClick) return;
   const target = event.target.closest('[data-act]');
   if (!target || target.matches(':disabled')) return;
-  if (target === toolClickTarget && event.detail > 0) return;
+  if (target === toolClickTarget && pointerClick) return;
   const { act, key } = target.dataset;
   const index = Number(target.dataset.i);
   if (act.startsWith('sample-')) { checkSample(act); return; }
@@ -2805,22 +2815,27 @@ modalLayer.addEventListener('pointerdown', (event) => {
   const kind = handle.dataset.drag;
   const stage = kind === 'carton' ? handle : handle.closest('.sample-stage');
   const origin = stagePoint(root, event.clientX, event.clientY);
+  if (kind === 'gauge') {
+    toolClickTarget = handle;
+    if (!isDeskControlHit(handle, event)) return;
+  }
   toolDrag = {
     handle, stage, origin, pointerId: event.pointerId, distance: 0,
     kind, action: handle.dataset.act,
-    ...(kind === 'gauge' ? { slot: stage.querySelector('[data-gauge-target]'), insert: stageBounds(handle.closest('.sample-object')),
-      loaded: stage.classList.contains('gauge-loaded') } : {}),
+    ...(kind === 'gauge' ? { slot: stage.querySelector('[data-gauge-target]'), insert: stageBounds(stage.querySelector('.gauge-insert-edge')),
+      loaded: stage.classList.contains('gauge-loaded'), cue: stage.querySelector('.gauge-drag-cue') } : {}),
     peeled: stage.classList.contains('peeled'), filmTravel: 0,
   };
   handle.setPointerCapture(event.pointerId);
 });
 
 function gaugeContainsInsert({ slot, insert, origin }, point) {
-  if (!slot) return false;
   const bounds = stageBounds(slot);
-  const x = insert.x + insert.w / 2 + point.x - origin.x;
+  const left = insert.x + point.x - origin.x;
   const y = insert.y + insert.h / 2 + point.y - origin.y;
-  return x >= bounds.x && x <= bounds.x + bounds.w && y >= bounds.y && y <= bounds.y + bounds.h;
+  // CSS layout and a transformed viewport can round the shared edge differently.
+  return left >= bounds.x - .75 && left + insert.w <= bounds.x + bounds.w + .75 &&
+    y >= bounds.y && y <= bounds.y + bounds.h;
 }
 
 window.addEventListener('pointermove', (event) => {
@@ -2846,9 +2861,13 @@ window.addEventListener('pointermove', (event) => {
     toolDrag.filmTravel = travel;
     stage.style.setProperty('--film-drag', peeled ? 1 - travel / 30 : travel / 30);
   }
-  if (kind === 'gauge' && toolDrag.distance >= 9) {
+  if (kind === 'gauge' && toolDrag.distance >= TOOL_DRAG_PX) {
+    const { loaded, cue } = toolDrag;
+    const inside = gaugeContainsInsert(toolDrag, point);
+    const message = loaded ? (inside ? '移出夹口' : '松手取出') : (inside ? '松手放入' : '对准两爪之间');
     stage.dataset.toolDrag = kind;
-    stage.toggleAttribute('data-gauge-over', gaugeContainsInsert(toolDrag, point));
+    stage.toggleAttribute('data-gauge-over', inside);
+    if (cue.textContent !== message) cue.textContent = message;
     stage.style.setProperty('--tool-dx', `${dx.toFixed(1)}px`);
     stage.style.setProperty('--tool-dy', `${dy.toFixed(1)}px`);
   }
@@ -2857,7 +2876,7 @@ window.addEventListener('pointermove', (event) => {
 function endToolDrag(event) {
   if (!toolDrag || (event.type !== 'blur' && event.pointerId !== toolDrag.pointerId)) return;
   const completedDrag = toolDrag;
-  const { handle, stage, distance, kind, action, slot, loaded, filmTravel } = completedDrag;
+  const { handle, stage, distance, kind, action, loaded, cue, origin, filmTravel } = completedDrag;
   toolDrag = null;
   if (kind === 'carton') {
     const cube = stage.isConnected && stage.querySelector('.carton-cube');
@@ -2875,10 +2894,19 @@ function endToolDrag(event) {
   delete stage.dataset.toolDrag;
   stage.removeAttribute('data-gauge-over');
   for (const property of ['--clasp-pull', '--wrap-pull', '--tool-dx', '--tool-dy']) stage.style.removeProperty(property);
-  if (event.type === 'pointerup' && distance >= 9) {
+  if (kind === 'gauge') {
+    toolClickTarget = handle;
+    cue.textContent = '';
+    let completed = false;
+    if (event.type === 'pointerup' && stage.isConnected) {
+      const point = stagePoint(root, event.clientX, event.clientY);
+      const moved = Math.max(distance, Math.hypot(point.x - origin.x, point.y - origin.y)) >= TOOL_DRAG_PX;
+      completed = moved ? gaugeContainsInsert(completedDrag, point) !== loaded : isDeskControlHit(handle, event);
+    }
+    if (completed) checkSample(action);
+  } else if (event.type === 'pointerup' && distance >= TOOL_DRAG_PX) {
     toolClickTarget = handle;
     let completed = true;
-    if (kind === 'gauge') completed = Boolean(slot) && gaugeContainsInsert(completedDrag, stagePoint(root, event.clientX, event.clientY)) !== loaded;
     if (kind === 'wrapper') completed = distance >= 18;
     if (kind === 'film') completed = filmTravel >= 18;
     if (completed && stage.isConnected) checkSample(action);

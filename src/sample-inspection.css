@@ -334,8 +334,13 @@
 .sample-stage.gauge-stage {
   --gauge-x: 70%;
   --gauge-y: 39%;
-  --gauge-slot-width: clamp(2.75rem, 37%, 8.6rem);
-  --gauge-slot-height: clamp(2.75rem, 45%, 5.4rem);
+  --gauge-edge-width: .46rem;
+  --gauge-edge-height: clamp(1.6rem, 10cqh, 3rem);
+  --gauge-seat-left: calc(var(--gauge-x) - var(--gauge-edge-width) / 2);
+  --gauge-piece-width: calc(var(--gauge-edge-width) + var(--gauge-contact-offset, 0px));
+  --gauge-jaw-width: .49rem;
+  --gauge-jaw-height: clamp(2.75rem, 45%, 5.4rem);
+  --gauge-opening: 1.8rem;
   min-block-size: clamp(7.15rem, 29cqh, 14rem);
 }
 .gauge-stage .sample-object {
@@ -346,25 +351,25 @@
   translate: -50% -50%;
   transform: translate(var(--tool-dx, 0px), var(--tool-dy, 0px));
 }
-.gauge-stage:is(.gauge-loaded, .measured) .sample-object {
-  inset-inline-start: var(--gauge-x);
-  inline-size: calc(var(--gauge-slot-width) - .7rem);
-}
-.gauge-stage.gauge-loaded .sample-object > img { opacity: 0; }
-.gauge-stage.gauge-loaded .sample-object::before {
+.gauge-stage.gauge-loaded .sample-object { inset-inline-start: var(--gauge-x); }
+.gauge-stage .sample-object > img { transition: opacity .12s ease; }
+.gauge-stage:is(.gauge-loaded, [data-tool-drag='gauge']) .sample-object > img { opacity: 0; }
+.gauge-insert-edge {
   position: absolute;
-  content: '';
-  inset: 50% auto auto 50%;
-  inline-size: .47rem;
-  block-size: 88%;
-  min-block-size: 1.45rem;
-  translate: -50% -50%;
-  clip-path: polygon(14% 0, 84% 0, 84% 10%, 100% 13%, 100% 86%, 80% 90%, 80% 100%, 17% 100%, 17% 91%, 0 86%, 0 13%, 14% 10%);
-  background: linear-gradient(90deg, #505e65, #bfcbd0 24%, #86969c 53%, #39494e);
+  inset: 50% auto auto calc(50% - var(--gauge-edge-width) / 2);
+  inline-size: var(--gauge-piece-width);
+  block-size: var(--gauge-edge-height);
+  translate: 0 -50%;
+  border-radius: 2px 2px 1px 1px;
+  background: linear-gradient(90deg, #5c6a70, #cad4d7 29%, #8e9e9f 68%, #405153);
   box-shadow: inset 0 .13rem #aab7c078, inset 0 -.14rem #233138, 2px 2px 2px #26352c94;
+  opacity: 0;
+  transition: opacity .12s ease;
   pointer-events: none;
 }
+.gauge-stage:is(.gauge-loaded, [data-tool-drag='gauge']) .gauge-insert-edge { opacity: 1; }
 .gauge-stage[data-tool-drag='gauge'] .sample-object { z-index: 6; }
+.gauge-stage[data-tool-drag='gauge'] .gauge-grip-label { visibility: hidden; }
 .sample-gauge {
   --gauge-body-start: 39%;
   --gauge-body-end: .39rem;
@@ -375,34 +380,61 @@
 }
 .gauge-slot {
   position: absolute;
-  inset: var(--gauge-y) auto auto var(--gauge-x);
-  inline-size: var(--gauge-slot-width);
-  block-size: var(--gauge-slot-height);
-  translate: -50% -50%;
-  border-radius: .12rem;
-  background: linear-gradient(transparent 74%, #202d2559 74%, #202d2544 92%, transparent 92%);
+  inset: var(--gauge-y) auto auto var(--gauge-seat-left);
+  inline-size: calc(var(--gauge-edge-width) + var(--gauge-opening));
+  block-size: calc(var(--gauge-jaw-height) * .64);
+  translate: 0 -50%;
+  border-block: 1px dashed #b9b07e;
+  background: #202d255d;
 }
+.gauge-stage.measured .gauge-slot { visibility: hidden; }
 .gauge-stage[data-gauge-over] .gauge-slot {
-  background: linear-gradient(transparent 74%, #e6c87370 74%, #e6c87342 92%, transparent 92%);
+  border-color: #f2d98f;
+  background: #ddc1736b;
+  box-shadow: inset 0 0 .45rem #dbba6f60;
+}
+.gauge-stage[data-gauge-over]:not(.gauge-loaded) .gauge-slot::before {
+  position: absolute;
+  content: '';
+  inset: 50% auto auto 0;
+  inline-size: var(--gauge-edge-width);
+  block-size: var(--gauge-edge-height);
+  translate: 0 -50%;
+  border: 1px dashed #f3df9e;
+  border-radius: 2px;
+  background: #f3df9e26;
+}
+.gauge-drag-cue:not(:empty) {
+  position: absolute;
+  inset: .25rem auto auto min(calc(var(--gauge-x) + var(--gauge-opening) / 2), calc(100% - 2.8rem));
+  z-index: 5;
+  translate: -50%;
+  padding: .18rem .45rem;
+  border: 1px solid #8f8566;
+  background: #273b30;
+  color: #f1e1b7;
+  font: 720 .72rem / 1.25 var(--mono);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .gauge-fixed-jaw,
 .gauge-moving-jaw {
   position: absolute;
-  inset-block-start: calc(var(--gauge-y) - var(--gauge-slot-height) / 2 + .27rem);
-  inline-size: .49rem;
-  block-size: calc(var(--gauge-slot-height) - .22rem);
+  inset-block-start: calc(var(--gauge-y) - var(--gauge-jaw-height) / 2 + .27rem);
+  inline-size: var(--gauge-jaw-width);
+  block-size: calc(var(--gauge-jaw-height) - .22rem);
   border: 1px solid #3d4639;
   border-radius: .13rem .13rem .03rem .03rem;
   background: linear-gradient(90deg, #727c69 0 19%, #c0c5a6 20% 63%, #9da78a 64%);
   box-shadow: inset 0 1px #d2d4b7, 1px 2px 1px #253227;
 }
-.gauge-fixed-jaw { inset-inline-start: calc(var(--gauge-x) - .68rem); }
+.gauge-fixed-jaw { inset-inline-start: calc(var(--gauge-seat-left) - var(--gauge-jaw-width)); }
 .gauge-moving-jaw {
-  inset-inline-start: calc(var(--gauge-x) + .22rem);
-  transform: translateX(.91rem);
+  inset-inline-start: calc(var(--gauge-seat-left) + var(--gauge-piece-width));
+  transform: translateX(var(--gauge-opening));
   background: linear-gradient(90deg, #a7ae90 0 32%, #d4d7b7 33% 67%, #838e73 68%);
 }
-.gauge-stage.measured .gauge-moving-jaw { transform: translateX(var(--gauge-contact-offset, 0px)); }
+.gauge-stage.measured .gauge-moving-jaw { transform: translateX(0); }
 .gauge-stage[data-gauge-over] :is(.gauge-fixed-jaw, .gauge-moving-jaw) { box-shadow: inset 0 1px #ffe2aa, 0 0 4px #f1d4948c; }
 .gauge-beam {
   position: absolute;

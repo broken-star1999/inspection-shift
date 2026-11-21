@@ -4,7 +4,7 @@ import { cartonModel } from './carton-inspector.js';
 import { canShowFinding, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { TRACE_INQUIRY_KEY } from './report-workspace.js';
-import { gaugeArt } from './gauge-art.js';
+import { gaugeArt, gaugeJawStyle } from './gauge-art.js';
 import { CUFF_SPLIT_PATCHES, cuffSplitVisible, earCupMark, sampleAppearance, sampleFinding, sampleInGauge, sampleObservation } from './samples.js';
 
 export const asset = (file) => `${import.meta.env.BASE_URL}art/${file}`;
@@ -197,6 +197,7 @@ function sampleArt(spec, appearance, { back = false, unpacked = false, control =
     ${!back && spec.kind === 'crack' ? '<span class="sample-lens-crack" aria-hidden="true"></span>' : ''}
     ${back && spec.model ? `<span class="model-mark" aria-hidden="true">${esc(spec.model)}</span>` : ''}
     ${back && appearance.clasp && inspection ? claspArt(spec, inspection) : ''}
+    ${spec.reading && inspection ? '<span class="gauge-insert-edge" aria-hidden="true"></span>' : ''}
     ${wrapped ? '<span class="sample-wrap" aria-hidden="true"><span class="sample-wrap-mouth"></span></span>' : spec.kind === 'yellow' ? '<span class="sample-wrap-folded" aria-hidden="true"></span>' : ''}
     ${control}</span>
     ${!lensFilm && spec.kind !== 'yellow' && !cup ? '<span class="sample-mark" aria-hidden="true"></span>' : ''}`;
@@ -678,9 +679,11 @@ export function sample(item, inspection, tutorial, progress) {
   if ((!tutorial || practicing || stampReady) && appearance.clasp && back && !tug) control = clasp
     ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查', null, practicing)
     : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件', null, practicing);
-  if (spec.reading) control = sampleHotspot('measure', 'gauge-handle', `<span class="gauge-grip-label">${inGauge ? '取出' : '放入'}</span>`,
+  if (spec.reading && !measured) control = sampleHotspot('measure', 'gauge-handle', `<span class="gauge-grip-label">${inGauge ? '取出' : '放入'}</span>`,
     inGauge ? '取出量规' : '放进量规', inGauge);
   const clamp = inGauge ? sampleHotspot('gauge-clamp', 'gauge-clamp', measured ? '松开量爪' : '合上量爪', measured ? '松开量爪' : '合上量爪', measured) : '';
+  const gaugeStyle = gaugeJawStyle(spec.reading, measured);
+  const gaugeCue = spec.reading ? '<span class="gauge-drag-cue" role="status"></span>' : '';
   const observation = sampleFinding(spec, inspection);
   const recorded = findings.some(({ key }) => key === observation.key);
   const basisLabel = measured && spec.reading ? (recorded ? '取回实测' : '记下实测')
@@ -699,8 +702,8 @@ export function sample(item, inspection, tutorial, progress) {
       ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}</div>`;
   const imageNotice = packaged || inGauge ? '' : `<div class="sample-image-notice" hidden><span role="status"></span>${button('重试加载', 'sample-image-retry', 'secondary', 'hidden disabled')}</div>`;
   const title = item.carton ? `${appearance.name} · 箱号待核` : `${item.batch} · ${appearance.name}`;
-  return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
-    ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${thicknessAction}</div>
+  return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}"${gaugeStyle}>
+    ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${gaugeCue}${thicknessAction}</div>
     ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured) : observationCard}</div>
     <div class="modal-actions">${guidedFlip ? '' : flipAction}${gaugeBasis ? '' : basis}${show}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions + phoneAction,
