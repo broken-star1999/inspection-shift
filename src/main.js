@@ -2045,13 +2045,16 @@ function checkSample(act) {
       sample.measured = false;
       if (!thicknessComparison(item, sample, interaction.findings)) interaction.thicknessOpen = false;
       break;
-    case 'sample-gauge-clamp':
+    case 'sample-gauge-clamp': {
       if (!inGauge) return;
       sample.gaugeLoaded = true;
       sample.measured = !sample.measured;
-      if (!thicknessComparison(item, sample, interaction.findings)) interaction.thicknessOpen = false;
+      const comparison = thicknessComparison(item, sample, interaction.findings);
+      if (sample.measured && !step) interaction.thicknessOpen = Boolean(comparison);
+      else if (!comparison) interaction.thicknessOpen = false;
       sound = sample.measured ? 'clasp' : 'click';
       break;
+    }
     case 'sample-thickness':
       if (tutorialStep() || !thicknessComparison(item, sample, interaction.findings)) return;
       interaction.thicknessOpen = !interaction.thicknessOpen;
@@ -2098,7 +2101,7 @@ function checkSample(act) {
   if (act === 'sample-flip' && !sample.back && view.filmLessonPending(item, {
     returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked,
   })) focusControl(modalLayer, { act: 'sample-film' });
-  if (act === 'sample-thickness' && interaction.thicknessOpen) {
+  if (interaction.thicknessOpen && (act === 'sample-thickness' || (act === 'sample-gauge-clamp' && sample.measured))) {
     modalLayer.querySelector('.sample-inspector')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
   const graphic = modalLayer.querySelector('.sample-stage .sample-object');
@@ -2107,7 +2110,7 @@ function checkSample(act) {
     const jawDuration = 170;
     if (jaw) animateOnDesk(jaw, [{ transform: jawFrom }, { transform: getComputedStyle(jaw).transform }], jawDuration);
     if (sample.measured) {
-      for (const element of modalLayer.querySelectorAll('.gauge-display, .sample-findings .reading, .thickness-check')) {
+      for (const element of modalLayer.querySelectorAll('.gauge-display, .sample-findings .reading, .thickness-comparison, .thickness-check')) {
         animateOnDesk(element, [{ visibility: 'hidden' }, { visibility: 'hidden' }], jawDuration);
       }
     }

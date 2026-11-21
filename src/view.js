@@ -643,8 +643,13 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     ${extras ? `<div class="modal-actions">${extras}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions, footer });
 }
 
-function thicknessSlip(comparison, recorded, measured) {
-  const fields = comparison.rows.map(({ title, field, value }, index) => `<div class="thickness-field"><dt>${esc(title)} <small>${index === 0 && !measured ? '实测记录' : esc(field)}</small></dt><dd>${esc(value)}</dd></div>`).join('');
+function thicknessSlip(comparison, recorded, measured, readingRecorded) {
+  const fields = comparison.rows.map(({ title, field, value }, index) => {
+    const reading = index === 0 && measured && !recorded;
+    const result = reading ? button(esc(value), 'sample-basis', 'thickness-reading',
+      `aria-label="只记下实测 ${esc(value)}"${active(readingRecorded)}`) : esc(value);
+    return `<div class="thickness-field"><dt>${esc(title)} <small>${index === 0 && !measured ? '实测记录' : esc(field)}</small></dt><dd>${result}</dd></div>`;
+  }).join('');
   return `<section id="thickness-comparison" class="thickness-comparison" aria-label="厚度对照"><dl>${fields}</dl>
     ${button(recorded ? '取回对照' : '记下三项对照', 'sample-thickness-basis', 'secondary thickness-basis', active(recorded))}</section>`;
 }
@@ -723,7 +728,7 @@ export function sample(item, inspection, tutorial, progress) {
   const putDown = '放下检样';
   return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}"${gaugeStyle}>
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${gaugeCue}${thicknessAction}</div>
-    ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured) : observationCard}</div>
+    ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured, recorded) : observationCard}</div>
     ${sampleActions ? `<div class="modal-actions">${sampleActions}</div>` : ''}</div>${referencePicker}</div>`, 'sample-surface', putDown, undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions + phoneAction,
     closeLabel: putDown, footer: workStampMachine(stampReady),
