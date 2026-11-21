@@ -754,7 +754,10 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     rest.set(origin.x + (offset?.x || 0) / pixelsPerUnit, origin.y + lift, origin.z + (offset?.y || 0) / pixelsPerUnit);
     paper.position.copy(rest);
     layoutDirty = true;
-    if (settle) refreshLayout();
+    if (settle) {
+      paper.updateWorldMatrix(true, true);
+      refreshLayout();
+    }
     invalidate();
   }
 

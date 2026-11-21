@@ -2878,13 +2878,16 @@ function captureDeskPaperFaces(source, modeled, project) {
   }).sort((a, b) => b.layer - a.layer || b.order - a.order);
 }
 
-function paperDropTarget(work, offset) {
+function paperDropTarget(work, offset, event) {
   if (!work.center || panel || run?.phase !== 'case' || !work.paper.isConnected) return null;
   const center = {
     x: work.center.x + offset.x - work.offset.x,
     y: work.center.y + offset.y - work.offset.y,
   };
-  return work.targets.find(({ paper, contains }) => paper.isConnected && contains(center))?.paper ?? null;
+  const onPaper = work.targets.find(({ paper, contains }) => paper.isConnected && contains(center));
+  if (onPaper || event.pointerType !== 'touch') return onPaper?.paper ?? null;
+  const touches = root.ownerDocument.elementsFromPoint(event.clientX, event.clientY);
+  return work.targets.find(({ paper }) => touches.some((element) => paper.contains(element)))?.paper ?? null;
 }
 
 function updatePaperDragCue(work) {
@@ -2960,7 +2963,7 @@ window.addEventListener('pointermove', (event) => {
     updatePaperDragCue(drag);
     playSound('paper');
   }
-  markPaperDrop(drag, paperDropTarget(drag, preview));
+  markPaperDrop(drag, paperDropTarget(drag, preview, event));
   moveDeskPaper(drag, preview, drag.targets.length ? .05 : 0);
 });
 
@@ -2969,7 +2972,7 @@ function endDrag(event) {
   const work = drag;
   const released = event.type === 'pointerup';
   const placement = released && work.moved ? paperDragPlacement(work, event) : null;
-  const pair = placement && work.pairReady && paperDropTarget(work, placement.preview) === work.target ? work.target : null;
+  const pair = placement && work.pairReady && paperDropTarget(work, placement.preview, event) === work.target ? work.target : null;
   markPaperDrop(work, null);
   updatePaperDragCue(null);
   drag = null;
