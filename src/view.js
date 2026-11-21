@@ -1099,9 +1099,10 @@ function handoffPairSide(row, source, original) {
 
 function handoffAttach(run, key, document) {
   const attached = run.flags[`${key}Attached`];
-  const label = attached ? '已夹入 · 取回' : key === 'trace' ? '随板提交' : '夹入交接板';
+  const label = attached ? '已夹入 · 取回' : key === 'trace' ? '提交原件' : '夹入交接板';
+  const action = attached ? '取回' : key === 'trace' ? '随板提交' : label;
   return button(label, 'attach', attached ? 'primary' : 'secondary',
-    `data-key="${key}"${active(attached)} aria-label="${attached ? '取回' : label} ${esc(document.title)}"`);
+    `data-key="${key}"${active(attached)} aria-label="${action} ${esc(document.title)}"`);
 }
 
 function traceHandoffNotice(row, review, attached) {
@@ -1197,7 +1198,8 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const receivedException = attachedPapers.some(({ document }) => document.kind === 'exception');
     const attached = attachedPapers.find(({ document }) => document.kind === documentIndex);
     const doc = attached?.document ?? documents[documentIndex];
-    const tracePaper = attached?.document.kind === 'trace';
+    const traceDocument = attachedPapers.find(({ document }) => document.kind === 'trace')?.document;
+    const tracePaper = Boolean(traceDocument && doc === traceDocument);
     const tabs = `<nav class="doc-tabs handoff-detail-tabs" aria-label="本批归档单据">
       ${button(receivedException ? '原批回执' : '回执', 'handoff-doc', 'tab', `data-key="receipt"${active(!doc)}`)}${documents.map(({ title, type }, index) =>
         button(types[type] ?? '归档', 'handoff-doc', 'tab', `data-i="${index}"${active(index === documentIndex)} aria-label="${esc(title)}" title="${esc(title)}"`)).join('')}
@@ -1226,8 +1228,8 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const quotingActivePaper = attached && attached.document.kind === supportingBasis?.kind;
     detail = `${quotingActivePaper ? draft + paper : paper + draft}
       ${related && !editing ? `<div class="modal-actions handoff-related">${related}</div>` : ''}`;
-    if (tracePaper && !editing) {
-      actions = handoffAttach(run, 'trace', doc) + actions;
+    if (!editing && traceDocument && (!doc || tracePaper)) {
+      actions = handoffAttach(run, 'trace', traceDocument) + actions;
       notice = traceHandoffNotice(row, traceReview, run.flags.traceAttached);
     }
     if (editing) {

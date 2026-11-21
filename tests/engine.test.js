@@ -97,6 +97,41 @@ test('the next opening skips offsite paperwork and shows a re-held lot only unde
   assert.doesNotMatch(overlay(restoreRun(offsite)), /G-205 留厂回执/);
 });
 
+test('a rechecked physical lot has one current receipt from the next opening to Friday close', () => {
+  for (const [firstDecision, nextDecision, nextStatus] of [
+    ['review', 'fail', 'returned'],
+    ['review', 'review', 'held'],
+    ['fail', 'review', 'held'],
+  ]) {
+    let friday;
+    const week = untilHandoff(21, {
+      decisions: { 4: 'review', 5: firstDecision, 9: nextDecision, 15: 'review' },
+      atOpening: (state) => { if (state.day === 4) friday = state; },
+    });
+    const restored = restoreRun(JSON.parse(JSON.stringify(week)));
+    const first = restored.records.find(({ id }) => id === 5);
+    const next = restored.records.find(({ id }) => id === 9);
+    const [current, history] = archive(restored, 'G-205').sort((a, b) => b.id - a.id);
+    assert.equal(history.record, first);
+    assert.equal(history.record.decision, firstDecision);
+    assert.equal(history.latestReceipt, next);
+    assert.equal(current.record, next);
+    assert.equal(current.latestReceipt, null);
+    assert.equal(next.status, nextStatus);
+
+    const expectedHolds = nextStatus === 'held' ? [9] : [];
+    const ending = getEnding(act(restored, 'finish'));
+    assert.deepEqual(getCarriedHolds(friday).filter(({ batch }) => batch === 'G-205').map(({ id }) => id), expectedHolds);
+    assert.deepEqual(ending.heldReceipts.filter(({ batch }) => batch === 'G-205').map(({ id }) => id), expectedHolds);
+    assert.deepEqual(ending.heldReceipts.filter(({ batch }) => batch === 'G-204').map(({ id }) => id), [4, 15]);
+
+    assert.equal(act(restored, 'recheck', { id: 5, value: 'pass' }), restored);
+    const released = act(restored, 'recheck', { id: 9, value: 'pass' });
+    assert.equal(released.records.find(({ id }) => id === 9).status, 'shipping');
+    assert.equal(released.records.find(({ id }) => id === 5).status, first.status);
+  }
+});
+
 test('the first receipt can be issued without recording a finding or finishing optional coaching', () => {
   const initial = createRun(4);
   let state = act(initial, 'start-day');
@@ -1637,16 +1672,30 @@ test('G-202 rework and G-205 priority read the last stamp handed over at the win
   assert.deepEqual(getWindowSupplementRequest(refiled).proof, finding);
 });
 
-test('departure leaves a superseded queued receipt as history while only the active one ships', () => {
-  let state = untilHandoff(21, { decisions: { 5: 'review', 9: 'review' } });
-  state = act(state, 'recheck', { id: 5, value: 'pass' });
-  state = act(state, 'recheck', { id: 9, value: 'pass' });
-  const prior = archive(state, 'G-205').find(({ id }) => id === 5);
+test('departure skips a superseded queue entry from older saves while only the active one ships', () => {
+  const week = untilHandoff(21, { decisions: { 5: 'review', 9: 'review' } });
+  const legacy = {
+    ...week,
+    records: week.records.map((record) => record.id === 5 ? {
+      ...record, decision: 'pass', status: 'shipping',
+      amendments: [{ from: 'review', to: 'pass', previousStatus: 'held', status: 'shipping', day: week.day }],
+    } : record),
+  };
+  const restored = restoreRun(JSON.parse(JSON.stringify(legacy)));
+  const prior = archive(restored, 'G-205').find(({ id }) => id === 5);
   assert.equal(prior.record.status, 'shipping');
-  assert.equal(prior.latestReceipt.status, 'shipping');
+  assert.equal(prior.latestReceipt.status, 'held');
+  assert.deepEqual(getEnding(restored).issues, []);
+  const held = archive(act(restored, 'finish'), 'G-205').find(({ id }) => id === 5);
+  assert.equal(held.record, prior.record);
+  assert.equal(held.latestReceipt.status, 'held');
+
+  const state = act(restored, 'recheck', { id: 9, value: 'pass' });
+  const queued = archive(state, 'G-205').find(({ id }) => id === 5);
+  assert.equal(queued.latestReceipt.status, 'shipping');
   const finished = act(state, 'finish');
   const after = archive(finished, 'G-205').find(({ id }) => id === 5);
-  assert.equal(after.record, prior.record);
+  assert.equal(after.record, queued.record);
   assert.equal(after.latestReceipt.id, 9);
   assert.equal(after.latestReceipt.status, 'shipped');
   assert.equal(getEnding(finished).id, 'routine');

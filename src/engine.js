@@ -247,7 +247,7 @@ export function archive(state, query = '') {
   return state.seen.map((id) => {
     const item = getVariant(state, CASE_BY_ID.get(id));
     const record = withPriorShipment(state.records, getRecord(state, id) ?? null);
-    const latestReceipt = record ? withPriorShipment(state.records, findVerifiedReceipt(state.records, record)) : null;
+    const latestReceipt = record ? withPriorShipment(state.records, findEffectiveSuccessor(state.records, record)) : null;
     return { ...item, record, latestReceipt, previousReceipt: getPreviousReceipt(state, item) };
   }).filter((item) => {
     if (item.id === waitingForArrival && !item.record) return false;
@@ -375,7 +375,7 @@ function startDay(state) {
 }
 
 function ship(records) {
-  return records.map((record) => record.status === 'shipping' && !findVerifiedReceipt(records, record)
+  return records.map((record) => record.status === 'shipping' && !findEffectiveSuccessor(records, record)
     ? { ...record, status: 'shipped' } : record);
 }
 
@@ -416,16 +416,9 @@ export function receiptDisposition(record) {
 }
 
 export function getCarriedHolds(state) {
-  const held = new Map();
-  for (const record of state.records) {
-    if (record.day >= state.day) continue;
-    const receipt = withPriorShipment(state.records, record);
-    if (isSupplementOnly(receipt)) continue;
-    const previous = previousSameLot(state.records, receipt);
-    if (previous) held.delete(previous.id);
-    if (receipt.status === 'held') held.set(receipt.id, receipt);
-  }
-  return [...held.values()];
+  const records = state.records.filter(({ day }) => day < state.day);
+  return records.map((record) => withPriorShipment(records, record)).filter((record) =>
+    receiptDisposition(record) === 'held' && !findEffectiveSuccessor(records, record));
 }
 
 function findVerifiedReceipt(records, previous) {
@@ -435,10 +428,20 @@ function findVerifiedReceipt(records, previous) {
   return sameLotFollowup(previous, next) && hasAcceptedProof(next) ? next : null;
 }
 
+function findEffectiveSuccessor(records, previous) {
+  const verified = findVerifiedReceipt(records, previous);
+  if (verified) return verified;
+  const handed = decisionAsHanded(previous);
+  if ((handed !== 'review' && handed !== 'fail') || isSupplementOnly(previous)) return null;
+  // The window verdict tells us whether this follow-up handled the goods or just their paperwork.
+  // Friday amendments on an earlier slip cannot move a lot that was already handled again.
+  return records.findLast((next) => sameLotFollowup(previous, next) && !isSupplementOnly(withPriorShipment(records, next))) ?? null;
+}
+
 function isAcceptedShipment(records, record, day) {
   return record && record.id !== 7 && record.id !== 20 && record.day < day &&
     record.status === 'shipped' && record.decision === 'pass' && record.answer === 'pass' &&
-    !findVerifiedReceipt(records, record);
+    !findEffectiveSuccessor(records, record);
 }
 
 function chooseShipmentAcceptance(state) {
@@ -462,7 +465,7 @@ function hasExceptionObservation(record, day) {
 
 function chooseShipmentException(state) {
   const candidates = state.records.filter((record) => hasExceptionObservation(record, state.day) &&
-    record.status === 'shipped' && record.decision === 'pass' && !findVerifiedReceipt(state.records, record));
+    record.status === 'shipped' && record.decision === 'pass' && !findEffectiveSuccessor(state.records, record));
   return candidates.find(({ answer }) => answer === 'fail') ?? candidates[0] ?? null;
 }
 
@@ -624,7 +627,7 @@ export function canRecheckReceipt(state, id) {
 function recheck(state, action, atWindow = false) {
   if (!DECISIONS.includes(action.value)) return state;
   const record = withPriorShipment(state.records, getRecord(state, Number(action.id)));
-  if (!record || action.value === record.decision || findVerifiedReceipt(state.records, record)) return state;
+  if (!record || action.value === record.decision || findEffectiveSuccessor(state.records, record)) return state;
   const item = atWindow ? getCase(state) : null;
   const status = atWindow ? disposition(state.records, item, action.value) : amendedDisposition(state.records, record, action.value);
   const supplementRequest = atWindow ? currentSupplementProof(state, item, action.value) : null;
@@ -646,7 +649,7 @@ function recheck(state, action, atWindow = false) {
 
 function pendingRecall(state, id) {
   const record = state.phase === 'handoff' ? getRecord(state, Number(id)) : null;
-  return record?.status === 'recallPending' && !findVerifiedReceipt(state.records, record) ? record : null;
+  return record?.status === 'recallPending' && !findEffectiveSuccessor(state.records, record) ? record : null;
 }
 
 function recallRequestIndex(record) {
@@ -1032,7 +1035,7 @@ export function getEnding(state) {
     const receipt = withPriorShipment(state.records, record);
     const { id, batch, decision, answer, status } = receipt;
     counts[decision] += 1;
-    const latestReceipt = findVerifiedReceipt(state.records, receipt);
+    const latestReceipt = findEffectiveSuccessor(state.records, receipt);
     if (latestReceipt) continue;
     if (receiptDisposition(receipt) === 'held') heldReceipts.push(receipt);
     if ((decision === 'pass' || status === 'recallPending') && answer !== 'pass') issues.push(receipt);
