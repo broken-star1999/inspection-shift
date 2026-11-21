@@ -4,6 +4,7 @@ import { DAYS, PRESSURE, documentExtension } from '../src/content.js';
 import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
 import { createRun, dispatch, getCase, getDay } from '../src/engine.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress } from '../src/inspection-progress.js';
+import { sampleFinding } from '../src/samples.js';
 
 const cases = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
 
@@ -30,12 +31,12 @@ test('thickness compares the actual gauge value with the two original paper fiel
   assert.deepEqual(result, {
     rows: [
       { title: '量规', field: '实测', value: '1.80 mm' },
-      { title: '检验报告', field: '厚度', value: '2.10 mm' },
+      { title: '检验报告 R-088', field: '厚度', value: '2.10 mm' },
       { title: '送检联', field: '厚度范围', value: '2.00–2.20 mm' },
     ],
     finding: {
       key: 'compare:18:thickness:1:2',
-      source: '量规 / 检验报告 / 送检联',
+      source: '量规 / 检验报告 R-088 / 送检联',
       text: '量规实测 · 1.80 mm；报告厚度 · 2.10 mm；送检范围 · 2.00–2.20 mm',
     },
   });
@@ -54,6 +55,22 @@ test('thickness requires a reading and distinct, unambiguous paper sources', () 
   assert.equal(thicknessComparison({ ...item, documents: [label, report, order, report] }, measured), null);
   const ambiguous = { ...order, fields: [...order.fields, ['厚度范围', '1.50–1.80 mm']] };
   assert.equal(thicknessComparison({ ...item, documents: [label, report, ambiguous] }, measured), null);
+});
+
+test('a released gauge can use exact recorded evidence from the same sample', () => {
+  const item = cases.get(18);
+  const gaugeClosed = { measured: true };
+  const gaugeReleased = { measured: false };
+  const raw = sampleFinding(item.sample, gaugeClosed);
+  const comparison = thicknessComparison(item, gaugeClosed);
+  const oldComparison = { ...comparison.finding, source: '量规 / 检验报告 / 送检联' };
+
+  for (const record of [raw, comparison.finding, oldComparison]) {
+    assert.deepEqual(thicknessComparison(item, gaugeReleased, [record]), comparison);
+    assert.equal(thicknessComparison({ ...item, sample: { ...item.sample, reading: '2.10 mm' } }, gaugeReleased, [record]), null);
+  }
+  assert.equal(thicknessComparison(item, gaugeReleased, [{ ...raw, key: 'doc:1:2', source: '检验报告' }]), null);
+  assert.equal(thicknessComparison(item, gaugeReleased, [{ ...raw, text: '2.10 mm' }]), null);
 });
 
 test('intake records the written requirement and only the papers in the current delivery', () => {

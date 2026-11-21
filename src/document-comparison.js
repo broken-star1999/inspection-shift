@@ -1,3 +1,5 @@
+import { sampleFinding } from './samples.js';
+
 const reportMetadata = new Set(['批号', '原批号', '品名', '型号', '报告编号', '原报告编号', '报告日期', '签发', '签发人', '签发时间', '签发日期']);
 
 const cleanText = (value) => typeof value === 'string' ? value.trim() : '';
@@ -81,21 +83,32 @@ function numberedField(document, field) {
   return title && value ? { title, field, value } : null;
 }
 
-export function thicknessComparison(item, inspection) {
-  if (inspection?.measured !== true || !Number.isInteger(item?.id) || item.id < 1 || !Array.isArray(item.documents)) return null;
+export function thicknessComparison(item, inspection, findings = []) {
+  if (!Number.isInteger(item?.id) || item.id < 1 || !Array.isArray(item.documents)) return null;
   const reading = cleanText(item.sample?.reading);
   const reportIndex = uniqueDocumentIndex(item.documents, 'report');
   const orderIndex = uniqueDocumentIndex(item.documents, 'order');
-  const report = numberedField(item.documents[reportIndex], '厚度');
+  const reportDocument = item.documents[reportIndex];
+  const report = numberedField(reportDocument, '厚度');
   const range = numberedField(item.documents[orderIndex], '厚度范围');
   if (!reading || !report || !range) return null;
+  const reportNumber = numberedField(reportDocument, '报告编号')?.value;
+  const reportSource = [report.title, reportNumber].filter(Boolean).join(' ');
+  const finding = {
+    key: `compare:${item.id}:thickness:${reportIndex}:${orderIndex}`,
+    source: `量规 / ${reportSource} / ${range.title}`,
+    text: `量规实测 · ${reading}；报告厚度 · ${report.value}；送检范围 · ${range.value}`,
+  };
+  if (inspection?.measured !== true) {
+    const measurement = sampleFinding(item.sample, { measured: true });
+    const oldComparison = { ...finding, source: `量规 / ${report.title} / ${range.title}` };
+    const recorded = [measurement, finding, oldComparison].some(({ key, source, text }) =>
+      findings.some((entry) => entry?.key === key && entry.source === source && entry.text === text));
+    if (!recorded) return null;
+  }
   return {
-    rows: [{ title: '量规', field: '实测', value: reading }, report, range],
-    finding: {
-      key: `compare:${item.id}:thickness:${reportIndex}:${orderIndex}`,
-      source: `量规 / ${report.title} / ${range.title}`,
-      text: `量规实测 · ${reading}；报告厚度 · ${report.value}；送检范围 · ${range.value}`,
-    },
+    rows: [{ title: '量规', field: '实测', value: reading }, { ...report, title: reportSource }, range],
+    finding,
   };
 }
 

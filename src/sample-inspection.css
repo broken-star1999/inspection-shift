@@ -231,6 +231,18 @@
 
 .gauge-stage .thickness-check[aria-expanded='true'] { background: #d3ba8c; color: #382e21; text-shadow: none; }
 
+.sample-findings.gauge-observation {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: .25rem .45rem;
+}
+.gauge-observation .sample-basis-control {
+  min-block-size: 44px;
+  white-space: nowrap;
+}
+
 .sample-surface:has(.with-thickness) { inline-size: min(77cqw, 62rem); }
 
 #game .sample-surface .with-thickness .sample-inspector {

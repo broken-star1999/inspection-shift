@@ -1449,6 +1449,9 @@ function chooseDoc(index, opener) {
 function updateFindings(findings) {
   interaction.findings = findings;
   interaction.note = findings.at(-1)?.text ?? '';
+  if (interaction.thicknessOpen && !thicknessComparison(windowCase(), interaction.inspection, findings)) {
+    interaction.thicknessOpen = false;
+  }
   if (!findings.length) {
     interaction.showFindings = false;
     interaction.benchFindingsOpen = false;
@@ -1764,7 +1767,13 @@ function openSample(opener) {
   if (interaction.returnToDocs) {
     const { lastReadDoc } = interaction;
     const { heldDocuments } = heldObjects(item);
-    interaction.referenceDoc = Number.isInteger(lastReadDoc) && heldDocuments.includes(lastReadDoc) ? lastReadDoc : viewedDocument();
+    const source = Number(opener?.dataset.i);
+    if (item.sample.reading && opener?.dataset.key === 'thickness' && heldDocuments.includes(source)) {
+      interaction.lastReadDoc = source;
+      interaction.thicknessOpen = Boolean(thicknessComparison(item, interaction.inspection, interaction.findings));
+    } else {
+      interaction.referenceDoc = Number.isInteger(lastReadDoc) && heldDocuments.includes(lastReadDoc) ? lastReadDoc : viewedDocument();
+    }
   }
   playSound('slide');
   openPanel('sample', opener);
@@ -1852,25 +1861,31 @@ function checkSample(act) {
       if (!spec.reading) return;
       sample.gaugeLoaded = !inGauge;
       sample.measured = false;
-      interaction.thicknessOpen = false;
+      if (!thicknessComparison(item, sample, interaction.findings)) interaction.thicknessOpen = false;
       break;
     case 'sample-gauge-clamp':
       if (!inGauge) return;
       sample.gaugeLoaded = true;
       sample.measured = !sample.measured;
-      if (!sample.measured) interaction.thicknessOpen = false;
+      if (!thicknessComparison(item, sample, interaction.findings)) interaction.thicknessOpen = false;
       sound = sample.measured ? 'clasp' : 'click';
       break;
     case 'sample-thickness':
-      if (tutorialStep() || !thicknessComparison(item, sample)) return;
+      if (tutorialStep() || !thicknessComparison(item, sample, interaction.findings)) return;
       interaction.thicknessOpen = !interaction.thicknessOpen;
       sound = 'paper';
       break;
     case 'sample-thickness-basis': {
       if (tutorialStep() || !interaction.thicknessOpen) return;
-      const comparison = thicknessComparison(item, sample);
+      const comparison = thicknessComparison(item, sample, interaction.findings);
       if (!comparison) return;
-      const recorded = toggleFinding(comparison.finding);
+      const recorded = !interaction.findings.some(({ key }) => key === comparison.finding.key);
+      if (recorded) {
+        const measurement = sampleFinding(spec, { measured: true });
+        const otherFindings = interaction.findings.filter(({ key, source, text }) =>
+          key !== measurement.key || source !== measurement.source || text !== measurement.text);
+        updateFindings([...otherFindings, comparison.finding]);
+      } else toggleFinding(comparison.finding);
       sound = 'paper';
       toast(recorded ? '已记下厚度对照' : '已取回这组厚度对照');
       break;
@@ -2358,7 +2373,8 @@ root.addEventListener('click', (event) => {
       if (panel === 'sample' && interaction.returnToDocs) {
         playSound('paper');
         openPanel('docs', target, interaction.documentsScroll);
-        focusControl(modalLayer, { act: 'sample' });
+        const source = String(interaction.lastReadDoc);
+        focusControl(modalLayer, { act: 'sample', key: 'thickness', i: source }) || focusControl(modalLayer, { act: 'sample' });
       }
       break;
     case 'stamp': stamp(key); break;

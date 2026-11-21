@@ -154,7 +154,7 @@ function workspaceProgress(item, work, inspection, context = {}) {
     if (returnToDocs && Number.isFinite(scrollTop) && Number.isFinite(scrollLeft)) {
       workspace.documentsScroll = { scrollTop: Math.max(0, scrollTop), scrollLeft: Math.max(0, scrollLeft) };
     }
-    if (!guided && work.thicknessOpen === true && thicknessComparison(item, inspection)) {
+    if (!guided && work.thicknessOpen === true && thicknessComparison(item, inspection, context.findings)) {
       workspace.thicknessOpen = true;
     }
   }
@@ -199,7 +199,7 @@ export function captureInspectionProgress(item, interaction, context = {}) {
       scrollTop: context.scrollTop,
       priorId: context.prior?.id,
       returnTo: context.returnTo && { ...interaction, ...context.returnTo, priorId: context.prior?.id },
-    }, progress.inspection, context);
+    }, progress.inspection, { ...context, findings: progress.findings });
     if (workspace) progress.workspace = workspace;
   }
   return progress;
@@ -213,7 +213,7 @@ export function restoreInspectionProgress(progress, item, seen = [], context) {
   if (item.id === 1 && !restored.signed && hasRecordedSignature(item, restored.findings)) {
     restored.signed = true;
   }
-  const workspace = context ? workspaceProgress(item, progress.workspace, restored.inspection, { ...context, seen }) : null;
+  const workspace = context ? workspaceProgress(item, progress.workspace, restored.inspection, { ...context, seen, findings: restored.findings }) : null;
   if (!workspace) return restored;
   const { panel, scrollTop, priorId: _priorId, returnTo, ...fields } = workspace;
   if (!returnTo) return { ...restored, ...fields, workspace: { panel, scrollTop } };

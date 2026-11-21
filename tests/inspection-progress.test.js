@@ -338,6 +338,21 @@ test('restores the open measured thickness comparison directly or on return from
   }
 });
 
+test('restores comparison of a recorded reading while the instrument is released', () => {
+  const item = DAYS[4].cases.find(({ id }) => id === 18);
+  const work = {
+    ...freshInteraction(),
+    thicknessOpen: true,
+    findings: [{ key: 'sample:measure', source: '量规实测', text: '1.80 mm' }],
+  };
+  const saved = JSON.parse(JSON.stringify(captureInspectionProgress(item, work, { panel: 'sample', scrollTop: 18 })));
+  const restored = restoreInspectionProgress(saved, item, [18], {});
+  assert.equal(restored.thicknessOpen, true);
+  assert.equal(restored.inspection.measured, false);
+  assert.deepEqual(restored.findings, work.findings);
+  assert.equal(restoreInspectionProgress({ ...saved, findings: [] }, item, [18], {}).thicknessOpen, false);
+});
+
 test('keeps a seated gauge sample without opening a thickness comparison before measuring', () => {
   const current = DAYS[4].cases.find(({ id }) => id === 18);
   const other = DAYS[4].cases.find(({ id }) => id === 19);
