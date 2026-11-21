@@ -690,26 +690,28 @@ export function sample(item, inspection, tutorial, progress) {
   const gaugeCue = spec.reading ? '<span class="gauge-drag-cue" role="status"></span>' : '';
   const observation = sampleFinding(spec, inspection);
   const recorded = findings.some(({ key }) => key === observation.key);
-  const basisLabel = measured && spec.reading ? (recorded ? '取回实测' : '记下实测')
-    : packaged ? '记下包装' : !back && film ? (recorded ? '取回揭膜记录' : '记下揭膜结果') : '记为查验依据';
-  const basis = !tutorial && !thicknessOpen && !(measured && thicknessRecorded)
-    ? button(basisLabel, 'sample-basis', 'secondary sample-basis-control',
-      active(recorded) + (inGauge && !measured ? ' disabled' : '')) : '';
-  const gaugeBasis = inGauge && measured ? basis : '';
+  const result = inGauge ? (measured ? spec.reading : '—') : visual;
+  const canRecord = !tutorial && (!inGauge || measured) && !(measured && thicknessRecorded);
+  const resultText = inGauge ? `<strong>${esc(result)}</strong>` : `<span>${esc(result)}</span>`;
+  const observationLine = canRecord
+    ? button(`${resultText}<small>${recorded ? '已记' : '记下'}</small>`, 'sample-basis', 'sample-basis-control',
+      `aria-label="记为查验依据：${esc(result)}"${active(recorded)}`)
+    : resultText;
   const show = recorded && !tutorial ? findingShowButton(observation, item, item.shownFinding, progress?.supplementRequest, 'source') : '';
   const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip',
     guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : `secondary sample-flip-control${cls('instructed', filmLesson && back)}`);
-  const observationCard = inGauge
-    ? `<div class="sample-findings gauge-observation"><div aria-live="polite"><b>量规实测</b><p class="reading"><strong>${measured ? esc(spec.reading) : '—'}</strong></p></div>${gaugeBasis}</div>`
-    : `<div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
-      ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}</div>`;
+  const sampleActions = (guidedFlip ? '' : flipAction) + show;
+  const observationSide = inGauge ? '量规实测' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面';
+  const observationCard = `<div class="sample-findings"${inGauge ? ' aria-live="polite"' : ''}><b>${observationSide}</b>
+    <p${inGauge ? ' class="reading"' : ''}>${observationLine}</p>
+    ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}</div>`;
   const imageNotice = packaged || inGauge ? '' : `<div class="sample-image-notice" hidden><span role="status"></span>${button('重试加载', 'sample-image-retry', 'secondary', 'hidden disabled')}</div>`;
   const title = item.carton ? `${appearance.name} · 箱号待核` : `${item.batch} · ${appearance.name}`;
   const putDown = '回台面开单';
   return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}"${gaugeStyle}>
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${gaugeCue}${thicknessAction}</div>
     ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured) : observationCard}</div>
-    <div class="modal-actions">${guidedFlip ? '' : flipAction}${gaugeBasis ? '' : basis}${show}</div></div>${referencePicker}</div>`, 'sample-surface', putDown, undefined, {
+    ${sampleActions ? `<div class="modal-actions">${sampleActions}</div>` : ''}</div>${referencePicker}</div>`, 'sample-surface', putDown, undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions + phoneAction,
     closeLabel: putDown, closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
   });

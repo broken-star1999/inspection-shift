@@ -22,20 +22,40 @@
 }
 
 @media (pointer: coarse) {
-  .sample-surface .modal-actions :is(.sample-basis-control, .sample-flip-control),
+  .sample-surface .modal-actions .sample-flip-control,
   .sample-surface .desk-surface-tools :is(.reference-control, .findings-toggle),
   .sample-surface .surface-close {
     min-block-size: 2.75rem;
   }
 }
 
-.sample-surface .sample-basis-control[aria-pressed='true'] {
-  border-color: #bba774;
-  background: #5a623d;
-  color: #fff1c6;
+.sample-findings .sample-basis-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .58rem;
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 2.75rem;
+  padding: .24rem .38rem;
+  border-color: #957b54;
+  border-radius: 2px;
+  background: #e8d2a6;
+  color: #3a2d1f;
+  text-align: start;
+  text-shadow: none;
+  font: inherit;
 }
-
-.sample-basis-control[aria-pressed='true']::before { content: '✓'; margin-inline-end: .36em; }
+.sample-findings .sample-basis-control small {
+  flex: none;
+  color: #61492c;
+  font-size: .78rem;
+  font-weight: 760;
+}
+.sample-findings .sample-basis-control:is(:hover, :focus-visible) { background: #f5dfb4; }
+.sample-findings .sample-basis-control[aria-pressed='true'] { background: #d8dbb2; border-color: #7b8458; }
+.sample-findings .sample-basis-control[aria-pressed='true'] small { color: #3c4e2b; }
+.sample-findings .reading .sample-basis-control strong { color: inherit; }
 
 .sample-stage .sample-object {
   inline-size: min(var(--sample-image-width), calc(var(--sample-image-height) * var(--sample-ratio, 1.8848)));
@@ -265,18 +285,6 @@
 }
 
 .gauge-stage .thickness-check[aria-expanded='true'] { background: #d3ba8c; color: #382e21; text-shadow: none; }
-
-.sample-findings.gauge-observation {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: .25rem .45rem;
-}
-.gauge-observation .sample-basis-control {
-  min-block-size: 44px;
-  white-space: nowrap;
-}
 
 .sample-surface:has(.with-thickness) { inline-size: min(77cqw, 62rem); }
 
