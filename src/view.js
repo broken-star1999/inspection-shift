@@ -365,7 +365,7 @@ function moldSketch() {
   </figure>`;
 }
 
-function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, reportCarry = false, lookupBelow = false, fieldActions, phoneSource, pinAction = '', showTitle = true, leadField } = {}) {
+function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, reportCarry = false, lookupBelow = false, fieldActions, phoneSource, pinAction = '', canFocus = false, showTitle = true, leadField } = {}) {
   const action = inspection?.action ?? 'basis';
   const lookupActions = [];
   const rows = doc.fields.map(([key, value], field) => {
@@ -395,7 +395,8 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const [leadRow] = rows.splice(leadIndex, 1);
     rows.splice(1, 0, leadRow);
   }
-  const heading = showTitle ? `<h3>${esc(doc.title)}</h3>` : '';
+  const title = esc(doc.title);
+  const heading = showTitle ? `<h3>${canFocus ? button(title, 'doc-focus', 'doc-focus', `data-i="${index}" aria-label="单看${title}"`) : title}</h3>` : '';
   const lookupFooter = lookupActions.length ? `<div class="report-number-value report-lookup-footer">${lookupActions.join('')}</div>` : '';
   return `<article class="sheet sheet-${doc.type}${cls('sheet-clipboard', clipboardFront)}${cls('trace-inquiry-sheet', doc.kind === 'trace-inquiry')}"${Number.isInteger(index) ? ` data-doc-index="${index}"` : ''}><small>${types[doc.type] ?? '留底'} · 南渡防护用品厂</small>${pinAction ? `<div class="sheet-pin-heading">${heading}${pinAction}</div>` : heading}${clipboardFront ? clipboardFlip(false) : ''}${doc.kind === 'mold-sketch' ? moldSketch() : ''}<dl class="fields">
     ${rows.join('')}</dl>${lookupFooter}${doc.note ? `<p class="sheet-note">${esc(doc.note)}</p>` : ''}</article>`;
@@ -417,8 +418,13 @@ function orderFieldActions(item, orderIndex, visible, selected) {
   const order = item.documents[orderIndex];
   const actions = new Map();
   const intakeField = order.fields.find(([key]) => key === '随货材料' || key === '随货要求')?.[0];
-  if (intakeField && intakeComparison(item, orderIndex)) {
-    actions.set(intakeField, button('点收', 'delivery-check', 'secondary document-field-action delivery-check-action', `data-i="${orderIndex}"`));
+  const intake = intakeField && intakeComparison(item, orderIndex);
+  if (intake) {
+    const allInHand = item.documents.length === 2 && visible.includes(0) && visible.includes(1);
+    const recorded = selected.has(intake.finding.key);
+    const recordNow = allInHand && !recorded;
+    actions.set(intakeField, button(recordNow ? '记下点收' : recorded ? '看点收条' : '点收',
+      recordNow ? 'delivery-evidence' : 'delivery-check', 'secondary document-field-action delivery-check-action', `data-i="${orderIndex}"`));
   }
   const projectField = order.fields.find(([key]) => key === '检验项目' || key === '必查项目')?.[0];
   if (!projectField) return actions;
@@ -579,7 +585,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     ? button(reportToAsk ? `带 ${reportToAsk} 问小陈` : `问${esc(CHARACTERS[PHONE[extension].npc].name)} ${extension}`,
       'phone-document', 'reference-control phone-work-tool phone-bring-order',
       `data-i="${selectedPhonePaper}" data-field="${contactIndex}" data-key="${item.id}" aria-label="带${esc(contactDocument.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`)
-    : button(progress.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
+    : progress.incomingCall ? button('接电话', 'phone', 'reference-control phone-work-tool') : '';
   const headerActions = draft.header + previousAction + spreadAction + sampleAction + phoneAction;
   const canMeasure = !comparing && item.sample.reading;
   const thickness = canMeasure && thicknessComparison(item, progress.inspection, findings);
@@ -602,10 +608,9 @@ export function documents(item, index, compare, tutorial, progress, previous) {
       fieldActions.set(thicknessField, button(thickness ? '核对实测' : '拿插片测', 'sample', 'secondary document-field-action',
         `data-key="thickness" data-i="${position}"`));
     }
-    const focusAction = spreading ? button('单看', 'doc', 'secondary doc-focus', `data-i="${position}" aria-label="单看${esc(page.title)}"`) : '';
     return sheet(page, position, inspection, { clipboardFront: position === clipboardIndex,
       reportLookup: true, reportCarry: !(extension && reportToAsk && position === selectedPhonePaper),
-      lookupBelow: spreading, phoneSource: item.id, fieldActions, pinAction: focusAction });
+      lookupBelow: spreading, phoneSource: item.id, fieldActions, canFocus: Boolean(!comparing && (spreading || other)) });
   };
   const intakeIndex = progress.deliveryCheck;
   const intake = intakeComparison(item, intakeIndex);
@@ -630,14 +635,12 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
     return `<button class="button tab" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
   }).join('');
-  const compareAction = item.documents.length > 1 ? button(other ? '收起右页' : '并排核对', 'compare') : '';
-  const footerActions = compareAction + extras;
   const orderIndex = doc.type === 'order' ? index : other?.type === 'order' ? compare : null;
   const reportIndex = doc.type === 'report' ? index : other?.type === 'report' ? compare : null;
   const projectPair = projectComparison(item, orderIndex, reportIndex);
   return deskSurface('桌面单据', `${draft.list}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
     <div class="doc-grid${cls('pair', other)}${cls('project-comparison', projectPair)}">${activeSheet(doc, index)}${other ? activeSheet(other, compare) : ''}</div>
-    ${footerActions ? `<div class="modal-actions">${footerActions}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions, footer });
+    ${extras ? `<div class="modal-actions">${extras}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions, footer });
 }
 
 function thicknessSlip(comparison, recorded, measured) {

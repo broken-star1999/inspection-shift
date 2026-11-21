@@ -1599,7 +1599,7 @@ function readDocument(doc) {
   if (doc && tutorialStep()) advanceTutorial({ showSampleGuide: true });
 }
 
-function chooseDoc(index, opener) {
+function chooseDoc(index, opener, single = false) {
   const item = run?.phase === 'case' ? windowCase() : null;
   const doc = item?.documents[index];
   if (!doc) return;
@@ -1615,7 +1615,7 @@ function chooseDoc(index, opener) {
   interaction.relabelCheck = null;
   if (panel === 'docs' && interaction.previousDoc !== null) {
     interaction.previousCurrentDoc = index;
-  } else if (panel === 'docs' && interaction.compare !== null && !interaction.spreadAll) {
+  } else if (!single && panel === 'docs' && interaction.compare !== null && !interaction.spreadAll) {
     if (index !== interaction.doc) interaction.compare = index;
   } else {
     interaction.spreadAll = !panel && item.documents.length > 1;
@@ -1815,19 +1815,6 @@ function editCorrectionFinding(key, { remove = false, field } = {}) {
   }
 }
 
-function compareDocs() {
-  const item = getCase(run);
-  if (panel !== 'docs' || !item || item.documents.length < 2) return;
-  const index = interaction.doc;
-  const type = item.documents[index].type;
-  const hasOrder = item.documents.some(({ type }) => type === 'order');
-  const preferredType = type === 'report' ? (hasOrder ? 'order' : 'label') : 'report';
-  const preferred = item.documents.findIndex((doc, id) => id !== index && doc.type === preferredType);
-  interaction.compare = interaction.compare === null ? (preferred >= 0 ? preferred : (index + 1) % item.documents.length) : null;
-  playSound('slide');
-  render();
-}
-
 function spreadDocuments() {
   const item = documentCheckItem();
   if (!item || item.documents.length < 2 || interaction.previousDoc !== null ||
@@ -1835,7 +1822,7 @@ function spreadDocuments() {
   interaction.spreadAll = true;
   playSound('slide');
   render(0);
-  focusControl(modalLayer, { act: 'doc', i: String(interaction.doc) });
+  focusControl(modalLayer, { act: 'doc-focus', i: String(interaction.doc) });
 }
 
 function documentCheckItem() {
@@ -1889,8 +1876,13 @@ function recordDocumentComparison(kind, documentIndex, target) {
   if (!item) return;
   let comparison;
   if (kind === 'delivery-evidence') {
-    if (interaction.deliveryCheck !== documentIndex) return;
     comparison = intakeComparison(item, documentIndex);
+    if (interaction.deliveryCheck !== documentIndex) {
+      const { heldDocuments } = heldObjects(item);
+      if (!comparison || interaction.deliveryCheck !== null || item.documents.length !== 2 ||
+          !heldDocuments.includes(0) || !heldDocuments.includes(1)) return;
+      interaction.deliveryCheck = documentIndex;
+    }
   } else if (kind === 'relabel-evidence') {
     if (interaction.relabelCheck !== documentIndex) return;
     comparison = relabelComparison(item, documentIndex)?.pairs.find(({ side }) => side === target);
@@ -2568,6 +2560,11 @@ root.addEventListener('click', (event) => {
     case 'doc':
       if (run && (!pointerClick || !target.matches('#desk [data-drag="paper"]'))) chooseDoc(index, target);
       break;
+    case 'doc-focus':
+      if (panel !== 'docs') break;
+      chooseDoc(index, target, true);
+      focusControl(modalLayer, { act: 'doc', i: String(index) });
+      break;
     case 'reference-doc': if (run) chooseDoc(index, target); break;
     case 'basis': checkBasis(index, Number(target.dataset.field)); break;
     case 'toggle-findings':
@@ -2594,7 +2591,6 @@ root.addEventListener('click', (event) => {
       }
       break;
     }
-    case 'compare': compareDocs(); break;
     case 'compare-all': spreadDocuments(); break;
     case 'delivery-check': toggleDeliveryCheck(index); break;
     case 'relabel-check': toggleRelabelCheck(index); break;
