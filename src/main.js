@@ -6,6 +6,7 @@ import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
 import { reportWorkspace } from './report-workspace.js';
+import { completedShiftHistory, collectedEndingIds, createWeekId } from './completed-shifts.js';
 import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { handoffComparison } from './handoff-comparison.js';
 import * as view from './view.js';
@@ -21,7 +22,6 @@ const root = document.querySelector('#game');
 const SAVE_KEY = 'nandu-inspection-save-v1';
 const COLLECTION_KEY = 'nandu-inspection-endings-v1';
 const COMPLETED_KEY = 'nandu-inspection-completed-v1';
-const ENDING_IDS = ['routine', 'trace', 'issue'];
 const ARRIVAL_PAUSE_MS = 1150;
 const NEXT_BATCH_PAUSE_MS = 1650;
 const VISIT_HANDOVER_MS = 760;
@@ -43,41 +43,24 @@ function validSave(value) {
     Array.isArray(value.records) && Array.isArray(value.seen) && Array.isArray(value.pending) && Array.isArray(value.phoneLog);
 }
 
-function readEndingIds() {
-  const collection = readStorage(COLLECTION_KEY);
-  return Array.isArray(collection) ? collection.filter((id) => ENDING_IDS.includes(id)) : [];
-}
-
-function readCompletedShifts() {
-  const history = readStorage(COMPLETED_KEY);
-  const shifts = new Map();
-  if (!Array.isArray(history)) return shifts;
-  for (const entry of history) {
-    if (!ENDING_IDS.includes(entry?.id) || shifts.has(entry.id) ||
-      entry.run?.phase !== 'ending' || !validSave(entry.run)) continue;
-    shifts.set(entry.id, entry.run);
-  }
-  return shifts;
-}
-
 function rememberCompletedShift(finished) {
-  const { inspectionProgress, ...snapshot } = finished;
-  const { id } = getEnding(snapshot);
-  const previous = new Map([...completedShifts, ...readCompletedShifts()]);
-  previous.delete(id);
-  completedShifts = new Map([[id, snapshot], ...previous]);
-  endings = [...new Set([...readEndingIds(), ...endings, ...completedShifts.keys()])];
-  writeStorage(COMPLETED_KEY, Array.from(completedShifts, ([id, run]) => ({ id, run })));
+  const stored = readStorage(COMPLETED_KEY);
+  const storedEndings = readStorage(COLLECTION_KEY);
+  completedShifts = completedShiftHistory(stored, { memory: completedShifts, finished });
+  endings = collectedEndingIds(Array.isArray(storedEndings) ? [...storedEndings, ...endings] : endings, completedShifts);
+  const entries = Array.from(completedShifts, ([id, run]) => ({ id, run }));
+  if (JSON.stringify(entries) !== JSON.stringify(stored)) writeStorage(COMPLETED_KEY, entries);
   writeStorage(COLLECTION_KEY, endings);
 }
 
 let saved = readStorage(SAVE_KEY);
 if (!validSave(saved)) saved = null;
-let completedShifts = readCompletedShifts();
-let endings = [...new Set([...readEndingIds(), ...completedShifts.keys()])];
-if (saved?.phase === 'ending' && !completedShifts.has(getEnding(saved).id)) rememberCompletedShift(saved);
+let completedShifts = completedShiftHistory(readStorage(COMPLETED_KEY));
+let endings = collectedEndingIds(readStorage(COLLECTION_KEY), completedShifts);
+if (saved?.phase === 'ending') rememberCompletedShift(saved);
 let run = null;
 let reviewingHistory = false;
+let historyNavigation = null;
 let panel = null;
 let scenery;
 let modeledReady = false;
@@ -531,8 +514,9 @@ function render(resumeScroll) {
   if (root.dataset.modeled === 'true') placeFixtures();
   const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
   const openEndingDetails = [...screenLayer.querySelectorAll('.ending-card details')].map(({ open }) => open);
+  const historyLabel = reviewedWeekLabel();
   screenLayer.innerHTML = run
-    ? (arrival || visit || closingShot ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory, incomingCall))
+    ? (arrival || visit || closingShot ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, historyLabel, incomingCall))
     : view.home(saved, endings, completedShifts.size);
   if (closingShot === 'cat') screenLayer.innerHTML = '<span class="visually-hidden" role="status">窗外，厂猫走过了装货台。</span>';
   if (settingDownCloseSheet) {
@@ -606,13 +590,14 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const sources = archivedReportSources(run, reportIndex ?? archiveQuery);
     const returnTo = archiveReturn?.panel;
     const finished = run.phase === 'ending';
+    const historyLabel = reviewedWeekLabel();
     const original = archivePaper && archivedPaper(archivePaper.id, archivePaper.index);
-    markup = original ? view.archiveSourcePaper(original, pinned, { returnTo: reportIndex ? 'report-index' : returnTo, finished })
+    markup = original ? view.archiveSourcePaper(original, pinned, { returnTo: reportIndex ? 'report-index' : returnTo, finished, historyLabel })
       : reportIndex && sources.length
-      ? view.archiveReportPanel(reportIndex, sources, pinned, { returnTo, finished })
+      ? view.archiveReportPanel(reportIndex, sources, pinned, { returnTo, finished, historyLabel })
       : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
-        returnTo,
+        returnTo, historyLabel,
         reportSuggestion: !correction && sources.length > 1 ? sources[0].number : null,
         canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
         correctionFindings: correctionFindings ?? [],
@@ -642,11 +627,14 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'egg' && EASTER_EGGS[egg]) markup = view.egg(egg, item?.id);
   if (panel === 'restart') markup = view.dialog('重新接班', `<p>开一周新的班会覆盖当前值班存档。</p><div class="modal-actions">${view.button('回到上周', 'close')}${view.button('开始新一周', 'start', 'primary')}</div>`);
   if (panel === 'completed-shifts' && !run) {
-    const entries = Array.from(completedShifts, ([id, completed]) => {
-      const { title, stamp } = getEnding(completed);
-      return { id, title, label: stamp };
+    const entries = Array.from(completedShifts, ([id, completed], index) => {
+      const { title, counts } = getEnding(completed);
+      return {
+        id, title, counts, completedAt: completed.completedAt,
+        label: weekLabel(completedShifts.size - index), lastOpened: id === historyNavigation?.lastOpened,
+      };
     });
-    markup = view.dialog('交班存根', view.completedShifts(entries), 'completed-shifts-modal');
+    markup = view.dialog('交班存根', view.completedShifts(entries, endings.length), 'completed-shifts-modal');
   }
   if (!markup && !arrival && run?.phase === 'receipt' && !activeVisit()) {
     const record = run.records.at(-1);
@@ -827,6 +815,7 @@ function update(action, redraw = true) {
     if (getCase(before)?.id !== getCase(run)?.id) interaction = freshInteraction(interaction);
     if (run.phase === 'ending') {
       correctionDraft = null;
+      run = { ...run, completedAt: Date.now() };
       rememberCompletedShift(run);
     }
   }
@@ -863,6 +852,7 @@ function enter(restore) {
   cancelClosingShot();
   recallPairReturn = null;
   reviewingHistory = false;
+  historyNavigation = null;
   issuedReceiptId = null;
   presentedEvidence = null;
   let workspace;
@@ -881,7 +871,8 @@ function enter(restore) {
     lookup = reportWorkspace(run, savedLookup);
   } else {
     const lastCompleted = saved?.phase === 'ending' ? saved : completedShifts.values().next().value;
-    run = endings.length ? createFollowingRun(lastCompleted) : createRun();
+    const newWeek = endings.length ? createFollowingRun(lastCompleted) : createRun();
+    run = { ...newWeek, weekId: createWeekId() };
     interaction = freshInteraction();
   }
   panel = lookup?.panel ?? workspace?.panel ?? null;
@@ -942,14 +933,28 @@ function enter(restore) {
   }
 }
 
+function weekLabel(number) {
+  return `第 ${number} 份存根`;
+}
+
+function reviewedWeekLabel() {
+  if (!reviewingHistory) return '';
+  const index = [...completedShifts.keys()].indexOf(run.weekId);
+  return index < 0 ? '交班存根' : weekLabel(completedShifts.size - index);
+}
+
 function reviewCompletedShift(id) {
   const completed = completedShifts.get(id);
   if (run || panel !== 'completed-shifts' || !completed) return;
   cancelArrivalPause();
   cancelClosingShot();
+  historyNavigation = { ...historyNavigation, listScroll: modalLayer.querySelector('.completed-shifts-modal .modal-body')?.scrollTop ?? 0 };
   run = completed;
   reviewingHistory = true;
   interaction = freshInteraction();
+  if (historyNavigation.query) interaction.archiveQuery = historyNavigation.query;
+  const rows = archive(run, interaction.archiveQuery);
+  interaction.archiveFocus = rows.find(({ id }) => id === historyNavigation.caseId)?.id ?? rows.at(-1)?.id ?? null;
   panel = null;
   modalOpener = null;
   archiveReturn = null;
@@ -960,6 +965,19 @@ function reviewCompletedShift(id) {
   playSound('paper');
   render();
   focusControl(screenLayer, { act: 'archive' });
+}
+
+function returnToHistory() {
+  if (!reviewingHistory) return;
+  const id = run.weekId;
+  historyNavigation = { ...historyNavigation, query: interaction.archiveQuery, caseId: interaction.archiveFocus, lastOpened: id };
+  run = null;
+  reviewingHistory = false;
+  panel = 'completed-shifts';
+  modalOpener = { act: 'completed-shifts' };
+  render();
+  modalLayer.querySelector('.completed-shifts-modal .modal-body')?.scrollTo(0, historyNavigation.listScroll);
+  focusControl(modalLayer, { act: 'review-shift', key: id });
 }
 
 function cancelArrivalPause() {
@@ -1805,8 +1823,14 @@ root.addEventListener('click', (event) => {
   switch (act) {
     case 'window-glance': toggleWindowGlance(); break;
     case 'how': case 'rules': openPanel(act, target); break;
-    case 'completed-shifts': if (!run && completedShifts.size) openPanel('completed-shifts', target); break;
+    case 'completed-shifts':
+      if (!run && completedShifts.size) {
+        historyNavigation = null;
+        openPanel('completed-shifts', target);
+      }
+      break;
     case 'review-shift': reviewCompletedShift(key); break;
+    case 'history-index': returnToHistory(); break;
     case 'sound': setMuted(!isMuted()); playSound('click'); render(); break;
     case 'fullscreen': void toggleFullscreen(root); break;
     case 'new': if (saved && saved.phase !== 'ending') openPanel('restart', target); else enter(false); break;
@@ -1820,8 +1844,10 @@ root.addEventListener('click', (event) => {
       cancelClosingShot();
       run = null;
       reviewingHistory = false;
+      historyNavigation = null;
       recallPairReturn = null;
       phoneReturn = null;
+      toast('');
       resetGaze();
       closePanel();
       if (fromHistory) focusControl(screenLayer, { act: 'completed-shifts' });

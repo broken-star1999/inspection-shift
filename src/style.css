@@ -917,6 +917,7 @@ button:disabled { opacity: .46; }
 
 .modal.completed-shifts-modal { inline-size: min(31rem, 92%); }
 .completed-shifts-modal .modal-body { padding: .66rem .82rem .8rem; }
+.history-collection { margin: 0 0 .52rem; color: #d9c69d; font: 680 .79rem / 1.35 var(--mono); }
 .completed-shifts { display: grid; gap: .42rem; margin: 0; padding: 0; list-style: none; }
 .completed-shift {
   display: flex;
@@ -934,9 +935,11 @@ button:disabled { opacity: .46; }
   text-align: start;
 }
 .completed-shift:is(:hover, :focus-visible) { background: #f1e2c2; }
+.completed-shift[data-last-opened] { border-color: #9eb679; border-inline-start-color: #708354; background: #f3e9cb; }
 .completed-shift > span:first-child { display: grid; min-inline-size: 0; gap: .12rem; overflow-wrap: anywhere; }
 .completed-shift b { font-size: .93rem; line-height: 1.25; }
 .completed-shift small { color: #73563b; font-size: .75rem; line-height: 1.25; }
+.completed-shift-results { margin-inline-start: auto; text-align: end; color: #634a32; font: 660 .71rem / 1.35 var(--mono); }
 .completed-shift-arrow { color: #765735; font-size: 1.3rem; line-height: 1; }
 
 @container workstation (max-height: 390px) {

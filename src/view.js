@@ -10,6 +10,9 @@ export const statuses = { shipping: '排车', shipped: '已出库', returned: '�
   supplementHeld: '补验联待查', supplementReturned: '补验联退回' };
 const types = { label: '标签', report: '检验', order: '送检', archive: '留底' };
 const glyphs = { pass: '✓', fail: '×', review: '…' };
+const completedDate = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+});
 const batchPaperLabels = {
   rework: { tab: '复核联', original: '查看周一原单', open: '查看周二复核联' },
   acceptance: { tab: '验收联', original: '查看对应出货单', open: '查看到货验收联' },
@@ -66,8 +69,8 @@ export function home(save, endings, completedCount = 0) {
   if (save?.phase === 'ending') actions = button('查看上周交班', 'resume', 'primary') + button('接新一周', 'start');
   else if (save) actions = button(`继续值班 <small>${DAYS[save.day].title}</small>`, 'resume', 'primary') + button('重新接班', 'new');
   const history = completedCount > 0
-    ? button(`<b>交班记录</b><span>${endings.length}／3</span>`, 'completed-shifts', 'home-history')
-    : endings.length ? `<span>交班记录 ${endings.length}／3</span>` : '<span>五个工作日</span>';
+    ? button(`<b>交班记录</b><span>${completedCount} 份</span>`, 'completed-shifts', 'home-history')
+    : endings.length ? `<span>已见结局 ${endings.length}／3</span>` : '<span>五个工作日</span>';
   return `<section class="home-screen"><div class="home-art" aria-hidden="true"></div><div class="home-body">
     <div class="title-paper"><div class="eyebrow">南渡防护用品厂 · 代班通知</div><h1>质检员<br><em>的一天</em></h1>
       <p class="title-description">在出货窗口替五天班。<br>看样，对单，然后签你的名字。</p>
@@ -76,10 +79,16 @@ export function home(save, endings, completedCount = 0) {
     <footer class="home-footer"><span>出货交接室</span>${history}</footer></section>`;
 }
 
-export function completedShifts(entries) {
-  return `<ul class="completed-shifts">${entries.map(({ id, title, label }) => `<li>
-    <button type="button" class="completed-shift" data-act="review-shift" data-key="${esc(id)}"><span><b>${esc(title)}</b>${label ? `<small>${esc(label)}</small>` : ''}</span><span class="completed-shift-arrow" aria-hidden="true">›</span></button>
-  </li>`).join('')}</ul>`;
+export function completedShifts(entries, endingCount) {
+  const rows = entries.map(({ id, title, label, counts, completedAt, lastOpened }) => {
+    const time = new Date(completedAt);
+    const filed = Number.isFinite(time.getTime()) ? `<time datetime="${time.toISOString()}">${esc(completedDate.format(time))}</time>` : '';
+    const result = Object.entries(counts).map(([stamp, count]) => `${labels[stamp]} ${count}`).join(' · ');
+    return `<li><button type="button" class="completed-shift" data-act="review-shift" data-key="${esc(id)}"${lastOpened ? ' data-last-opened' : ''}>
+      <span><b>${esc(title)}</b><small>${esc(label)}${filed ? ` · ${filed}` : ''}</small></span>
+      <span class="completed-shift-results">${esc(result)}</span><span class="completed-shift-arrow" aria-hidden="true">›</span></button></li>`;
+  });
+  return `<p class="history-collection">已见结局 ${endingCount}／3</p><ul class="completed-shifts">${rows.join('')}</ul>`;
 }
 
 export function wallShift(run) {
@@ -221,7 +230,7 @@ function endingRecallGroup(records, kind, title, detail) {
     ${records.map((record) => `<li>${endingReceipt(record, detail)}</li>`).join('')}</ul></section>`;
 }
 
-function endingView(ending, reviewingHistory) {
+function endingView(ending, historyLabel) {
   const { delayedReceipts = [], heldReceipts = [], traceReceipt, traceDisposition, pendingRecalls = [], confirmedRecalls = [], acceptedReceipt } = ending;
   const pendingText = '已申请召回 · 尚未回签';
   const pendingIds = new Set(pendingRecalls.map(({ id }) => id));
@@ -239,8 +248,8 @@ function endingView(ending, reviewingHistory) {
   }
   const trace = traceReceipt ? endingReceipt(traceReceipt, traceDisposition.replace(`${traceReceipt.batch} `, '')) : esc(traceDisposition);
   if (ending.id === 'trace' && trace) note = trace;
-  return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}${cls('ending-history', reviewingHistory)}">
-    <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · ${reviewingHistory ? '历史交班存根 <span class="ending-history-label">只读</span>' : '交班存根'}</div><h2>${esc(ending.title)}</h2></header>
+  return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}${cls('ending-history', historyLabel)}">
+    <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · ${historyLabel ? `${esc(historyLabel)} <span class="ending-history-label">只读</span>` : '交班存根'}</div><h2>${esc(ending.title)}</h2></header>
     <div class="ending-body"><p>${esc(ending.line)}</p><div class="ending-note">${note}</div>
       ${ending.id === 'issue' && trace ? `<div class="ending-note">${trace}</div>` : ''}
       ${acceptedReceipt ? `<section class="ending-recall ending-acceptance"><h3>到货验收</h3>${endingReceipt(acceptedReceipt, '已签收，验收联已归档')}</section>` : ''}
@@ -252,11 +261,11 @@ function endingView(ending, reviewingHistory) {
         <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, dispositionLabel(record), 'delayed')}</li>`).join('')}</ul></details>` : ''}
       <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
     </div>
-    <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(reviewingHistory ? '返回首页' : '返回窗口', 'home')}${reviewingHistory ? '' : button('再接一周', 'new', 'primary')}</footer>
+    <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(historyLabel ? '返回首页' : '返回窗口', 'home')}${historyLabel ? button('返回交班记录', 'history-index', 'primary') : button('再接一周', 'new', 'primary')}</footer>
   </section></div>`;
 }
 
-export function overlay(run, ending, reviewingHistory = false, incomingCall = null) {
+export function overlay(run, ending, historyLabel = '', incomingCall = null) {
   const day = DAYS[run.day];
   if (run.phase === 'brief') {
     const returning = run.day === 0 && run.sampleSet === 4;
@@ -278,7 +287,7 @@ export function overlay(run, ending, reviewingHistory = false, incomingCall = nu
     </section>`;
   }
   if (run.phase === 'handoff') return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>老周「最后一趟车先等你。核对完这些单，再把板给我。」</p><div class="brief-actions">${button('核对与更正', 'archive')}${button(incomingCall ? '接电话' : '打电话', 'phone')}${button('打开交接板', 'handoff', 'primary')}</div></section></div>`;
-  if (run.phase === 'ending') return endingView(ending, reviewingHistory);
+  if (run.phase === 'ending') return endingView(ending, historyLabel);
   return '';
 }
 
@@ -690,7 +699,7 @@ function correctionStamps(row, followup) {
     <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, false, 'recheck', record.decision)}</div>`;
 }
 
-export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion } = {}) {
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel } = {}) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const isCall = ([key]) => key.startsWith('call:');
@@ -736,7 +745,8 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   }
   const navigation = { phone: '回到电话', handoff: '回到交接板', receipt: '回到回执' }[returnTo];
   const suggestion = reportSuggestion && !editing ? button(`并排核对 ${esc(reportSuggestion)}`, 'report-search', 'secondary report-index-suggestion', `data-key="${esc(reportSuggestion)}"`) : '';
-  return deskSurface('交接簿', `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
+  const heading = historyLabel ? `交接簿 · ${historyLabel}` : '交接簿';
+  return deskSurface(heading, `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
     ${suggestion}<div class="drawer-list" aria-label="留档单据">${index || '<p>没有找到匹配的单据。</p>'}</div></div>
     <div class="archive-detail">${details}</div></div>`, 'archive-surface', navigation || '合上簿子', query,
     { footer, closeLabel: navigation || '关闭面板' });
@@ -749,7 +759,7 @@ function phonePinButton(id, index, title, pinned, className) {
     `data-i="${id}" data-doc="${index}"${active(selected)} aria-label="${text} · ${esc(title)}"`);
 }
 
-export function archiveReportPanel(number, sources, pinned, { returnTo, finished } = {}) {
+export function archiveReportPanel(number, sources, pinned, { returnTo, finished, historyLabel } = {}) {
   const closeText = { phone: '回到电话', docs: '回到单据', sample: '回到检样', receipt: '回到回执' }[returnTo] ?? '合上簿子';
   const back = button('返回交接簿', 'report-index-back', 'secondary report-index-back');
   const phoneAction = !finished && returnTo !== 'phone' ? button('拿电话', 'phone', 'secondary report-index-phone') : '';
@@ -759,14 +769,15 @@ export function archiveReportPanel(number, sources, pinned, { returnTo, finished
     return `<section class="report-index-paper" aria-label="${esc(batch)} ${esc(document.title)}"><div class="report-index-source"><b>${esc(batch)}</b><small>${esc(DAYS[day]?.title)}</small></div>
       <div class="modal-actions report-index-actions">${pin}${original}</div>${sheet(document, index)}</section>`;
   }).join('');
-  return deskSurface(`报告号 ${number}`, papers ? `<div class="report-index-papers">${papers}</div>` : '<p class="archive-empty">交接簿里还没有这个报告号的留底。</p>',
+  const heading = [`报告号 ${number}`, historyLabel].filter(Boolean).join(' · ');
+  return deskSurface(heading, papers ? `<div class="report-index-papers">${papers}</div>` : '<p class="archive-empty">交接簿里还没有这个报告号的留底。</p>',
     'archive-surface report-index-surface', closeText, number, { headerActions: back + phoneAction, closeLabel: closeText });
 }
 
-export function archiveSourcePaper({ id, index, batch, day, document }, pinned, { returnTo, finished } = {}) {
+export function archiveSourcePaper({ id, index, batch, day, document }, pinned, { returnTo, finished, historyLabel } = {}) {
   const closeText = { phone: '回到电话', 'report-index': '回到编号索引' }[returnTo] ?? '合上单据';
   const pin = finished ? '' : phonePinButton(id, index, document.title, pinned, 'archive-source-pin');
-  const heading = [batch, DAYS[day]?.title].filter(Boolean).join(' · ');
+  const heading = [batch, DAYS[day]?.title, historyLabel].filter(Boolean).join(' · ');
   const paper = sheet(document, index, null, { phoneSource: !finished ? id : null });
   return deskSurface(heading, paper, 'archive-surface archive-source-surface', closeText, `${id}:${index}`, { closeLabel: closeText, headerActions: pin });
 }
