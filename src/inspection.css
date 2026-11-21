@@ -1265,6 +1265,28 @@
 .handoff-detail-scroll > :is(.archive-receipt, .sheet):last-child { margin-block-end: 0; }
 .handoff-detail-scroll .handoff-attachments { margin-block-start: 0; }
 .handoff-detail-scroll .handoff-evidence:first-child { margin-block-start: 0; }
+.handoff-detail-scroll .trace-evidence-actions {
+  justify-content: flex-start;
+  gap: .35rem;
+  margin: 0 0 .38rem;
+}
+.trace-evidence-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: .36rem;
+}
+.handoff-detail-scroll .trace-paper {
+  margin: 0;
+  padding: .34rem .43rem;
+}
+.trace-paper h4 { margin: 0 0 .17rem; font-size: .85rem; line-height: 1.2; }
+.handoff-detail-scroll .trace-paper .fields > div {
+  grid-template-columns: minmax(3rem, auto) minmax(0, 1fr);
+  gap: .22rem;
+  padding-block: .14rem;
+  font-size: .76rem;
+}
 .handoff-detail-scroll :is(.handoff-related, .handoff-evidence) .button { min-block-size: 2.75rem; }
 .handoff-detail-scroll .field-value[data-act='correction-basis'] { min-block-size: 1.9rem; margin-block: 0; }
 .handoff-empty { margin: .12rem 0; padding: .47rem .54rem; color: #ebd8b4; background: #392c23; font-size: .84rem; }

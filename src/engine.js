@@ -20,6 +20,14 @@ export const EVIDENCE = {
   night: PHONE['107'].evidence,
 };
 
+export const TRACE_CASE_ID = 7;
+export const TRACE_FINDING = {
+  key: 'trace:source',
+  source: EVIDENCE.trace.title,
+  text: EVIDENCE.trace.fields.filter(([label]) => label === '样品来源' || label === '检验范围')
+    .map(([label, value]) => `${label} · ${value}`).join('；'),
+};
+
 function makeSeed(seed) {
   if (seed === undefined) return Math.floor(Math.random() * 0x100000000);
   if (typeof seed === 'number' && Number.isFinite(seed)) return seed >>> 0;
@@ -705,7 +713,7 @@ function explore(state, key) {
 }
 
 function attach(state, action) {
-  if (action.key === 'trace' && state.flags.traceDocument && state.seen.includes(7)) {
+  if (action.key === 'trace' && state.flags.traceDocument && state.seen.includes(TRACE_CASE_ID)) {
     return setFlags(state, { traceAttached: action.value !== false });
   }
   if (action.key === 'night' && state.flags.nightDocument) {
@@ -723,13 +731,11 @@ function nextCase(state) {
 }
 
 function finish(state) {
-  const record = getRecord(state, 7);
-  let records = ship(state.records);
-  if (state.flags.traceAttached && record) {
-    const status = isOffsite(record.status) || record.status === 'recalled' ? 'recalled' : 'held';
-    records = updateRecord(records, 7, { status, traceDisposition: status });
-  }
-  return { ...state, phase: 'ending', records, event: null, events: [], incomingCalls: [], ringbackArmed: false };
+  const record = state.flags.traceAttached ? getRecord(state, TRACE_CASE_ID) : null;
+  const reviewed = record?.status === 'shipped' || record?.status === 'shipping'
+    ? recheck(state, { id: TRACE_CASE_ID, value: 'review', findings: [TRACE_FINDING] })
+    : state;
+  return { ...reviewed, phase: 'ending', records: ship(reviewed.records), event: null, events: [], incomingCalls: [], ringbackArmed: false };
 }
 
 export function dispatch(state, action) {
@@ -781,13 +787,16 @@ export function getEnding(state) {
   const issues = [];
   const pendingRecalls = [];
   const confirmedRecalls = [];
-  const traceReceipt = state.flags.traceAttached ? getRecord(state, 7) ?? null : null;
+  const traceReceipt = state.flags.traceAttached ? getRecord(state, TRACE_CASE_ID) ?? null : null;
   const acceptance = getShipmentAcceptance(state);
   const acceptedReceipt = isAcceptedShipment(state.records, acceptance?.record, acceptance?.day) ? acceptance.record : null;
   const traceDisposition = {
-    shipped: 'G-241 仍在收货方，召回待确认。',
+    shipping: 'G-241 正在装货台排车，尚未出库。',
+    shipped: 'G-241 已出库，尚未登记召回。',
     recallPending: 'G-241 已发出召回请求，等待收货方确认。',
     recalled: 'G-241 已确认召回，安排抽检。',
+    held: 'G-241 已留厂隔离，安排补检。',
+    returned: 'G-241 已退回，退件记录随本次交接留存。',
   };
   const counts = { pass: 0, fail: 0, review: 0 };
   const delayedByBatch = new Map();
@@ -807,7 +816,7 @@ export function getEnding(state) {
   }
   const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
   const delayedReceipts = [...delayedByBatch.values()];
-  const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已封存，安排补检。');
+  const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已登记追加复检，去向待核。');
   const shared = { issues, pendingRecalls, confirmedRecalls, acceptedReceipt, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
   if (issues.length) {
     const detail = issues.map(({ batch, reason, answer, status }) => {

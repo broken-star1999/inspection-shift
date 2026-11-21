@@ -221,7 +221,7 @@ export const SHIPMENT_ACCEPTANCE = {
 
 export const HANDOFF = {
   normal: { title: '周五交班', line: '老周把交接单翻到最后一页。「该留下一班的都在这儿。行，你下班吧。」', stamp: '本周交班完成' },
-  investigation: { title: '第二张复检单', line: '老周对着电话念了一遍二四一。他等对方把号码重复一遍，才在回执上圈住那个号。', stamp: 'G-241 追加复检' },
+  investigation: { title: '第二张复检单', line: '老周把两份原件摊在交接板上，圈住二四一。「这批单独复检。货在哪儿，按交接回执办。」', stamp: 'G-241 追加复检' },
   escaped: { title: '车已经走了', line: '电话又响了一声。老周用手背按住要卷起来的回执。「你把那箱的号再说一遍。」', stamp: '待接收方确认' },
 };
 
