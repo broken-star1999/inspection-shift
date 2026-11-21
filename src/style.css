@@ -486,6 +486,7 @@ button:disabled { opacity: .46; }
 .sample-preview {
   display: grid;
   place-items: center;
+  touch-action: manipulation;
   flex: 1 1 auto;
   min-inline-size: 0;
   min-block-size: 0;

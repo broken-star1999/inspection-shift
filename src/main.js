@@ -36,6 +36,7 @@ const ARRIVAL_PAUSE_MS = 1150;
 const NEXT_BATCH_PAUSE_MS = 2350;
 const VISIT_HANDOVER_MS = 760;
 const PAPER_PAIR_HOLD_MS = 250;
+const PAPER_TOUCH_DRAG_PX = 8;
 const CARTON_TURN_TRAVEL = 28;
 const RECEIPT_LIFT_MS = 235;
 const cargoRoutes = new Set(['shipping', 'returned', 'held']);
@@ -89,9 +90,8 @@ let workspaceScrollTimer = 0;
 let drag;
 let toolDrag = null;
 let toolClickTarget = null;
-let stampPress = null;
-let suppressStampClick = false;
-let suppressPaperClick = false;
+let deskPress = null;
+let suppressDeskClick = false;
 let modalOpener = null;
 let archiveReturn = null;
 let reportIndex = null;
@@ -143,7 +143,7 @@ let fixtureLayout = {};
 
 bindViewport(root, ({ fullscreen, immersive, rotated }) => {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
-  cancelStampPress();
+  cancelDeskPress();
   const expanded = fullscreen || immersive;
   fullscreenToggle.setAttribute('aria-pressed', String(expanded));
   fullscreenToggle.setAttribute('aria-label', expanded ? '退出全屏' : '全屏');
@@ -203,7 +203,7 @@ function suspendModeledScene() {
   modeledReady = false;
   if (root.dataset.modeled !== 'true') return;
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
-  cancelStampPress();
+  cancelDeskPress();
   delete root.dataset.modeled;
   setScene();
 }
@@ -296,7 +296,7 @@ function resetGaze() {
 
 function followGaze(time) {
   gaze.frame = 0;
-  if (drag || toolDrag || stampPress) { gaze.time = 0; return; }
+  if (drag || toolDrag || deskPress) { gaze.time = 0; return; }
   if (reducedMotion.matches || (root.dataset.rotated === 'true' && !glancedPanel)) { resetGaze(); return; }
   const targetY = glancedPanel ? Math.min(gaze.targetY, -.32) : gaze.targetY;
   const elapsed = gaze.time ? Math.min(time - gaze.time, 48) : 16;
@@ -316,20 +316,25 @@ function followGaze(time) {
 function setGazeTarget(x, y) {
   gaze.targetX = Math.max(-1, Math.min(1, x));
   gaze.targetY = Math.max(-1, Math.min(1, y));
-  if (!gaze.frame && !drag && !toolDrag && !stampPress) gaze.frame = requestAnimationFrame(followGaze);
+  if (!gaze.frame && !drag && !toolDrag && !deskPress) gaze.frame = requestAnimationFrame(followGaze);
 }
 
 root.addEventListener('pointerdown', (event) => {
   toolClickTarget = null;
-  suppressPaperClick = false;
-  beginStampPress(event);
-  if (event.pointerType !== 'mouse' && !drag && !glancedPanel && !stampPress) resetGaze();
+  if (!drag && !deskPress) suppressDeskClick = false;
+  if (drag && drag.pointerId !== event.pointerId) {
+    endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
+    return;
+  }
+  beginDeskPress(event);
+  const paper = event.target.closest('#desk [data-drag="paper"]');
+  if (event.pointerType !== 'mouse' && !paper && !glancedPanel && !deskPress) resetGaze();
 }, { capture: true });
 
 root.addEventListener('pointermove', (event) => {
   if (toolDrag) return;
   if (drag && drag.pointerId !== event.pointerId) return;
-  if (event.pointerType !== 'mouse') { if (!drag && !glancedPanel && !stampPress) resetGaze(); return; }
+  if (event.pointerType !== 'mouse') { if (!drag && !glancedPanel && !deskPress) resetGaze(); return; }
   if (!run || root.dataset.rotated === 'true' || reducedMotion.matches) return;
   const bounds = root.getBoundingClientRect();
   if (!bounds.width || !bounds.height) return;
@@ -681,7 +686,7 @@ function setScene() {
 
 function render(resumeScroll, resumeScrollLeft = 0) {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
-  cancelStampPress();
+  cancelDeskPress();
   const settingDownCloseSheet = run?.phase === 'summary' &&
     (root.dataset.phase === 'receipt' || root.dataset.phase === 'summary') &&
     !screenLayer.querySelector('.shift-close-sheet');
@@ -2034,7 +2039,7 @@ function checkSample(act) {
 
 function stamp(value) {
   if (arrival || activeVisit() || run?.phase !== 'case') return;
-  if (stampPress) return;
+  if (deskPress) return;
   if (drag || toolDrag) {
     toast('先把手里的东西放回台面');
     return;
@@ -2358,13 +2363,13 @@ function closePanel() {
 }
 
 root.addEventListener('click', (event) => {
-  if (suppressStampClick && event.detail > 0) return;
+  const pointerClick = Boolean(event.pointerType) || event.detail > 0;
+  if (suppressDeskClick && pointerClick) return;
   const target = event.target.closest('[data-act]');
   if (!target || target.matches(':disabled')) return;
   if (target === toolClickTarget && event.detail > 0) return;
   const { act, key } = target.dataset;
   const index = Number(target.dataset.i);
-  if (act === 'doc' && suppressPaperClick && event.detail > 0) return;
   if (act.startsWith('sample-')) { checkSample(act); return; }
   switch (act) {
     case 'carton': case 'carton-turn': case 'carton-note': checkCarton(act, target); break;
@@ -2443,7 +2448,10 @@ root.addEventListener('click', (event) => {
       else finishWindowAdvance(action, event.detail === 0);
       break;
     }
-    case 'doc': case 'reference-doc': if (run) chooseDoc(index, target); break;
+    case 'doc':
+      if (run && (!pointerClick || !target.matches('#desk [data-drag="paper"]'))) chooseDoc(index, target);
+      break;
+    case 'reference-doc': if (run) chooseDoc(index, target); break;
     case 'basis': checkBasis(index, Number(target.dataset.field)); break;
     case 'toggle-findings':
       if (run?.phase !== 'case') break;
@@ -2484,7 +2492,9 @@ root.addEventListener('click', (event) => {
       render();
       break;
     }
-    case 'sample': openSample(target); break;
+    case 'sample':
+      if (!pointerClick || !target.matches('#desk .sample-preview')) openSample(target);
+      break;
     case 'reference': toggleReference(); break;
     case 'reference-back':
       if (panel === 'sample' && interaction.returnToDocs) {
@@ -2494,7 +2504,7 @@ root.addEventListener('click', (event) => {
         focusControl(modalLayer, { act: 'sample', key: 'thickness', i: source }) || focusControl(modalLayer, { act: 'sample' });
       }
       break;
-    case 'stamp': if (event.detail === 0) stamp(key); break;
+    case 'stamp': if (!pointerClick) stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
     case 'report-search': openReportIndex(key, target); break;
     case 'report-index-paper': openArchivePaper(index, Number(target.dataset.doc), target); break;
@@ -2688,54 +2698,60 @@ root.addEventListener('click', (event) => {
   }
 });
 
-function beginStampPress(event) {
-  if (stampPress) {
-    if (event.pointerId !== stampPress.pointerId) cancelStampPress();
+function isDeskControlHit(button, event) {
+  return button.isConnected && !button.disabled && button.contains(document.elementFromPoint(event.clientX, event.clientY));
+}
+
+function beginDeskPress(event) {
+  if (deskPress) {
+    if (event.pointerId !== deskPress.pointerId) cancelDeskPress();
     return;
   }
-  suppressStampClick = false;
-  const button = event.target.closest('#desk [data-act="stamp"]:enabled');
-  if (!button || event.button !== 0 || !event.isPrimary || drag || toolDrag || panel) return;
+  const button = event.target.closest('#desk :is([data-act="stamp"], .sample-preview):enabled');
+  if (!button || event.button !== 0 || !event.isPrimary || drag || toolDrag || run?.phase !== 'case') return;
+  const isStamp = button.dataset.act === 'stamp';
+  if (isStamp && panel) return;
   const { pointerId, clientX, clientY } = event;
-  suppressStampClick = true;
+  suppressDeskClick = true;
   // Browsers may target a nearby button when the actual touch lands between controls.
-  if (!button.contains(document.elementFromPoint(clientX, clientY))) return;
-  stampPress = { button, pointerId, clientX, clientY, cancelled: false };
-  button.setAttribute('data-stamp-armed', '');
+  if (!isDeskControlHit(button, event)) return;
+  deskPress = { button, isStamp, pointerId, clientX, clientY, cancelled: false };
+  if (isStamp) button.setAttribute('data-stamp-armed', '');
 }
 
-function cancelStampPress() {
-  if (!stampPress) return;
-  stampPress.cancelled = true;
-  stampPress.button.removeAttribute('data-stamp-armed');
+function cancelDeskPress() {
+  if (!deskPress) return;
+  deskPress.cancelled = true;
+  deskPress.button.removeAttribute('data-stamp-armed');
 }
 
-function insideStampPress(press, event) {
-  const { clientX, clientY } = event;
-  return press.button.isConnected && !press.button.disabled &&
-    Math.hypot(clientX - press.clientX, clientY - press.clientY) <= 12 &&
-    press.button.contains(document.elementFromPoint(clientX, clientY));
+function insideDeskPress(press, event) {
+  return Math.hypot(event.clientX - press.clientX, event.clientY - press.clientY) <= 12 &&
+    isDeskControlHit(press.button, event);
 }
 
-function finishStampPress(event) {
-  if (!stampPress || event.pointerId !== stampPress.pointerId) return;
-  const press = stampPress;
-  stampPress = null;
+function finishDeskPress(event) {
+  if (!deskPress || event.pointerId !== deskPress.pointerId) return;
+  const press = deskPress;
+  deskPress = null;
   press.button.removeAttribute('data-stamp-armed');
-  if (event.type === 'pointerup' && !press.cancelled && insideStampPress(press, event)) stamp(press.button.dataset.key);
+  if (event.type === 'pointerup' && !press.cancelled && insideDeskPress(press, event)) {
+    if (press.isStamp) stamp(press.button.dataset.key);
+    else openSample(press.button);
+  }
   setGazeTarget(gaze.targetX, gaze.targetY);
 }
 
 window.addEventListener('pointermove', (event) => {
-  if (stampPress && event.pointerId === stampPress.pointerId && !stampPress.cancelled && !insideStampPress(stampPress, event)) {
-    cancelStampPress();
+  if (deskPress && event.pointerId === deskPress.pointerId && !deskPress.cancelled && !insideDeskPress(deskPress, event)) {
+    cancelDeskPress();
   }
 });
-window.addEventListener('pointerup', finishStampPress);
-window.addEventListener('pointercancel', finishStampPress);
-window.addEventListener('lostpointercapture', finishStampPress);
+window.addEventListener('pointerup', finishDeskPress);
+window.addEventListener('pointercancel', finishDeskPress);
+window.addEventListener('lostpointercapture', finishDeskPress);
 window.addEventListener('blur', () => {
-  if (stampPress) finishStampPress({ type: 'blur', pointerId: stampPress.pointerId });
+  if (deskPress) finishDeskPress({ type: 'blur', pointerId: deskPress.pointerId });
 });
 
 root.addEventListener('submit', (event) => {
@@ -2962,18 +2978,23 @@ function paperDragPlacement(work, event) {
   const next = { x: work.offset.x + x, y: work.offset.y + y };
   const resting = { x: Math.max(-90, Math.min(90, next.x)), y: Math.max(-35, Math.min(40, next.y)) };
   const preview = work.targets.length ? { x: Math.max(-380, Math.min(380, next.x)), y: Math.max(-65, Math.min(65, next.y)) } : resting;
-  return { distance: Math.hypot(x, y), resting, preview };
+  const short = event.pointerType === 'mouse' ? Math.hypot(x, y) < 7
+    : Math.hypot(event.clientX - work.clientX, event.clientY - work.clientY) < PAPER_TOUCH_DRAG_PX;
+  return { short, resting, preview };
 }
 
 desktop.addEventListener('pointerdown', (event) => {
-  const paper = event.target.closest('[data-drag="paper"]');
-  if (!paper || event.button !== 0 || !event.isPrimary || drag || toolDrag || run?.phase !== 'case') return;
+  const paper = event.target.closest('[data-drag="paper"]:enabled');
+  if (!paper || event.button !== 0 || !event.isPrimary || drag || deskPress || toolDrag || run?.phase !== 'case') return;
+  suppressDeskClick = true;
+  if (!isDeskControlHit(paper, event)) return;
   const index = Number(paper.dataset.i);
   const projection = root.dataset.modeled === 'true' ? scenery?.captureDeskProjection?.() : null;
   const project = projection ?? captureDeskProjection(desktop) ?? ((x, y) => stagePoint(root, x, y));
   const offset = interaction.positions[index] ?? { x: 0, y: 0 };
   const faces = captureDeskPaperFaces(paper, Boolean(projection), project);
-  drag = { paper, index, pointerId: event.pointerId, project, origin: project(event.clientX, event.clientY),
+  drag = { paper, index, pointerId: event.pointerId, project, clientX: event.clientX, clientY: event.clientY,
+    origin: project(event.clientX, event.clientY),
     offset, moved: false, center: faces.find((face) => face.paper === paper)?.center,
     targets: faces.filter((face) => face.paper !== paper), target: null, pairReady: false };
 });
@@ -2984,8 +3005,8 @@ window.addEventListener('pointermove', (event) => {
     endDrag({ type: 'pointercancel', pointerId: event.pointerId });
     return;
   }
-  const { distance, preview } = paperDragPlacement(drag, event);
-  if (!drag.moved && distance < 7) return;
+  const { short, preview } = paperDragPlacement(drag, event);
+  if (!drag.moved && short) return;
   if (!drag.moved) {
     drag.moved = true;
     drag.paper.classList.add('moving');
@@ -3000,13 +3021,12 @@ function endDrag(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
   const work = drag;
   const released = event.type === 'pointerup';
-  const placement = released && work.moved ? paperDragPlacement(work, event) : null;
+  const placement = released ? paperDragPlacement(work, event) : null;
   const pair = placement && work.pairReady && paperDropTarget(work, placement.preview, event) === work.target ? work.target : null;
   markPaperDrop(work, null);
   updatePaperDragCue(null);
   drag = null;
   if (work.moved && work.paper.isConnected) {
-    suppressPaperClick = true;
     const offset = placement && !pair ? placement.resting : work.offset;
     moveDeskPaper(work, offset, 0, true);
     work.paper.classList.remove('moving');
@@ -3015,6 +3035,8 @@ function endDrag(event) {
       interaction.positions[work.index] = offset;
       persistRun();
     }
+  } else if (placement?.short && isDeskControlHit(work.paper, event)) {
+    chooseDoc(work.index, work.paper);
   }
   setGazeTarget(gaze.targetX, gaze.targetY);
 }
