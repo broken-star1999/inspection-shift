@@ -446,6 +446,29 @@ test('a call started from a filed document can return to the same seen archive r
   assert.deepEqual(missing.pinned, []);
 });
 
+test('restores the handset underside for the active case without changing its archive return or dial', () => {
+  const current = { ...item, id: 14 };
+  const seen = [11, 14];
+  const carried = { phoneNumber: '88', pinned: [nightPin] };
+  const work = { ...freshInteraction(carried), phoneBottom: true };
+  const workspace = {
+    panel: 'phone', scrollTop: 17,
+    returnTo: { panel: 'archive', archiveFocus: 11, archiveQuery: 'G-211', scrollTop: 128 },
+  };
+  const saved = JSON.parse(JSON.stringify(captureInspectionProgress(current, work, { ...workspace, seen })));
+  assert.equal(saved.phoneBottom, true);
+  assert.deepEqual(restoreInspectionProgress(saved, current, seen, {}), { ...work, workspace });
+  assert.deepEqual(restoreInspectionProgress(saved, { ...current, id: 15 }, seen, {}), freshInteraction(carried));
+  assert.deepEqual(freshInteraction(work), freshInteraction(carried));
+  assert.equal(captureInspectionProgress(null, work, workspace).phoneBottom, undefined);
+  for (const value of [false, 'true', undefined]) {
+    const sanitized = captureInspectionProgress(current, { ...work, phoneBottom: value }, workspace);
+    assert.equal(Object.hasOwn(sanitized, 'phoneBottom'), false);
+    const restored = restoreInspectionProgress({ ...saved, phoneBottom: value }, current, seen, {});
+    assert.deepEqual(restored, { ...freshInteraction(carried), workspace });
+  }
+});
+
 test('rejects unsupported workspaces and invalid document values while preserving case progress', () => {
   const work = { ...freshInteraction(), note: '可恢复' };
   const progress = captureInspectionProgress(item, work);

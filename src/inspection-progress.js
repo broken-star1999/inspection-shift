@@ -63,6 +63,7 @@ function caseProgress(item, progress) {
     filmChecked: item?.id === 2 && (progress?.filmChecked === true || inspection?.film === true),
     benchFindingsOpen: progress?.benchFindingsOpen === true,
     ...(item?.carton && progress?.cartonBottom === true ? { cartonBottom: true } : {}),
+    ...(item && progress?.phoneBottom === true ? { phoneBottom: true } : {}),
   };
 }
 

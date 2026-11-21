@@ -17,6 +17,8 @@ const catTravelMs = 900;
 const cargoTravelMs = 740;
 const slipFeedStartMs = 42;
 const evidencePassingMs = 590;
+const phoneLiftMs = 230;
+const phoneSetDownMs = 195;
 const cargoStart = { x: -1.05, z: -.04, angle: -.115 };
 const cargoDestinations = {
   ready: cargoStart,
@@ -30,7 +32,7 @@ const cargoStaging = {
 };
 const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'review', supplementHeld: 'review', review: 'review' };
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, presentedEvidence: null };
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, presentedEvidence: null, phoneHeld: false, phoneRinging: false };
 
 function visibleVisitor(frame) {
   if (frame.phase === 'waiting' && !frame.keepVisitor && !frame.visitorWaiting) return null;
@@ -543,6 +545,9 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let slipMotionAt = -Infinity;
   let evidenceKey = null;
   let evidenceMotionAt = -Infinity;
+  let phoneFrom = 0;
+  let phoneMotionAt = -Infinity;
+  let phoneRingAt = -Infinity;
   let pressed = null;
   let pressedAt = -Infinity;
   let poseX = 0;
@@ -754,6 +759,12 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     cuffSplit.visible = (frame.phase === 'case' || frame.phase === 'receipt') &&
       !frame.visit && !frame.sampleHeld && frame.sample?.cuffSplit === true;
     const now = view.performance.now();
+    if (Boolean(frame.phoneHeld) !== Boolean(before.phoneHeld)) {
+      const snap = before.phase === 'home' || frame.phase === 'home' || reduced.matches;
+      phoneFrom = snap ? Number(Boolean(frame.phoneHeld)) : phoneLiftFraction(now, Number(Boolean(before.phoneHeld)));
+      phoneMotionAt = snap ? -Infinity : now;
+    }
+    if (frame.phoneRinging && !before.phoneRinging) phoneRingAt = now;
     const evidence = frame.phase === 'case' && !frame.visit ? frame.presentedEvidence : null;
     const nextEvidenceKey = evidence ? JSON.stringify([evidence.caseId, evidence.key, evidence.source, evidence.text]) : null;
     if (nextEvidenceKey !== evidenceKey) {
@@ -904,8 +915,32 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   }
 
   function updateMotionPreference() {
-    if (reduced.matches) cargoMotionAt = -Infinity;
+    if (reduced.matches) {
+      cargoMotionAt = -Infinity;
+      phoneMotionAt = -Infinity;
+    }
     invalidate();
+  }
+
+  function phoneLiftFraction(now, target) {
+    if (reduced.matches || phoneFrom === target) return target;
+    const duration = target ? phoneLiftMs : phoneSetDownMs;
+    return THREE.MathUtils.lerp(phoneFrom, target, THREE.MathUtils.smoothstep(now - phoneMotionAt, 0, duration));
+  }
+
+  function placePhone(now) {
+    const target = Number(Boolean(frame.phoneHeld));
+    const liftAmount = phoneLiftFraction(now, target);
+    const { handset, socket, lift, cord, lamp } = models.phone;
+    handset.position.copy(socket).addScaledVector(lift, liftAmount);
+    handset.rotation.set(.16 * liftAmount, -.26 * liftAmount, .21 * liftAmount);
+    cord.morphTargetInfluences[0] = liftAmount;
+
+    const ringAge = now - phoneRingAt;
+    const pulsing = frame.phoneRinging && !reduced.matches && ringAge < 445;
+    const lit = !pulsing || ringAge < 150 || ringAge >= 255;
+    lamp.material.emissiveIntensity = frame.phoneRinging ? lit ? .95 : .21 : 0;
+    return liftAmount !== target || pulsing;
   }
 
   function placeOutgoingSlip(now) {
@@ -1036,6 +1071,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const slipVisible = placeOutgoingSlip(now);
     const evidenceVisible = placeEvidenceSlip(now);
     const deskMoving = placeDesk(now);
+    const phoneMoving = placePhone(now);
     const catMoving = placeCat(now);
     if (reduced.matches) shutterFrom = shutterTarget;
     const coverage = shutterCoverage(now);
@@ -1056,7 +1092,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       ready = true;
       onReady?.();
     }
-    if (shutterMoving || catMoving || deskMoving || cargoMoving || slipVisible || evidenceVisible || (portrait.visible && progress < 1) ||
+    if (shutterMoving || catMoving || deskMoving || phoneMoving || cargoMoving || slipVisible || evidenceVisible || (portrait.visible && progress < 1) ||
         (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 

@@ -844,7 +844,7 @@ export function archiveSourcePaper({ id, index, batch, day, document }, pinned, 
   return deskSurface(heading, paper, 'archive-surface archive-source-surface', closeText, `${id}:${index}`, { closeLabel: closeText, headerActions: pin });
 }
 
-export function phone(number, call, pinned, numberGuide, phoneBack, current, { returnTo, incomingCall } = {}) {
+export function phone(number, call, pinned, numberGuide, phoneBottom, current, { returnTo, incomingCall } = {}) {
   const order = current && PHONE['204'].requests[current.id] ? current.documents.findIndex(({ type }) => type === 'order') : -1;
   const canBring = order >= 0 && !pinned.some(({ id, index }) => id === current.id && index === order);
   const papers = pinned.length ? `<div class="phone-pinned phone-papers" aria-label="电话旁的单据"><b>电话旁</b><ul>
@@ -854,7 +854,7 @@ export function phone(number, call, pinned, numberGuide, phoneBack, current, { r
     return `<li><button type="button" class="phone-paper" data-act="phone-paper" data-i="${id}"${index === null ? '' : ` data-doc="${index}"`} aria-label="查看 ${esc(batch)} ${esc(title)}${reportNumber ? ` ${esc(reportNumber)}` : ''}"><b>${esc(batch)}</b><span>${esc(title)}</span>${reportNumber ? `<small>${esc(reportNumber)}</small>` : ''}</button></li>`;
   }).join('')}
   </ul></div>` : '';
-  const actions = `<footer class="modal-actions phone-actions">${incomingCall ? button('接电话', 'phone-answer', 'secondary phone-answer') : ''}${canBring ? button('带本批送检联', 'archive-pin', 'secondary', `data-i="${current.id}" data-doc="${order}"`) : ''}${button('交接簿', 'archive')}${button(phoneBack ? '机底贴纸 · 880' : '翻看机底', 'phone-back')}</footer>`;
+  const actions = `<footer class="modal-actions phone-actions">${incomingCall ? button('接电话', 'phone-answer', 'secondary phone-answer') : ''}${canBring ? button('带本批送检联', 'archive-pin', 'secondary', `data-i="${current.id}" data-doc="${order}"`) : ''}${button('交接簿', 'archive')}${button(phoneBottom ? '翻回正面' : '翻看机底', 'phone-back')}</footer>`;
   const returnLabel = { docs: '回到单据', sample: '回到检样', archive: '回到交接簿', 'report-index': '回到编号索引', 'archive-paper': '回到原单' }[returnTo];
   const closeText = returnLabel || '放下听筒';
   const closeLabel = returnLabel ? `放下听筒，${returnLabel}` : closeText;
@@ -862,8 +862,12 @@ export function phone(number, call, pinned, numberGuide, phoneBack, current, { r
   const registration = call?.kind === 'trace'
     ? button('查看本次登记', 'archive-call', 'secondary phone-registration', `data-key="${TRACE_INQUIRY_KEY}"`)
     : PHONE['204'].requests[call?.caseId] ? button('查看登记留底', 'archive-call', 'secondary phone-registration', `data-i="${esc(call.caseId)}"`) : '';
-  return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine"><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>
-    <div class="phone-side">${numberGuide ? '<div class="phone-directory"><button class="button secondary" data-act="phone-select" data-key="204">实验室 204</button></div>' : ''}
+  const face = phoneBottom
+    ? `<div class="phone-face phone-face-bottom" role="group" aria-label="电话机底"><span class="phone-base-hardware" aria-hidden="true"></span><span class="phone-service-label"><span>内线</span><strong>880</strong><small>回铃自测</small></span></div>`
+    : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div></div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
+  const directory = numberGuide ? `<div class="phone-directory">${button('实验室 204', 'phone-select', 'secondary', `data-key="204"${phoneBottom ? ' disabled' : ''}`)}</div>` : '';
+  return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine" data-phone-face="${phoneBottom ? 'bottom' : 'front'}">${face}</div>
+    <div class="phone-side">${directory}
     ${papers}
     <div class="phone-log" aria-live="polite">${call ? `<b>${caller}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : '<p>拨出内线，或从交接簿拿一张单来问。</p>'}${registration}</div>
     </div></div>`, 'phone-modal', actions, { closeText, closeLabel, closeClass: 'phone-hangup' });

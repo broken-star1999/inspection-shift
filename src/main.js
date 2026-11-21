@@ -570,12 +570,14 @@ function setScene() {
   const documents = item?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
   const shipment = !visit && !closingShot ? sceneShipment(sceneRun, item, waiting) : {};
+  const phoneHeld = panel === 'phone' || (panel === 'archive' && archiveReturn?.panel === 'phone');
   view.setRoomCargo(cargoHost, shipment.cargo);
   scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit), shutterClosed, catPassing,
     documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind, cuffSplit: cuffSplitVisible(item.sample, inspection) } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
     keepVisitor: arrival?.keepVisitor ?? false, visitorWaiting: Boolean(waitingNpc),
+    phoneHeld, phoneRinging: Boolean(incomingAtWindow()),
     approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
     presentedEvidence: phase === 'case' && item?.shownFinding === presentedEvidence ? presentedEvidence : null,
     ...shipment });
@@ -752,7 +754,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       const row = filed.find((item) => item.id === id);
       return row ? [{ id, index, batch: row.batch, document: row.documents[index] ?? null }] : [];
     });
-    markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, run.flags.phoneBack, item, {
+    markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, interaction.phoneBottom, item, {
       returnTo: phoneReturn?.archivePaper ? 'archive-paper' : phoneReturn?.reportIndex ? 'report-index' : phoneReturn?.panel,
       incomingCall,
     });
@@ -981,6 +983,7 @@ function openPanel(name, opener) {
     phoneReturn = { panel, opener: { ...opener.dataset }, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0,
       ...(archiveOrigin ? { reportIndex, archivePaper, archiveReturn, archiveFocus: interaction.archiveFocus, archiveQuery: interaction.archiveQuery } : {}) };
   } else if (panel === 'phone' && name !== 'archive' && name !== 'phone') {
+    interaction.phoneBottom = false;
     update({ type: 'hang-up' }, false);
     phoneReturn = null;
   }
@@ -1790,19 +1793,26 @@ function stamp(value) {
   } else toast('先跟老周把这箱查完');
 }
 
+function revealPhoneLog() {
+  modalLayer.querySelector('.phone-log')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
 function dial() {
-  if (!interaction.phoneNumber) return;
+  if (panel !== 'phone' || interaction.phoneBottom || !interaction.phoneNumber) return;
   const number = interaction.phoneNumber;
   playSound(number === '880' ? 'dialTone' : 'click');
   toast('');
   update({ type: 'dial', number, papers: interaction.pinned });
-  modalLayer.querySelector('.phone-log')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  revealPhoneLog();
   if (run.phase === 'handoff' && activeVisit()) toast('有人到窗口递留底');
 }
 
 function openPhone(opener) {
   if (!run || reviewingHistory) return;
-  if (incomingAtWindow()) update({ type: 'answer-call' }, false);
+  const returningToCall = panel === 'archive' && archiveReturn?.panel === 'phone';
+  const ringingNow = incomingAtWindow();
+  if (!returningToCall || ringingNow) interaction.phoneBottom = false;
+  if (ringingNow) update({ type: 'answer-call' }, false);
   else if (opener.dataset.key === 'bring-order' && panel === 'docs') {
     const item = windowCase();
     const order = heldObjects(item).heldDocuments.find((index) => item?.documents[index]?.type === 'order');
@@ -1812,11 +1822,9 @@ function openPhone(opener) {
     }
   }
   playSound('click');
-  if (panel === 'archive' && archiveReturn?.panel === 'phone') {
-    closePanel();
-    return;
-  }
-  openPanel('phone', opener);
+  if (returningToCall) closePanel();
+  else openPanel('phone', opener);
+  if (ringingNow) revealPhoneLog();
 }
 
 function phoneFromDocument(caseId, index, field, opener) {
@@ -1854,9 +1862,23 @@ function pinPhonePaper(id, index) {
 }
 
 function setPhoneNumber(value) {
+  if (interaction.phoneBottom) return;
   interaction.phoneNumber = value;
   renderModal();
   persistRun();
+}
+
+function flipPhone() {
+  if (panel !== 'phone' || !run) return;
+  const bottom = !interaction.phoneBottom;
+  interaction.phoneBottom = bottom;
+  if (bottom && !run.flags.phoneBack) update({ type: 'explore', key: 'phone-back' }, false);
+  playSound('slide');
+  render();
+  animateOnDesk(modalLayer.querySelector('.phone-face'), [
+    { transform: `perspective(700px) rotateX(${bottom ? -66 : 66}deg)`, opacity: .72 },
+    { transform: 'perspective(700px) rotateX(0deg)', opacity: 1 },
+  ], 230);
 }
 
 function openArchive(opener) {
@@ -2020,6 +2042,7 @@ function closePanel() {
   }
   let previousPanel = run && panel === 'archive' ? archiveReturn : null;
   if (panel === 'phone') {
+    interaction.phoneBottom = false;
     update({ type: 'hang-up' }, false);
     previousPanel = phoneReturn;
     phoneReturn = null;
@@ -2319,7 +2342,11 @@ root.addEventListener('click', (event) => {
     case 'phone': openPhone(target); break;
     case 'phone-document': phoneFromDocument(Number(key), index, Number(target.dataset.field), target); break;
     case 'phone-answer':
-      if (panel === 'phone' && incomingAtWindow()) { playSound('click'); update({ type: 'answer-call' }); }
+      if (panel === 'phone' && incomingAtWindow()) {
+        interaction.phoneBottom = false;
+        playSound('click'); update({ type: 'answer-call' });
+        revealPhoneLog();
+      }
       break;
     case 'phone-digit':
       if (interaction.phoneNumber.length < 5) setPhoneNumber(interaction.phoneNumber + key);
@@ -2327,7 +2354,7 @@ root.addEventListener('click', (event) => {
       break;
     case 'phone-clear': setPhoneNumber(interaction.phoneNumber.slice(0, -1)); break;
     case 'phone-select': setPhoneNumber(key); break;
-    case 'phone-back': update({ type: 'explore', key: 'phone-back' }); break;
+    case 'phone-back': flipPhone(); break;
     case 'dial': dial(); break;
     case 'clipboard-back': {
       if (panel !== 'docs' || !EASTER_EGGS.cat.slots.includes(windowCase()?.id)) break;
