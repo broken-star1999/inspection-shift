@@ -384,7 +384,7 @@ function tutorialPointerTarget() {
   if (panel === 'docs') {
     return modalLayer.querySelector('[data-tutorial-batch]');
   }
-  if (panel === 'sample') return modalLayer.querySelector('.tutorial-next:enabled, .sample-hotspot.instructed:enabled');
+  if (panel === 'sample') return modalLayer.querySelector('.tutorial-next:enabled, .sample-hotspot.instructed:enabled, .work-stamp-machine .stamp.instructed:enabled');
   return null;
 }
 
@@ -1054,7 +1054,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
   const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]:enabled') || focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
-    !['close', 'toggle-findings', 'remove-finding'].includes(element.dataset.act));
+    !['close', 'toggle-findings', 'remove-finding', 'stamp'].includes(element.dataset.act));
   (glancedPanel ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
   if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
     const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
@@ -2130,6 +2130,10 @@ function checkSample(act) {
   }
 }
 
+function atStampMachine() {
+  return !glancedPanel && (!panel || ['docs', 'sample', 'carton'].includes(panel));
+}
+
 function stamp(value) {
   if (arrival || activeVisit() || run?.phase !== 'case') return;
   if (deskPress) return;
@@ -2137,11 +2141,13 @@ function stamp(value) {
     toast('先把手里的东西放回台面');
     return;
   }
-  if (panel) {
-    if (['docs', 'sample', 'carton', 'archive'].includes(panel)) toast('先回到台面，再用开单机盖章');
+  if (!atStampMachine()) {
+    if (panel === 'archive') toast('先回到台面，再用开单机盖章');
     return;
   }
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
+    panel = null;
+    modalOpener = null;
     beginReceiptPrint(run.records.at(-1).id);
     clearTimeout(toastTimer);
     toastBox.textContent = '';
@@ -2822,10 +2828,10 @@ function beginDeskPress(event) {
     if (event.pointerId !== deskPress.pointerId) cancelDeskPress();
     return;
   }
-  const button = event.target.closest('#desk :is([data-act="stamp"], .sample-preview):enabled');
+  const button = event.target.closest('#desk :is([data-act="stamp"], .sample-preview):enabled, .work-stamp-machine [data-act="stamp"]:enabled');
   if (!button || event.button !== 0 || !event.isPrimary || drag || toolDrag || run?.phase !== 'case') return;
   const isStamp = button.dataset.act === 'stamp';
-  if (isStamp && panel) return;
+  if (isStamp && !atStampMachine()) return;
   const { pointerId, clientX, clientY } = event;
   suppressDeskClick = true;
   // Browsers may target a nearby button when the actual touch lands between controls.

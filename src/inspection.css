@@ -50,6 +50,44 @@
 }
 .surface-close:hover { background: #ead09a; color: #33281a; }
 
+.desk-surface-footer:has(.work-stamp-machine) {
+  display: flex;
+  justify-content: flex-end;
+  flex: none;
+}
+.carton-surface .desk-surface-footer:has(.work-stamp-machine) { flex-wrap: wrap; }
+.work-stamp-machine {
+  display: flex;
+  align-items: center;
+  gap: .24rem;
+  padding: .22rem .28rem .29rem;
+  border: 1px solid #8e8f6e;
+  border-radius: 2px 2px 5px 5px;
+  box-shadow: inset 0 2px #d6ca991c, 3px 4px #171e16b0;
+  background: linear-gradient(#485146, #2e382d);
+  color: #f0deb5;
+}
+.work-stamp-machine > span {
+  padding-inline: .26rem;
+  font: 750 .74rem / 1.15 var(--mono);
+  white-space: nowrap;
+}
+.work-stamp-machine .stamp {
+  gap: .27rem;
+  min-block-size: 2.75rem;
+  min-inline-size: 2.75rem;
+  padding: .26rem .38rem;
+  font-size: .79rem;
+  letter-spacing: 0;
+  touch-action: none;
+}
+.work-stamp-machine .stamp-glyph { min-inline-size: 1.38em; min-block-size: 1.35em; }
+.work-stamp-machine .stamp[data-stamp-armed] { box-shadow: inset 0 2px #0004; }
+.playfield:has(.work-stamp-machine) > .game-toast {
+  inset-inline: .65rem auto;
+  max-inline-size: min(36cqw, 19rem);
+}
+
 .guided-paper-value {
   padding: .12em .36em;
   background: #f5dda1;
@@ -1937,11 +1975,14 @@
   .documents-surface:has(.phone-work-tool):not(:has(.doc-grid.pair, .doc-grid.spread, .return-comparison)) { inline-size: min(82cqw, 37rem); }
   .documents-surface:has(.return-comparison) { inline-size: calc(100cqw - 1.32rem); }
   .sample-surface:has(.sample-workbench.with-reference) { inline-size: calc(100cqw - 1.32rem); }
+  .desk-surface.carton-surface { inline-size: calc(100cqw - 1.32rem); }
   .archive-surface { inline-size: min(88cqw, 59rem); }
   .receipt-surface { inset-inline-start: auto; inset-inline-end: 1rem; inline-size: min(52cqw, 22rem); }
 }
 
 @container workstation (max-height: 330px) {
+  .first-documents .doc-grid.spread .sheet > small { display: none; }
+  .first-documents .doc-grid.spread .fields > div { padding-block: .08rem; }
   .documents-surface:has(.tutorial-guide) .doc-grid.pair .sheet > small { display: none; }
   .documents-surface:has(.tutorial-guide) .doc-grid.pair .fields > div { padding-block: .11rem; }
   .handoff-sheet > .handoff-instruction { display: none; }

@@ -176,8 +176,12 @@ export function visitSlip(doc, visit, lifted = false) {
     <h3>${label}</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
 }
 
-function stampButtons(instructed, disabled = false, action = 'stamp', currentVerdict = null) {
-  return Object.entries(labels).map(([key, value]) => `<button class="stamp ${key}${cls('instructed', instructed && key === 'pass')}" data-act="${action}" data-key="${key}"${action === 'stamp' ? ` data-fixture="${key}"` : ''}${disabled || key === currentVerdict ? ' disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`).join('');
+function stampButtons(instructed, disabled = false, action = 'stamp', currentVerdict = null, projected = action === 'stamp') {
+  return Object.entries(labels).map(([key, value]) => `<button class="stamp ${key}${cls('instructed', instructed && key === 'pass')}" data-act="${action}" data-key="${key}"${projected ? ` data-fixture="${key}"` : ''}${disabled || key === currentVerdict ? ' disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`).join('');
+}
+
+function workStampMachine(instructed = false) {
+  return `<div class="work-stamp-machine" role="group" aria-label="开单机"><span aria-hidden="true">开单机</span>${stampButtons(instructed, false, 'stamp', null, false)}</div>`;
 }
 
 const sampleRatios = { vented: 508 / 318, compact: 508 / 284, shield: 357 / 363, clip: 496 / 218, glove: 282 / 363, earmuff: 396 / 363 };
@@ -351,7 +355,7 @@ export function instructions(how) {
     <ol><li><b>通过</b>　样品合格，有效报告能对应这批，并覆盖送检要求。</li><li><b>不通过</b>　实物确有裂纹、划伤、扣件问题或已查明的错型、超差。</li><li><b>要求审查</b>　报告没交、对不上或没验齐，先隔离，等对方补证或安排复检。</li></ol>
     <p>缺报告带送检联找实验室小陈（204）。单据上另写了「经手窗口」，就带那张单按上面的内线拨出。</p>
     <p>有换签时对照登记上的旧号和新号。保护膜可以揭角。测插片时先放入量规，再合上量爪。核对过的旧单会留在交接簿。</p>
-    ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。拿着单据或检样时可以抬头看窗口，再接着查验。两指可在系统支持时缩放视图。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
+    ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。拿着单据或检样时可以抬头看窗口，再接着查验。两指可在系统支持时缩放视图。查完就能在开单机上选章，再把回执递出去。电脑也可用 1、2、3 开单。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
 function moldSketch() {
@@ -531,19 +535,20 @@ function returnComparison(item, index, previous, previousIndex, activeSheet) {
 }
 
 export function documents(item, index, compare, tutorial, progress, previous) {
+  const footer = workStampMachine(tutorial?.key === 'stamp');
   if (tutorial) {
     const guide = tutorialGuide('比一比批号，再看签发和检验项目。正常的地方看清就好。');
     const inspection = { guided: true, batch: true, signature: true, projects: true, selected: new Set() };
     const papers = item.documents.map((document, position) => sheet(document, position, inspection)).join('');
-    return deskSurface('桌面单据', `${guide}<div class="doc-grid spread">${papers}</div>`, 'documents-surface first-documents', '回台面开单', 'training', {
-      headerActions: button('拿起检样', 'sample', 'reference-control'),
+    return deskSurface('桌面单据', `${guide}<div class="doc-grid spread">${papers}</div>`, 'documents-surface first-documents', '放回台面', 'training', {
+      headerActions: button('拿起检样', 'sample', 'reference-control'), footer,
     });
   }
   const doc = item.documents[index];
   if (!doc) return '';
   const clipboardIndex = EASTER_EGGS.cat.documents[item.id];
   if (clipboardIndex !== undefined && progress.clipboardBack) {
-    return deskSurface('工艺夹板背面', clipboardBack(item.id), 'documents-surface', '放回台面', 'clipboard-back');
+    return deskSurface('工艺夹板背面', clipboardBack(item.id), 'documents-surface', '放回台面', 'clipboard-back', { footer });
   }
   const extras = item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
   const other = item.documents[compare];
@@ -603,19 +608,19 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     const closeIntake = button('收起点收条', 'delivery-check', 'secondary intake-close', `data-i="${intakeIndex}"${active(true)}`);
     return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair intake-comparison">${sheet(item.documents[intakeIndex], intakeIndex, inspection, { phoneSource: item.id })}
       ${intakeSlip(item, intake, intakeIndex, inspection.selected, progress.supplementRequest)}</div>`, 'documents-surface', '放回台面', `intake:${intakeIndex}`,
-    { headerActions: draft.header + closeIntake + phoneAction });
+      { headerActions: draft.header + closeIntake + phoneAction, footer });
   }
   if (relabel) {
     const register = item.documents[relabel.registerIndex];
     const collapse = button('收起对照', 'relabel-check', 'secondary relabel-close', `data-i="${relabel.registerIndex}"${active(true)}`);
     return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair relabel-comparison">${relabelSlip(item, relabel, inspection.selected)}
       <div class="relabel-register">${sheet(register, relabel.registerIndex, inspection, { phoneSource: item.id })}${extras ? `<div class="modal-actions">${extras}</div>` : ''}</div></div>`,
-    'documents-surface', '放回台面', `relabel:${relabel.registerIndex}`, { headerActions: collapse + phoneAction + draft.header });
+    'documents-surface', '放回台面', `relabel:${relabel.registerIndex}`, { headerActions: collapse + phoneAction + draft.header, footer });
   }
   if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, activeSheet)}`,
-    'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions });
+    'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions, footer });
   if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread${cls('pair', item.documents.length === 2)}">${item.documents.map(activeSheet).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
-    'documents-surface', '放回台面', 'spread', { headerActions });
+    'documents-surface', '放回台面', 'spread', { headerActions, footer });
   const tabs = item.documents.map(({ title }, position) => {
     const side = other ? (position === index ? '左' : position === compare ? '右' : '') : '';
     return `<button class="button tab" data-act="doc" data-i="${position}"${active(position === index || position === compare)}>${esc(title)}${side ? `<small class="sheet-side">${side}</small>` : ''}</button>`;
@@ -627,7 +632,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const projectPair = projectComparison(item, orderIndex, reportIndex);
   return deskSurface('桌面单据', `${draft.list}<nav class="doc-tabs" aria-label="${other ? '切换右侧单据' : '单据切换'}">${tabs}</nav>
     <div class="doc-grid${cls('pair', other)}${cls('project-comparison', projectPair)}">${activeSheet(doc, index)}${other ? activeSheet(other, compare) : ''}</div>
-    ${footerActions ? `<div class="modal-actions">${footerActions}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions });
+    ${footerActions ? `<div class="modal-actions">${footerActions}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions, footer });
 }
 
 function thicknessSlip(comparison, recorded, measured) {
@@ -707,13 +712,13 @@ export function sample(item, inspection, tutorial, progress) {
     ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}</div>`;
   const imageNotice = packaged || inGauge ? '' : `<div class="sample-image-notice" hidden><span role="status"></span>${button('重试加载', 'sample-image-retry', 'secondary', 'hidden disabled')}</div>`;
   const title = item.carton ? `${appearance.name} · 箱号待核` : `${item.batch} · ${appearance.name}`;
-  const putDown = '回台面开单';
+  const putDown = '放下检样';
   return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}"${gaugeStyle}>
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${gaugeCue}${thicknessAction}</div>
     ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured) : observationCard}</div>
     ${sampleActions ? `<div class="modal-actions">${sampleActions}</div>` : ''}</div>${referencePicker}</div>`, 'sample-surface', putDown, undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions + phoneAction,
-    closeLabel: putDown, closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
+    closeLabel: putDown, footer: workStampMachine(stampReady),
   });
 }
 
@@ -730,7 +735,7 @@ export function carton(item, progress) {
   const empty = bottom && !item.carton.code ? '<p class="carton-no-ink">箱底没有可辨喷码。</p>' : '';
   const body = `<div class="carton-workbench"><div class="carton-inspect-object">${cartonModel(bottom ? item.carton.code : null, bottom)}${empty}</div>${reference}</div>`;
   const close = progress.returnToDocs ? '回到单据' : '放下外箱';
-  return deskSurface('外箱查验', body, 'carton-surface', close, bottom ? 'bottom' : 'front', { footer: turn + note, closeLabel: close });
+  return deskSurface('外箱查验', body, 'carton-surface', close, bottom ? 'bottom' : 'front', { footer: turn + note + workStampMachine(), closeLabel: close });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {
