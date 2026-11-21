@@ -1,11 +1,46 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DAYS, PRESSURE } from '../src/content.js';
-import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
+import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
 import { createRun, dispatch, getCase, getDay } from '../src/engine.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress } from '../src/inspection-progress.js';
 
 const cases = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
+
+test('thickness compares the actual gauge value with the two original paper fields', () => {
+  const item = cases.get(18);
+  const measured = { measured: true };
+  assert.equal(thicknessComparison(item, { measured: false }), null);
+  assert.equal(thicknessComparison(item), null);
+  const result = thicknessComparison(item, measured);
+  assert.deepEqual(result, {
+    rows: [
+      { title: '量规', field: '实测', value: '1.80 mm' },
+      { title: '检验报告', field: '厚度', value: '2.10 mm' },
+      { title: '送检联', field: '厚度范围', value: '2.00–2.20 mm' },
+    ],
+    finding: {
+      key: 'compare:18:thickness:1:2',
+      source: '量规 / 检验报告 / 送检联',
+      text: '量规实测 · 1.80 mm；报告厚度 · 2.10 mm；送检范围 · 2.00–2.20 mm',
+    },
+  });
+  assert.deepEqual(thicknessComparison({ ...item, answer: 'pass' }, measured), result);
+  const inRange = thicknessComparison({ ...item, sample: { ...item.sample, reading: '2.10 mm' } }, measured);
+  assert.equal(inRange.rows[0].value, '2.10 mm');
+  assert.deepEqual(inRange.rows.slice(1), result.rows.slice(1));
+});
+
+test('thickness requires a reading and distinct, unambiguous paper sources', () => {
+  const item = cases.get(18);
+  const [label, report, order] = item.documents;
+  const measured = { measured: true };
+  assert.equal(thicknessComparison({ ...item, sample: { ...item.sample, reading: '' } }, measured), null);
+  assert.equal(thicknessComparison({ ...item, documents: [label, report] }, measured), null);
+  assert.equal(thicknessComparison({ ...item, documents: [label, report, order, report] }, measured), null);
+  const ambiguous = { ...order, fields: [...order.fields, ['厚度范围', '1.50–1.80 mm']] };
+  assert.equal(thicknessComparison({ ...item, documents: [label, report, ambiguous] }, measured), null);
+});
 
 test('intake records the written requirement and only the papers in the current delivery', () => {
   const first = cases.get(5);

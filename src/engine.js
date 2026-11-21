@@ -10,7 +10,7 @@ const ARRIVAL_ORDERS = {
   3: [[13, 15, 14, 16], [13, 16, 14, 15]],
   4: [[17, 18, 19, 20], [17, 19, 18, 20]],
 };
-const REPLAY_VARIANT_CASES = [8, 12, 16].map((id) => CASE_BY_ID.get(id));
+const REPLAY_VARIANT_CASES = [8, 12, 16, 18].map((id) => CASE_BY_ID.get(id));
 const REWORK_KEY = 'rework:2';
 const TUTORIAL_KEYS = ['label', 'report', 'signature', 'sample', 'stamp'];
 export const TUTORIAL = tutorialContent.map((step, index) => ({ ...step, key: TUTORIAL_KEYS[index] }));
@@ -40,7 +40,7 @@ export function createRun(seed) {
   return {
     version: 1,
     schedule: 2,
-    sampleSet: 2,
+    sampleSet: 3,
     phase: 'brief',
     day: 0,
     index: 0,
@@ -112,7 +112,8 @@ export function getDay(state) {
 }
 
 function variantIndex(state, item) {
-  if (item.id === 16 && state.sampleSet !== 2) return 0;
+  if (item.id === 16 && ![2, 3].includes(state.sampleSet)) return 0;
+  if (item.id === 18 && state.sampleSet !== 3) return 0;
   const override = state.variantOverride;
   if (override?.caseId === item.id && Number.isInteger(override.index) && override.index >= 0 && override.index < item.variants.length) {
     return override.index;

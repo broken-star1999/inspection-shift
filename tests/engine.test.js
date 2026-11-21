@@ -84,18 +84,19 @@ test('an experienced week can begin without a previous snapshot and stamp the fi
   assert.equal(stamped.records[0].id, 1);
 });
 
-test('an experienced replay changes an otherwise identical specimen trio and keeps the new seed', () => {
+const specimenVariants = (state) => archive(state).filter(({ id }) => [8, 12, 16, 18].includes(id)).map(({ variant }) => variant);
+
+test('an experienced replay changes one specimen when all four would match and keeps the new seed', () => {
   const seed = 21;
-  const specimenVariants = (state) => archive(state).filter(({ id }) => [8, 12, 16].includes(id)).map(({ variant }) => variant);
   const previous = act(untilHandoff(seed), 'finish');
   const replay = createFollowingRun(previous, seed);
   assert.equal(replay.seed, seed);
   assert.deepEqual(replay.flags, createRun(seed).flags);
-  assert.ok([8, 12, 16].includes(replay.variantOverride.caseId));
+  assert.ok([8, 12, 16, 18].includes(replay.variantOverride.caseId));
   const played = untilHandoff(seed, { initialState: JSON.parse(JSON.stringify(replay)) });
   const priorVersions = specimenVariants(previous);
   const newVersions = specimenVariants(played);
-  assert.equal(priorVersions.length, 3);
+  assert.equal(priorVersions.length, 4);
   assert.equal(newVersions.filter((variant, index) => variant !== priorVersions[index]).length, 1);
   const next = createFollowingRun(act(played, 'finish'), seed);
   assert.equal(next.variantOverride, undefined);
@@ -107,7 +108,7 @@ test('G-216 uses the seeded sample for new runs and keeps the old sample for leg
   const worlds = new Map();
   for (const [seed, variant, answer] of [[0, 0, 'pass'], [4, 1, 'fail']]) {
     const newRun = createRun(seed);
-    assert.equal(newRun.sampleSet, 2);
+    assert.equal(newRun.sampleSet, 3);
     const played = untilHandoff(seed, { initialState: newRun, inspect: (state, item) => {
       if (item.id !== 16) return state;
       const loaded = restoreRun(JSON.parse(JSON.stringify(state)));
@@ -123,6 +124,9 @@ test('G-216 uses the seeded sample for new runs and keeps the old sample for leg
   }
 
   const seed = 4;
+  const v2 = untilHandoff(seed, { initialState: { ...createRun(seed), sampleSet: 2 } });
+  assert.equal(glove(v2).variant, 1);
+  assert.equal(glove(v2).record.answer, 'fail');
   const { sampleSet: _newSampleSet, ...oldRun } = createRun(seed);
   const legacy = untilHandoff(seed, { initialState: { ...oldRun, variantOverride: { caseId: 16, index: 1 } } });
   const restored = restoreRun(JSON.parse(JSON.stringify(legacy)));
@@ -130,8 +134,7 @@ test('G-216 uses the seeded sample for new runs and keeps the old sample for leg
   assert.equal(glove(restored).variant, 0);
   assert.equal(glove(restored).record.answer, 'pass');
   assert.equal(glove(restored).sample.cuffSplit === true, false);
-  const specimenVariants = (state) => archive(state).filter(({ id }) => id === 8 || id === 12).map(({ variant }) => variant);
-  assert.deepEqual(specimenVariants(restored), specimenVariants(worlds.get(seed)));
+  assert.deepEqual(specimenVariants(restored).slice(0, 2), specimenVariants(worlds.get(seed)).slice(0, 2));
   assert.deepEqual(restored.flags, worlds.get(seed).flags);
   assert.deepEqual(restored.records.map(({ id }) => id), worlds.get(seed).records.map(({ id }) => id));
   assert.equal(glove(worlds.get(0)).sample.front, glove(worlds.get(seed)).sample.front);
@@ -140,16 +143,65 @@ test('G-216 uses the seeded sample for new runs and keeps the old sample for leg
 });
 
 test('a replay from a legacy week can change G-216 alone when all samples would match', () => {
-  const seed = 0;
+  const seed = 2;
   const { sampleSet: _newSampleSet, ...oldRun } = createRun(seed);
   const original = act(untilHandoff(seed, { initialState: oldRun }), 'finish');
   const replay = createFollowingRun(original, seed);
   assert.equal(replay.seed, seed);
   assert.deepEqual(replay.variantOverride, { caseId: 16, index: 1 });
   const played = untilHandoff(seed, { initialState: JSON.parse(JSON.stringify(replay)) });
-  const versions = (state) => archive(state).filter(({ id }) => [8, 12, 16].includes(id)).map(({ variant }) => variant);
-  assert.deepEqual(versions(played), [...versions(original).slice(0, 2), 1]);
+  assert.deepEqual(specimenVariants(played), specimenVariants(original).with(2, 1));
   assert.equal(played.records.find(({ id }) => id === 16).answer, 'fail');
+});
+
+test('G-218 changes only its measurement and decision, and old saves keep the original sample', () => {
+  const variants = [];
+  const gauge = (state) => archive(state).find(({ id }) => id === 18);
+  for (const [seed, reading, answer] of [[0, '1.80 mm', 'fail'], [3, '2.10 mm', 'pass']]) {
+    const played = untilHandoff(seed, { inspect: (state, item) => {
+      if (item.id !== 18) return state;
+      const restored = restoreRun(JSON.parse(JSON.stringify(state)));
+      assert.deepEqual(getCase(restored), item);
+      assert.equal(item.sample.reading, reading);
+      assert.equal(item.answer, answer);
+      variants.push(item);
+      return restored;
+    } });
+    assert.equal(gauge(played).record.answer, answer);
+    assert.equal(gauge(played).sample.reading, reading);
+  }
+  assert.equal(variants.length, 2);
+  const [outOfRange, inRange] = variants;
+  assert.equal(inRange.line, outOfRange.line);
+  assert.equal(inRange.documents, outOfRange.documents);
+  assert.deepEqual(inRange.sample, { ...outOfRange.sample, reading: '2.10 mm' });
+
+  const seed = 3;
+  const newRun = createRun(seed);
+  const { sampleSet: _newSampleSet, ...olderRun } = newRun;
+  const modern = untilHandoff(seed, { initialState: newRun });
+  for (const oldRun of [olderRun, { ...olderRun, sampleSet: 2 }]) {
+    const restored = restoreRun(JSON.parse(JSON.stringify({ ...oldRun, variantOverride: { caseId: 18, index: 1 } })));
+    const played = untilHandoff(seed, { initialState: restored });
+    assert.equal(gauge(played).variant, 0);
+    assert.equal(gauge(played).sample.reading, '1.80 mm');
+    assert.equal(gauge(played).record.answer, 'fail');
+    assert.deepEqual(played.records.map(({ id }) => id), modern.records.map(({ id }) => id));
+    assert.deepEqual(played.flags, modern.flags);
+    assert.deepEqual(specimenVariants(played).slice(0, 2), specimenVariants(modern).slice(0, 2));
+    assert.equal(createFollowingRun(act(played, 'finish'), seed).variantOverride, undefined);
+  }
+});
+
+test('an otherwise matching replay from sample set 2 can vary G-218 alone', () => {
+  const seed = 6;
+  const olderRun = { ...createRun(seed), sampleSet: 2 };
+  const original = act(untilHandoff(seed, { initialState: olderRun }), 'finish');
+  const replay = createFollowingRun(original, seed);
+  assert.deepEqual(replay.variantOverride, { caseId: 18, index: 1 });
+  const played = untilHandoff(seed, { initialState: JSON.parse(JSON.stringify(replay)) });
+  assert.deepEqual(specimenVariants(played), specimenVariants(original).with(3, 1));
+  assert.equal(played.records.find(({ id }) => id === 18).answer, 'pass');
 });
 
 test('a receipt preserves selected findings alongside the legacy note after reload', () => {

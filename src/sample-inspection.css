@@ -138,6 +138,74 @@
 .sample-stage:has(.sample-clasp-state[data-clasp-result]) > .sample-mark { display: none; }
 .sample-findings .sample-clasp-feedback { font-weight: 740; }
 
+.gauge-stage .thickness-check {
+  position: absolute;
+  z-index: 4;
+  inset: auto auto .46rem .46rem;
+  min-block-size: 2.2rem;
+  padding-inline: .58rem;
+  border-color: #a5a583;
+  background: #344633;
+  color: #f8e8bc;
+  font-size: .81rem;
+  white-space: nowrap;
+}
+
+.gauge-stage .thickness-check[aria-expanded='true'] { background: #d3ba8c; color: #382e21; text-shadow: none; }
+
+.sample-surface:has(.with-thickness) { inline-size: min(77cqw, 62rem); }
+
+#game .sample-surface .with-thickness .sample-inspector {
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 1fr);
+}
+
+.thickness-comparison {
+  display: grid;
+  gap: .36rem;
+  padding: .38rem .56rem;
+  border: 1px solid #b39a72;
+  border-block-end: 2px solid #ad8b5e;
+  background: linear-gradient(109deg, #eee1bd, #dbc398);
+  box-shadow: .11rem .25rem .46rem #21191085;
+  color: #3d2e20;
+}
+
+.thickness-comparison dl {
+  margin: 0;
+}
+
+.thickness-field {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .35rem;
+  padding: .2rem 0;
+  border-block-end: 1px solid #a7895c80;
+}
+
+.thickness-field dt { color: #5a422c; font-size: .76rem; font-weight: 700; }
+.thickness-field small { font-size: inherit; font-weight: 480; }
+.thickness-field dd { margin: 0; font: 720 .86rem / 1.28 var(--mono); white-space: nowrap; }
+
+.thickness-comparison .thickness-basis {
+  min-block-size: 2.2rem;
+  justify-self: end;
+  padding-inline: .58rem;
+  font-size: .81rem;
+  white-space: nowrap;
+}
+
+@media (pointer: coarse) {
+  #game .sample-surface :is(.thickness-check, .thickness-basis) { min-block-size: 44px; }
+}
+
+@container workstation (max-width: 700px) {
+  .sample-surface:has(.with-thickness) {
+    inset-inline-start: .66rem;
+    inline-size: min(calc(100cqw - 1.32rem), 32rem);
+  }
+}
+
 .sample-stage.gauge-stage {
   --gauge-x: 70%;
   --gauge-y: 39%;

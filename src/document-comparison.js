@@ -69,6 +69,24 @@ function numberedField(document, field) {
   return title && value ? { title, field, value } : null;
 }
 
+export function thicknessComparison(item, inspection) {
+  if (inspection?.measured !== true || !Number.isInteger(item?.id) || item.id < 1 || !Array.isArray(item.documents)) return null;
+  const reading = cleanText(item.sample?.reading);
+  const reportIndex = uniqueDocumentIndex(item.documents, 'report');
+  const orderIndex = uniqueDocumentIndex(item.documents, 'order');
+  const report = numberedField(item.documents[reportIndex], '厚度');
+  const range = numberedField(item.documents[orderIndex], '厚度范围');
+  if (!reading || !report || !range) return null;
+  return {
+    rows: [{ title: '量规', field: '实测', value: reading }, report, range],
+    finding: {
+      key: `compare:${item.id}:thickness:${reportIndex}:${orderIndex}`,
+      source: `量规 / ${report.title} / ${range.title}`,
+      text: `量规实测 · ${reading}；报告厚度 · ${report.value}；送检范围 · ${range.value}`,
+    },
+  };
+}
+
 function relabelPair(id, registerIndex, paperIndex, side, left, right) {
   return {
     side,

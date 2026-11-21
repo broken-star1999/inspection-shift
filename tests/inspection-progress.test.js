@@ -300,6 +300,51 @@ test('preserves a sample reference and its return to papers while respecting gui
   assert.equal(resume.compare, 0);
 });
 
+test('restores the open measured thickness comparison directly or on return from the phone', () => {
+  const current = DAYS[4].cases.find(({ id }) => id === 18);
+  const work = freshInteraction();
+  work.inspection.measured = true;
+  work.thicknessOpen = true;
+  work.referenceDoc = 2;
+  const sample = { panel: 'sample', scrollTop: 21 };
+  const phone = { panel: 'phone', scrollTop: 31, returnTo: sample };
+  for (const workspace of [sample, phone]) {
+    const saved = JSON.parse(JSON.stringify(captureInspectionProgress(current, work, workspace)));
+    const origin = saved.workspace.returnTo ?? saved.workspace;
+    assert.equal(origin.thicknessOpen, true);
+    assert.deepEqual(restoreInspectionProgress(saved, current, [18], {}), { ...work, workspace });
+  }
+});
+
+test('restores thickness mode only for a valid measurement in a non-guided sample workspace', () => {
+  const current = DAYS[4].cases.find(({ id }) => id === 18);
+  const work = freshInteraction();
+  work.inspection.measured = true;
+  work.thicknessOpen = true;
+  const sample = { panel: 'sample' };
+  const saved = captureInspectionProgress(current, work, sample);
+  assert.equal(captureInspectionProgress(current, work, { panel: 'docs' }).workspace.thicknessOpen, undefined);
+  assert.equal(captureInspectionProgress(current, work, { ...sample, guided: true }).workspace.thicknessOpen, undefined);
+  assert.equal(captureInspectionProgress(current, { ...work, thicknessOpen: 'true' }, sample).workspace.thicknessOpen, undefined);
+  assert.equal(restoreInspectionProgress(saved, current, [18], { guided: true }).thicknessOpen, false);
+  assert.equal(restoreInspectionProgress(saved, { ...current, documents: current.documents.slice(0, 2) }, [18], {}).thicknessOpen, false);
+  for (const measured of [false, 'true']) {
+    const inspection = { ...work.inspection, measured };
+    assert.equal(captureInspectionProgress(current, { ...work, inspection }, sample).workspace.thicknessOpen, undefined);
+    const phone = { panel: 'phone', returnTo: { ...sample, inspection: { measured: true } } };
+    assert.equal(captureInspectionProgress(current, { ...work, inspection }, phone).workspace.returnTo.thicknessOpen, undefined);
+    const forged = {
+      ...saved, inspection,
+      workspace: { panel: 'phone', returnTo: { ...saved.workspace, inspection: { measured: true } } },
+    };
+    const restored = restoreInspectionProgress(forged, current, [18], {});
+    assert.equal(restored.thicknessOpen, false);
+    assert.equal(restored.workspace.returnTo.panel, 'sample');
+  }
+  delete saved.workspace.thicknessOpen;
+  assert.equal(restoreInspectionProgress(saved, current, [18], {}).thicknessOpen, false);
+});
+
 test('restores three spread papers directly or on return from the sample', () => {
   const sampleItem = { ...item, documents: [...item.documents, { type: 'order' }], sample: { kind: 'clip' } };
   const work = {

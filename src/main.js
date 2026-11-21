@@ -5,7 +5,7 @@ import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMute
 import { captureDeskProjection } from './desk-projection.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
-import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
+import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { handoffComparison } from './handoff-comparison.js';
 import * as view from './view.js';
 import './style.css';
@@ -377,7 +377,7 @@ function heldObjects(item) {
     else if (interaction.spreadAll && item?.documents.length === 3) heldDocuments = [0, 1, 2];
     else heldDocuments = [interaction.doc, interaction.compare];
   }
-  if (sampleHeld && interaction.referenceDoc !== null) heldDocuments = [interaction.referenceDoc];
+  if (sampleHeld && !interaction.thicknessOpen && interaction.referenceDoc !== null) heldDocuments = [interaction.referenceDoc];
   return {
     heldDocuments,
     sampleHeld,
@@ -1335,14 +1335,14 @@ function toggleReference() {
   if (panel !== 'sample') return;
   const documents = getCase(run)?.documents;
   if (!documents?.length) return;
-  if (interaction.referenceDoc !== null) {
+  const fromThickness = interaction.thicknessOpen;
+  interaction.thicknessOpen = false;
+  if (interaction.referenceDoc !== null && !fromThickness) {
     interaction.referenceDoc = null;
-  } else if (interaction.returnToDocs) {
-    interaction.referenceDoc = viewedDocument();
-  } else {
+  } else if (interaction.referenceDoc === null) {
     const report = documents.findIndex((doc) => doc.type === 'report');
     const order = documents.findIndex((doc) => doc.type === 'order');
-    interaction.referenceDoc = report >= 0 ? report : Math.max(order, 0);
+    interaction.referenceDoc = interaction.returnToDocs ? viewedDocument() : report >= 0 ? report : Math.max(order, 0);
   }
   playSound('paper');
   render();
@@ -1381,8 +1381,23 @@ function checkSample(act) {
     case 'sample-measure':
       if (!spec.reading) return;
       sample.measured = !sample.measured;
+      if (!sample.measured) interaction.thicknessOpen = false;
       sound = sample.measured ? 'clasp' : 'slide';
       break;
+    case 'sample-thickness':
+      if (tutorialStep() || !thicknessComparison(item, sample)) return;
+      interaction.thicknessOpen = !interaction.thicknessOpen;
+      sound = 'paper';
+      break;
+    case 'sample-thickness-basis': {
+      if (tutorialStep() || !interaction.thicknessOpen) return;
+      const comparison = thicknessComparison(item, sample);
+      if (!comparison) return;
+      const recorded = toggleFinding(comparison.finding);
+      sound = 'paper';
+      toast(recorded ? '已记下厚度对照' : '已取回这组厚度对照');
+      break;
+    }
     case 'sample-unpack':
       if (!packed) return;
       sample.unpacked = true;
@@ -1398,6 +1413,9 @@ function checkSample(act) {
   }
   playSound(sound);
   render();
+  if (act === 'sample-thickness' && interaction.thicknessOpen) {
+    modalLayer.querySelector('.sample-inspector')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
   const graphic = modalLayer.querySelector('.sample-stage .sample-object');
   if (act === 'sample-flip') {
     animateOnDesk(graphic, [{ transform: 'perspective(600px) rotateY(-57deg)', opacity: .8 }, { transform: 'perspective(600px) rotateY(0deg)', opacity: 1 }], 220);

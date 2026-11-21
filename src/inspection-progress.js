@@ -1,5 +1,5 @@
 import { normalizeFindings } from './inspection-findings.js';
-import { intakeComparison, relabelComparison } from './document-comparison.js';
+import { intakeComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { DAYS, EASTER_EGGS, documentExtension } from './content.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -87,7 +87,7 @@ function hasRecordedSignature(item, findings) {
   return findings.some(({ key, text }) => key === `doc:${report}:${signature}` && text === value);
 }
 
-function workspaceProgress(item, work, context = {}) {
+function workspaceProgress(item, work, inspection, context = {}) {
   const { prior, guided } = context;
   const panel = work?.panel;
   if (!['docs', 'sample', 'phone'].includes(panel)) return null;
@@ -96,7 +96,7 @@ function workspaceProgress(item, work, context = {}) {
   if (panel === 'phone') {
     const source = work.returnTo;
     if (['docs', 'sample'].includes(source?.panel)) {
-      const origin = workspaceProgress(item, source, context);
+      const origin = workspaceProgress(item, source, inspection, context);
       if (origin) workspace.returnTo = origin;
     } else if (source?.panel === 'archive' && Number.isInteger(source.archiveFocus) && context.seen?.includes(source.archiveFocus)) {
       workspace.returnTo = {
@@ -141,6 +141,9 @@ function workspaceProgress(item, work, context = {}) {
   if (panel === 'sample') {
     workspace.referenceDoc = guided ? null : documentIndex(work.referenceDoc, count);
     workspace.returnToDocs = returnToDocs;
+    if (!guided && work.thicknessOpen === true && thicknessComparison(item, inspection)) {
+      workspace.thicknessOpen = true;
+    }
   }
   return workspace;
 }
@@ -158,6 +161,7 @@ export function freshInteraction(carry = {}) {
     previousCurrentDoc: null,
     referenceDoc: null,
     returnToDocs: false,
+    thicknessOpen: false,
     archiveFocus: null,
     archiveQuery: '',
     showFindings: false,
@@ -180,7 +184,7 @@ export function captureInspectionProgress(item, interaction, context = {}) {
       scrollTop: context.scrollTop,
       priorId: context.prior?.id,
       returnTo: context.returnTo && { ...interaction, ...context.returnTo, priorId: context.prior?.id },
-    }, context);
+    }, progress.inspection, context);
     if (workspace) progress.workspace = workspace;
   }
   return progress;
@@ -195,7 +199,7 @@ export function restoreInspectionProgress(progress, item, seen = [], context) {
     restored.signed = true;
     restored.reportSeen = true;
   }
-  const workspace = context ? workspaceProgress(item, progress.workspace, { ...context, seen }) : null;
+  const workspace = context ? workspaceProgress(item, progress.workspace, restored.inspection, { ...context, seen }) : null;
   if (!workspace) return restored;
   const { panel, scrollTop, priorId: _priorId, returnTo, ...fields } = workspace;
   if (!returnTo) return { ...restored, ...fields, workspace: { panel, scrollTop } };

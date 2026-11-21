@@ -1,5 +1,5 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
-import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
+import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { receiptDisposition, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { CUFF_SPLIT_PATCHES, cuffSplitVisible, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
@@ -514,6 +514,12 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     ${footerActions ? `<div class="modal-actions">${footerActions}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions });
 }
 
+function thicknessSlip(comparison, recorded) {
+  const fields = comparison.rows.map(({ title, field, value }) => `<div class="thickness-field"><dt>${esc(title)} <small>${esc(field)}</small></dt><dd>${esc(value)}</dd></div>`).join('');
+  return `<section id="thickness-comparison" class="thickness-comparison" aria-label="厚度对照"><dl>${fields}</dl>
+    ${button(recorded ? '取回对照' : '记下对照', 'sample-thickness-basis', 'secondary thickness-basis', active(recorded))}</section>`;
+}
+
 export function sample(item, inspection, tutorial, progress) {
   const { film, clasp, tug, measured, unpacked } = inspection;
   const spec = item.sample;
@@ -533,9 +539,13 @@ export function sample(item, inspection, tutorial, progress) {
   else if (filmHint) guide = FILM_TUTORIAL;
   const visual = inGauge ? '量爪贴住了插片的平面。' : sampleObservation(spec, { ...inspection, back });
   const findings = readFindings(progress);
+  const comparison = !tutorial && thicknessComparison(item, inspection);
+  const thicknessOpen = Boolean(comparison && progress?.thicknessOpen);
+  const thicknessRecorded = thicknessOpen && findings.some(({ key }) => key === comparison.finding.key);
+  const thicknessAction = comparison ? button(thicknessOpen ? '收起对照' : '核对厚度', 'sample-thickness', 'secondary thickness-check', `aria-expanded="${thicknessOpen}"${thicknessOpen ? ' aria-controls="thickness-comparison"' : ''}`) : '';
   const draft = findingsDraft(findings, progress?.showFindings);
   const referenceIndex = progress?.referenceDoc;
-  const reference = !tutorial && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
+  const reference = !tutorial && !thicknessOpen && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
   const referencePicker = reference ? `<aside class="sample-reference" data-reference-doc="${referenceIndex}"><nav class="doc-tabs reference-tabs" aria-label="对照单据">
     ${item.documents.map(({ title }, index) => button(esc(title), 'reference-doc', 'tab', `data-i="${index}"${active(index === referenceIndex)}`)).join('')}
     </nav>${sheet(reference, referenceIndex, { selected: new Set(findings.map(({ key }) => key)) }, { reportLookup: true, phoneSource: item.id })}</aside>` : '';
@@ -556,10 +566,12 @@ export function sample(item, inspection, tutorial, progress) {
   const basis = packaged || !tutorial || tug || film || measured || back || unpacked
     ? button(packaged ? '记下包装' : '记为查验依据', 'sample-basis', 'secondary sample-basis-control', active(recorded)) : '';
   const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : 'secondary sample-flip-control');
-  return deskSurface(`${item.batch} · ${appearance.name}`, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
-    ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(spec.reading, measured) : ''}</div><div class="sample-findings"><b>${inGauge ? '已放入量规' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
+  const observationCard = `<div class="sample-findings"><b>${inGauge ? '已放入量规' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
     ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}
-    ${inGauge ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div></div>
+    ${inGauge ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div>`;
+  return deskSurface(`${item.batch} · ${appearance.name}`, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
+    ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(spec.reading, measured) : ''}${thicknessAction}</div>
+    ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded) : observationCard}</div>
     <div class="modal-actions">${guidedFlip ? '' : flipAction}${basis}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
     headerActions: (guidedFlip ? flipAction : '') + referenceActions + phoneAction + draft.header,
     closeLabel: stampReady ? '回台面开单' : '放下检样', closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',

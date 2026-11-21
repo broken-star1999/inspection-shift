@@ -424,6 +424,10 @@ export const DAYS = [
         answer: 'fail', reason: '实测 1.80 mm，低于 2.00 mm',
         documents: [label('G-218', [], '卡扣插片'), report('G-218', 'R-088', [['厚度', '2.10 mm'], seal]), order('G-218', [['检查部位', '卡扣插片'], ['厚度范围', '2.00–2.20 mm']])],
         sample: { kind: 'thin', appearance: 'clip', front: '一枚灰色插片。厚薄需要放进量规确认。', back: '插片两端平整，中间的平面可以贴住量规。', reading: '1.80 mm' },
+        variants: [
+          {},
+          { answer: 'pass', reason: '实测 2.10 mm，在 2.00–2.20 mm 范围内', sample: { reading: '2.10 mm' } },
+        ],
       },
       {
         id: 19, batch: 'G-219', npc: 'tang', title: '小唐自己对过的单',
