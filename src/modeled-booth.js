@@ -1103,10 +1103,12 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       const bounds = paper.userData.paperBounds;
       const { width, depth } = bounds.geometry.parameters;
       bounds.updateWorldMatrix(true, false);
+      const center = bounds.getWorldPosition(new THREE.Vector3());
       const inverse = bounds.matrixWorld.clone().invert();
       const local = new THREE.Vector3();
       return [{
         index,
+        center: { x: center.x * pixelsPerUnit, y: center.z * pixelsPerUnit },
         contains(point) {
           local.set(point.x / pixelsPerUnit, deskProjectionHeight, point.y / pixelsPerUnit).applyMatrix4(inverse);
           return Math.abs(local.x) <= width / 2 - paperTargetInset && Math.abs(local.z) <= depth / 2 - paperTargetInset;

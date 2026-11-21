@@ -127,8 +127,10 @@ function workspaceProgress(item, work, inspection, context = {}) {
     const compare = documentIndex(work.compare, count);
     workspace.doc = doc;
     workspace.compare = compare === doc ? null : compare;
+    const lastReadDoc = documentIndex(work.lastReadDoc, count);
+    if (!guided && lastReadDoc !== null) workspace.lastReadDoc = lastReadDoc;
     if (!guided && intakeComparison(item, work.deliveryCheck)) workspace.deliveryCheck = work.deliveryCheck;
-    if (panel === 'docs' && !guided && EASTER_EGGS.cat.slots.includes(item.id) && work.clipboardBack === true) {
+    if (!guided && EASTER_EGGS.cat.slots.includes(item.id) && work.clipboardBack === true) {
       workspace.clipboardBack = true;
     }
     if (!guided && count === 3 && work.spreadAll === true) workspace.spreadAll = true;
@@ -139,7 +141,7 @@ function workspaceProgress(item, work, inspection, context = {}) {
         previousDoc !== null && previousCurrentDoc !== null) {
       Object.assign(workspace, { priorId: prior.id, previousDoc, previousCurrentDoc });
     }
-    if (panel === 'docs' && !guided && workspace.deliveryCheck === undefined && workspace.previousDoc === undefined &&
+    if (!guided && workspace.deliveryCheck === undefined && workspace.previousDoc === undefined &&
         relabelComparison(item, work.relabelCheck)) {
       workspace.relabelCheck = work.relabelCheck;
     }
@@ -148,6 +150,10 @@ function workspaceProgress(item, work, inspection, context = {}) {
   if (panel === 'sample') {
     workspace.referenceDoc = guided ? null : documentIndex(work.referenceDoc, count);
     workspace.returnToDocs = returnToDocs;
+    const { scrollTop, scrollLeft } = work.documentsScroll ?? {};
+    if (returnToDocs && Number.isFinite(scrollTop) && Number.isFinite(scrollLeft)) {
+      workspace.documentsScroll = { scrollTop: Math.max(0, scrollTop), scrollLeft: Math.max(0, scrollLeft) };
+    }
     if (!guided && work.thicknessOpen === true && thicknessComparison(item, inspection)) {
       workspace.thicknessOpen = true;
     }
@@ -166,8 +172,10 @@ export function freshInteraction(carry = {}) {
     spreadAll: false,
     previousDoc: null,
     previousCurrentDoc: null,
+    lastReadDoc: null,
     referenceDoc: null,
     returnToDocs: false,
+    documentsScroll: null,
     thicknessOpen: false,
     archiveFocus: null,
     archiveQuery: '',

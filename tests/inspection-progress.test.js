@@ -253,7 +253,9 @@ test('preserves a relabel comparison only for a valid current document workspace
   const saved = captureInspectionProgress(current, work, documents);
   assert.equal(restoreInspectionProgress(saved, current, [11], { guided: true }).relabelCheck, null);
   assert.equal(restoreInspectionProgress(saved, item, [7, 11], {}).relabelCheck, null);
-  assert.equal(captureInspectionProgress(current, work, { panel: 'sample' }).workspace.relabelCheck, undefined);
+  const duringSample = captureInspectionProgress(current, work, { panel: 'sample' });
+  assert.equal(restoreInspectionProgress(duringSample, current, [11], {}).relabelCheck, 2);
+  assert.equal(captureInspectionProgress(current, { ...work, returnToDocs: false }, { panel: 'sample' }).workspace.relabelCheck, undefined);
   assert.equal(captureInspectionProgress(current, work, { ...documents, guided: true }).workspace.relabelCheck, undefined);
   for (const relabelCheck of [null, '2', -1, 1, 3]) {
     const progress = captureInspectionProgress(current, { ...work, relabelCheck }, documents);
@@ -289,7 +291,8 @@ test('drops a conflicting relabel comparison when a legacy comparison is valid',
 test('preserves a sample reference and its return to papers while respecting guided inspection', () => {
   const sampleItem = { ...item, sample: { kind: 'clear' } };
   const work = Object.assign(freshInteraction(), {
-    doc: 1, compare: 0, returnToDocs: true, referenceDoc: 0,
+    doc: 1, compare: 0, returnToDocs: true, referenceDoc: 0, lastReadDoc: 0,
+    documentsScroll: { scrollTop: 43, scrollLeft: 11 },
     inspection: { ...freshInteraction().inspection, measured: true },
   });
   const progress = captureInspectionProgress(sampleItem, work, { panel: 'sample', scrollTop: 27 });
@@ -307,6 +310,16 @@ test('preserves a sample reference and its return to papers while respecting gui
   assert.equal(resume.referenceDoc, null);
   assert.equal(resume.returnToDocs, true);
   assert.equal(resume.compare, 0);
+  assert.deepEqual(resume.documentsScroll, work.documentsScroll);
+  assert.equal(captureInspectionProgress(sampleItem, { ...work, returnToDocs: false }, { panel: 'sample' }).workspace.documentsScroll, undefined);
+  assert.equal(captureInspectionProgress(sampleItem, { ...work, documentsScroll: { scrollTop: '43', scrollLeft: 11 } }, { panel: 'sample' }).workspace.documentsScroll, undefined);
+  const legacy = { ...progress, workspace: { ...progress.workspace } };
+  delete legacy.workspace.documentsScroll;
+  delete legacy.workspace.lastReadDoc;
+  const legacyWork = restoreInspectionProgress(legacy, sampleItem, [7], {});
+  assert.equal(legacyWork.documentsScroll, null);
+  assert.equal(legacyWork.lastReadDoc, null);
+  assert.equal(legacyWork.referenceDoc, 0);
 });
 
 test('restores the open measured thickness comparison directly or on return from the phone', () => {
@@ -422,7 +435,8 @@ test('restores the exact sample and document comparison behind the phone after r
   const sampleItem = { ...item, documents: [...item.documents, { type: 'order' }], sample: { kind: 'clip' } };
   const work = {
     ...freshInteraction({ phoneNumber: '880', pinned: [reportPin] }),
-    doc: 2, compare: 1, spreadAll: true, referenceDoc: 0, returnToDocs: true,
+    doc: 2, compare: 1, spreadAll: true, referenceDoc: 0, returnToDocs: true, lastReadDoc: 1,
+    documentsScroll: { scrollTop: 81, scrollLeft: 12 },
     inspection: { ...freshInteraction().inspection, measured: true },
   };
   const saved = captureInspectionProgress(sampleItem, work, {

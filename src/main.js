@@ -583,7 +583,7 @@ function setScene() {
     ...shipment });
 }
 
-function render(resumeScroll) {
+function render(resumeScroll, resumeScrollLeft = 0) {
   const settingDownCloseSheet = run?.phase === 'summary' &&
     (root.dataset.phase === 'receipt' || root.dataset.phase === 'summary') &&
     !screenLayer.querySelector('.shift-close-sheet');
@@ -638,7 +638,7 @@ function render(resumeScroll) {
   if (recapScroll !== undefined) screenLayer.querySelector('.summary-body, .ending-body')?.scrollTo(0, recapScroll);
   setScene();
   renderModal(item, step);
-  if (resumeScroll !== undefined) workspaceBody()?.scrollTo(0, resumeScroll);
+  if (resumeScroll !== undefined) workspaceBody()?.scrollTo(resumeScrollLeft, resumeScroll);
   persistRun();
 }
 
@@ -977,7 +977,7 @@ function update(action, redraw = true) {
   return run !== before;
 }
 
-function openPanel(name, opener) {
+function openPanel(name, opener, scroll) {
   if (!panel && opener instanceof HTMLElement) modalOpener = { ...opener.dataset };
   const archiveOrigin = panel === 'archive' && (reportIndex || opener?.dataset?.act === 'phone-document');
   if (name === 'phone' && (panel === 'docs' || panel === 'sample' || archiveOrigin)) {
@@ -999,7 +999,7 @@ function openPanel(name, opener) {
     archiveReturn = null;
   }
   panel = name;
-  render();
+  render(scroll?.scrollTop, scroll?.scrollLeft);
 }
 
 function enter(restore) {
@@ -1321,6 +1321,7 @@ function chooseDoc(index, opener) {
     render();
     return;
   }
+  interaction.lastReadDoc = index;
   interaction.clipboardBack = false;
   interaction.deliveryCheck = null;
   interaction.relabelCheck = null;
@@ -1394,6 +1395,7 @@ function checkBasis(index, field) {
   const [label] = datum;
   const finding = paperFieldFinding(doc, index, field);
   const recorded = toggleFinding(finding);
+  if (panel === 'docs') interaction.lastReadDoc = index;
   if (tutorialStep()) {
     if (label === '签发' && doc.type === 'report') interaction.signed = true;
     advanceTutorial();
@@ -1567,7 +1569,7 @@ function toggleRelabelCheck(index) {
 
 function setDocumentPair(left, right) {
   Object.assign(interaction, { doc: left, compare: right, deliveryCheck: null, relabelCheck: null,
-    spreadAll: false, previousDoc: null, previousCurrentDoc: null, clipboardBack: false });
+    spreadAll: false, previousDoc: null, previousCurrentDoc: null, clipboardBack: false, lastReadDoc: left });
 }
 
 function openProjectComparison(orderIndex, reportIndex) {
@@ -1580,6 +1582,7 @@ function openProjectComparison(orderIndex, reportIndex) {
 
 function openDeskPair(left, right, opener) {
   setDocumentPair(left, right);
+  interaction.lastReadDoc = right;
   playSound('slide');
   openPanel('docs', opener);
 }
@@ -1603,6 +1606,7 @@ function recordDocumentComparison(kind, documentIndex, target) {
   }
   if (!comparison) return;
   const recorded = toggleFinding(comparison.finding);
+  interaction.lastReadDoc = documentIndex;
   playSound('paper');
   toast(recorded ? '已记下纸面记录' : '已取回纸面记录');
   render();
@@ -1631,9 +1635,17 @@ function comparePrevious(opener) {
 }
 
 function openSample(opener) {
-  if (run?.phase !== 'case' || !windowCase()) return;
+  const item = windowCase();
+  if (run?.phase !== 'case' || !item) return;
   interaction.returnToDocs = panel === 'docs' && !tutorialStep();
-  interaction.referenceDoc = interaction.returnToDocs ? viewedDocument() : null;
+  const papers = interaction.returnToDocs ? workspaceBody() : null;
+  interaction.documentsScroll = papers ? { scrollTop: papers.scrollTop, scrollLeft: papers.scrollLeft } : null;
+  interaction.referenceDoc = null;
+  if (interaction.returnToDocs) {
+    const { lastReadDoc } = interaction;
+    const { heldDocuments } = heldObjects(item);
+    interaction.referenceDoc = Number.isInteger(lastReadDoc) && heldDocuments.includes(lastReadDoc) ? lastReadDoc : viewedDocument();
+  }
   playSound('slide');
   openPanel('sample', opener);
 }
@@ -2205,7 +2217,8 @@ root.addEventListener('click', (event) => {
     case 'reference-back':
       if (panel === 'sample' && interaction.returnToDocs) {
         playSound('paper');
-        openPanel('docs', target);
+        openPanel('docs', target, interaction.documentsScroll);
+        focusControl(modalLayer, { act: 'sample' });
       }
       break;
     case 'stamp': stamp(key); break;
@@ -2541,29 +2554,38 @@ window.addEventListener('pointercancel', endToolDrag);
 window.addEventListener('lostpointercapture', endToolDrag);
 window.addEventListener('blur', endToolDrag);
 
-function captureDeskPaperTargets(source, modeledProjection) {
+function projectedPaperFace(paper, project) {
+  const { left, top, width, height } = paper.getBoundingClientRect();
+  if (!width || !height) return null;
+  const corners = [[.1, .1], [.9, .1], [.9, .9], [.1, .9]].map(([x, y]) => project(left + x * width, top + y * height));
+  return {
+    center: project(left + width / 2, top + height / 2),
+    contains(point) {
+      const sides = corners.map((from, index) => {
+        const to = corners[(index + 1) % corners.length];
+        return (to.x - from.x) * (point.y - from.y) - (to.y - from.y) * (point.x - from.x);
+      });
+      return sides.every((side) => side >= 0) || sides.every((side) => side <= 0);
+    },
+  };
+}
+
+function captureDeskPaperFaces(modeled, project) {
   if (panel || tutorialStep()) return [];
-  const papers = [...desktop.querySelectorAll('[data-drag="paper"]:enabled:not([data-lifted])')].filter((paper) => paper !== source);
-  if (modeledProjection) {
-    const faces = scenery.capturePaperTargets?.() ?? [];
-    return faces.flatMap(({ index, contains }) => {
-      const paper = papers.find((entry) => Number(entry.dataset.i) === index);
-      return paper ? [{ paper, contains: (event) => contains(modeledProjection(event.clientX, event.clientY)) }] : [];
-    });
-  }
-  return papers.flatMap((paper) => {
-    const box = paper.getBoundingClientRect();
-    if (!box.width || !box.height) return [];
-    const marginX = box.width * .10;
-    const marginY = box.height * .10;
-    return [{ paper, contains: ({ clientX, clientY }) => clientX > box.left + marginX && clientX < box.right - marginX &&
-      clientY > box.top + marginY && clientY < box.bottom - marginY }];
+  const modeledFaces = modeled ? scenery.capturePaperTargets?.() ?? [] : null;
+  return [...desktop.querySelectorAll('[data-drag="paper"]:enabled:not([data-lifted])')].flatMap((paper) => {
+    const face = modeledFaces ? modeledFaces.find(({ index }) => index === Number(paper.dataset.i)) : projectedPaperFace(paper, project);
+    return face ? [{ paper, ...face }] : [];
   });
 }
 
-function paperDropTarget(work, event) {
-  if (panel || run?.phase !== 'case' || !work.paper.isConnected) return null;
-  const hits = work.targets.filter(({ paper, contains }) => paper.isConnected && contains(event));
+function paperDropTarget(work, offset) {
+  if (!work.center || panel || run?.phase !== 'case' || !work.paper.isConnected) return null;
+  const center = {
+    x: work.center.x + offset.x - work.offset.x,
+    y: work.center.y + offset.y - work.offset.y,
+  };
+  const hits = work.targets.filter(({ paper, contains }) => paper.isConnected && contains(center));
   return hits.length === 1 ? hits[0].paper : null;
 }
 
@@ -2596,8 +2618,10 @@ desktop.addEventListener('pointerdown', (event) => {
   const projection = root.dataset.modeled === 'true' ? scenery?.captureDeskProjection?.() : null;
   const project = projection ?? captureDeskProjection(desktop) ?? ((x, y) => stagePoint(root, x, y));
   const offset = interaction.positions[index] ?? { x: 0, y: 0 };
+  const faces = captureDeskPaperFaces(Boolean(projection), project);
   drag = { paper, index, pointerId: event.pointerId, project, origin: project(event.clientX, event.clientY),
-    offset, resting: offset, moved: false, targets: captureDeskPaperTargets(paper, projection), target: null, pairReady: false };
+    offset, resting: offset, moved: false, center: faces.find((face) => face.paper === paper)?.center,
+    targets: faces.filter((face) => face.paper !== paper), target: null, pairReady: false };
 });
 
 window.addEventListener('pointermove', (event) => {
@@ -2617,9 +2641,8 @@ window.addEventListener('pointermove', (event) => {
   drag.moved = true;
   const next = { x: drag.offset.x + x, y: drag.offset.y + y };
   drag.resting = { x: Math.max(-90, Math.min(90, next.x)), y: Math.max(-35, Math.min(40, next.y)) };
-  const target = paperDropTarget(drag, event);
-  markPaperDrop(drag, target);
   const preview = drag.targets.length ? { x: Math.max(-380, Math.min(380, next.x)), y: Math.max(-65, Math.min(65, next.y)) } : drag.resting;
+  markPaperDrop(drag, paperDropTarget(drag, preview));
   moveDeskPaper(drag, preview, drag.targets.length ? .05 : 0);
 });
 
@@ -2627,7 +2650,7 @@ function endDrag(event) {
   if (!drag || event.pointerId !== drag.pointerId) return;
   const work = drag;
   const released = event.type === 'pointerup';
-  const pair = released && work.pairReady && paperDropTarget(work, event) === work.target ? work.target : null;
+  const pair = released && work.pairReady && !panel && run?.phase === 'case' && work.target?.isConnected ? work.target : null;
   markPaperDrop(work, null);
   drag = null;
   if (work.moved && work.paper.isConnected) {
