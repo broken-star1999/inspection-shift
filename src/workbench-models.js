@@ -213,8 +213,8 @@ function makeDesk(group, m) {
   }
   for (const x of [-5.35, -2.6, 2.6, 5.35]) fastener(group, m.bronze, x, deskY - .20, 3.559, .026);
 
-  flat(group, m.felt, 3.82, 1.24, .007, -1.05, deskY + .009, 1.91, .11, .008);
-  for (const x of [-2.89, .79]) {
+  flat(group, m.felt, 4.22, 1.24, .007, -1.17, deskY + .009, 1.91, .11, .008);
+  for (const x of [-3.21, .87]) {
     for (const z of [1.34, 2.48]) {
       flat(group, m.paperEdge, .10, .10, .009, x, deskY + .021, z, .033, .002);
     }

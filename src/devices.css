@@ -127,4 +127,46 @@ html[data-shift-immersive] body {
 
   #game[data-phase='case'] .room-hud .training .tutorial-index { margin: 0; }
   #game[data-phase='case'] .room-hud .training small { padding-block-end: 0; }
+
+  #game:not([data-modeled='true'])[data-phase='case'] .booth-layout .room-hud .speech:has(> .prior-receipt) {
+    /* Both notes hang beside the visitor instead of in front of their face. */
+    inline-size: calc(100% - .6rem);
+    grid-template-columns: minmax(0, 1.18fr) clamp(4.6rem, 25%, 8rem) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: .15rem .34rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  #game:not([data-modeled='true'])[data-phase='case'] .room-hud .speech:has(> .prior-receipt)::before {
+    content: '';
+    grid-area: 1 / 1 / -1;
+    align-self: stretch;
+    border: 1px solid #a490654f;
+    background: linear-gradient(175deg, #1b2a21f5, #111d16f5);
+    box-shadow: 0 .18rem .55rem #0e171385;
+  }
+
+  #game:not([data-modeled='true'])[data-phase='case'] .room-hud .speech:has(> .prior-receipt) > :is(.speaker, p) {
+    position: relative;
+    padding-inline: .4rem;
+  }
+
+  #game:not([data-modeled='true'])[data-phase='case'] .room-hud .speech:has(> .prior-receipt) > .speaker {
+    padding-block-start: .34rem;
+  }
+
+  #game:not([data-modeled='true'])[data-phase='case'] .room-hud .speech:has(> .prior-receipt) > p:last-of-type {
+    padding-block-end: .34rem;
+  }
+
+  #game:not([data-modeled='true'])[data-phase='case'] .room-hud .speech > .prior-receipt {
+    grid-column: 3;
+    align-self: start;
+    inline-size: 100%;
+    max-inline-size: none;
+    min-block-size: 44px;
+  }
 }

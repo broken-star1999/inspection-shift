@@ -134,6 +134,8 @@ bindViewport(root, ({ fullscreen, immersive, rotated }) => {
 });
 
 function placeFixtures() {
+  const sample = fixtureLayout.sample;
+  const sampleBottom = sample ? `${(sample.y + sample.h).toFixed(1)}px` : '';
   for (const element of fixtureElements) {
     const fixture = element.dataset.fixture;
     const rect = fixtureLayout[fixture === 'findings' ? 'pass' : fixture];
@@ -144,9 +146,8 @@ function placeFixtures() {
     element.style.setProperty('--fixture-y', `${y.toFixed(1)}px`);
     element.style.setProperty('--fixture-w', `${w.toFixed(1)}px`);
     element.style.setProperty('--fixture-h', `${h.toFixed(1)}px`);
-    if (fixture === 'findings' && fixtureLayout.sample) {
-      const sample = fixtureLayout.sample;
-      element.style.setProperty('--fixture-sample-bottom', `${(sample.y + sample.h).toFixed(1)}px`);
+    if (fixture === 'findings' || element.matches('.stamp')) {
+      element.style.setProperty('--fixture-sample-bottom', sampleBottom);
     }
   }
 }

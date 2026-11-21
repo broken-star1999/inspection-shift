@@ -317,6 +317,14 @@
   background: #262719d1;
 }
 
+@media (pointer: coarse) {
+  @container workstation (max-width: 900px) and (max-height: 440px) {
+    #game[data-modeled='true'] .booth-layout .stamp[data-fixture] b {
+      inset-block-start: max(100%, calc(var(--fixture-sample-bottom, 0px) - var(--fixture-y, 0px) + 2px));
+    }
+  }
+}
+
 #game[data-modeled='true'][data-phase='receipt'] .booth-layout .stamp:disabled b {
   visibility: hidden;
 }
@@ -481,4 +489,44 @@
   #game[data-modeled='true'] .booth-layout .stamp[data-fixture] b { font-size: clamp(.66rem, 1.34cqw, .73rem); }
   #game[data-modeled='true'] .sample-surface .sample-findings { padding: .36rem .47rem .43rem; }
   #game[data-modeled='true'] :is(.documents-surface, .sample-surface) .modal-actions { margin-block-start: .44rem; }
+}
+
+@media (pointer: coarse) {
+  @container workstation (max-width: 900px) and (max-height: 440px) {
+    #game[data-modeled='true'] .booth-layout .paper-card[data-fixture]:enabled:not([data-lifted]) {
+      block-size: max(2.75rem, var(--fixture-h));
+    }
+
+    #game[data-modeled='true'] .booth-layout .paper-card[data-fixture]::before {
+      inset-block-end: auto;
+      block-size: calc(var(--fixture-h) + .38rem);
+    }
+
+    #game[data-modeled='true'] .booth-layout .paper-card[data-fixture-visible]:enabled:not([data-lifted]) h3 {
+      inset-block-start: var(--fixture-h);
+      inline-size: max-content;
+      max-inline-size: var(--fixture-w);
+      padding: .18rem .34rem;
+      border: 1px solid #a48556;
+      border-block-end-color: #6d553a;
+      border-radius: 0 0 .17rem .17rem;
+      background: linear-gradient(#e6d4ac, #c8ac7c);
+      box-shadow: 0 .12rem .19rem #241a1480;
+      color: #3c2d20;
+      font-size: .75rem;
+      line-height: 1.13;
+      text-align: center;
+      text-shadow: none;
+      white-space: normal;
+      text-wrap: balance;
+      translate: -50% -.08rem;
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #game[data-modeled='true'] .booth-layout .paper-card[data-fixture-visible].instructed:enabled h3 {
+      border-color: #e8bd74;
+      background: #efcb87;
+    }
+  }
 }

@@ -52,7 +52,7 @@ function makeTexture(doc, style, ownerDocument) {
   }
 
   ctx.textBaseline = 'middle';
-  ctx.font = '700 35px "Microsoft YaHei", "PingFang SC", sans-serif';
+  ctx.font = '750 44px "Microsoft YaHei", "PingFang SC", sans-serif';
   ctx.fillStyle = '#3d3023';
   ctx.fillText(String(doc.title || '单据').slice(0, 14), 36, 82, 420);
   ctx.font = '750 58px Consolas, "Microsoft YaHei", monospace';
@@ -406,8 +406,10 @@ function buildPaper(doc, index, count, ownerDocument, shadowTexture, standalone)
   paper.add(edge, face, shadow);
   paper.userData.paperBounds = edge;
   paper.rotation.y = style.turn;
+  const spacing = Math.min(1.36, 4.08 / Math.max(1, count));
+  const deskX = index === 0 ? -2.69 : -2.54 + index * spacing;
   paper.userData.origin = {
-    x: standalone ? -.82 : -2.43 + index * Math.min(1.16, 3.46 / Math.max(1, count)),
+    x: standalone ? -.82 : deskX,
     y: BOOTH_METRICS.deskTop + .024 + index * .004,
     z: [2.05, 1.91, 2.12, 1.96][index % 4],
   };
