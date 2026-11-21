@@ -1,4 +1,4 @@
-import { CHARACTERS, DAYS, EASTER_EGGS, FILM_BENCH_TUTORIAL, FILM_TUTORIAL, PHONE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
+import { CHARACTERS, DAYS, EASTER_EGGS, FILM_BENCH_TUTORIAL, FILM_TUTORIAL, PHONE, SHIPMENT_EXCEPTION, documentExtension, documentReportNumber } from './content.js';
 import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { cartonModel } from './carton-inspector.js';
 import { canShowFinding, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
@@ -378,8 +378,8 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
       : inspection && !inspection.guided
       ? `<button class="field-value" data-act="${action}" data-i="${index}" data-field="${field}"${active(chosen)}>${text}</button>` : text;
     const lookup = reportLookup && (key === '报告编号' || key === '原报告编号') && value;
-    const carry = reportCarry && lookup && /^R-\d{3}$/.test(value)
-      ? button('问小陈', 'phone-document', 'secondary report-lookup',
+    const carry = reportCarry && lookup && documentReportNumber([key, value])
+      ? button('带单问小陈', 'phone-document', 'secondary report-lookup',
         `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}，填入小陈的内线 204"`) : '';
     const lookupControls = (lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : '') + carry;
     if (lookupBelow && lookupControls) lookupActions.push(lookupControls);
@@ -569,12 +569,16 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const relabel = !comparing && relabelComparison(item, progress.relabelCheck);
   const phoneSources = relabel ? [relabel.registerIndex] : progress.deliveryCheck == null ? visible : [progress.deliveryCheck];
   const contactPaper = phoneSources.find((position) => item.documents[position]?.fields.some(documentExtension));
-  const contactDocument = item.documents[contactPaper];
-  const contactIndex = contactDocument?.fields.findIndex(documentExtension);
-  const extension = !comparing && !progress.incomingCall && documentExtension(contactDocument?.fields[contactIndex]);
+  const selectedPhonePaper = contactPaper ?? (phoneSources.includes(index) ? index : null);
+  const contactDocument = item.documents[selectedPhonePaper];
+  const contactIndex = contactDocument?.fields.findIndex(contactPaper === undefined ? documentReportNumber : documentExtension);
+  const contactField = contactDocument?.fields[contactIndex];
+  const reportToAsk = documentReportNumber(contactField);
+  const extension = !comparing && !progress.incomingCall && (reportToAsk ? '204' : documentExtension(contactField));
   const phoneAction = extension
-    ? button(`问${esc(CHARACTERS[PHONE[extension].npc].name)} ${extension}`, 'phone-document', 'reference-control phone-work-tool phone-bring-order',
-      `data-i="${contactPaper}" data-field="${contactIndex}" data-key="${item.id}" aria-label="带${esc(contactDocument.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`)
+    ? button(reportToAsk ? `带 ${reportToAsk} 问小陈` : `问${esc(CHARACTERS[PHONE[extension].npc].name)} ${extension}`,
+      'phone-document', 'reference-control phone-work-tool phone-bring-order',
+      `data-i="${selectedPhonePaper}" data-field="${contactIndex}" data-key="${item.id}" aria-label="带${esc(contactDocument.title)}，填入${esc(CHARACTERS[PHONE[extension].npc].name)}的内线 ${extension}"`)
     : button(progress.incomingCall ? '接电话' : '拿电话', 'phone', 'reference-control phone-work-tool');
   const headerActions = draft.header + previousAction + spreadAction + sampleAction + phoneAction;
   const canMeasure = !comparing && item.sample.reading;
@@ -600,7 +604,8 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     }
     const focusAction = spreading ? button('单看', 'doc', 'secondary doc-focus', `data-i="${position}" aria-label="单看${esc(page.title)}"`) : '';
     return sheet(page, position, inspection, { clipboardFront: position === clipboardIndex,
-      reportLookup: true, reportCarry: true, lookupBelow: spreading, phoneSource: item.id, fieldActions, pinAction: focusAction });
+      reportLookup: true, reportCarry: !(extension && reportToAsk && position === selectedPhonePaper),
+      lookupBelow: spreading, phoneSource: item.id, fieldActions, pinAction: focusAction });
   };
   const intakeIndex = progress.deliveryCheck;
   const intake = intakeComparison(item, intakeIndex);
@@ -955,6 +960,11 @@ function dialDisplay(number) {
   return number || '— — —';
 }
 
+function phoneDestination(number) {
+  if (number === '880') return '回铃自测';
+  return CHARACTERS[PHONE[number]?.npc]?.name ?? '';
+}
+
 function reportRedialPrompt(number, call) {
   return number === call?.number ? '两张单已放好，再按「拨出」。' : '两张单已放好，再拨 204。';
 }
@@ -962,6 +972,11 @@ function reportRedialPrompt(number, call) {
 export function updatePhoneNumber(phone, number, call) {
   const display = phone.querySelector('.phone-screen');
   if (display) display.textContent = dialDisplay(number);
+  const destination = phone.querySelector('.phone-destination');
+  if (destination) {
+    destination.textContent = phoneDestination(number);
+    destination.hidden = !destination.textContent;
+  }
   const reminder = phone.querySelector('[data-report-redial]');
   if (reminder) reminder.textContent = reportRedialPrompt(number, call);
   for (const contact of phone.querySelectorAll('[data-act="phone-select"]')) {
@@ -995,9 +1010,10 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
     : PHONE['204'].requests[call?.caseId] ? button('查看登记留底', 'archive-call', 'secondary phone-registration', `data-i="${esc(call.caseId)}"`) : '';
   const lookup = reportLookup ? button(`${readyToAsk ? '再看' : '查号'} ${esc(reportLookup)}`, 'report-search', 'secondary phone-registration',
     `data-key="${esc(reportLookup)}" aria-label="在交接簿查报告号 ${esc(reportLookup)}"`) : '';
+  const destination = phoneDestination(number);
   const face = phoneBottom
     ? `<div class="phone-face phone-face-bottom" role="group" aria-label="电话机底"><span class="phone-base-hardware" aria-hidden="true"></span><span class="phone-service-label"><span>内线</span><strong>880</strong><small>回铃自测</small></span></div>`
-    : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(dialDisplay(number))}</div>${readyNote}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
+    : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(dialDisplay(number))}</div><small class="phone-destination"${destination ? '' : ' hidden'}>${esc(destination)}</small>${readyNote}</div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
   const directory = `<section class="phone-directory" aria-label="窗口内线">
     <h3>内线便笺</h3>
     ${nightPaper ? contactSlip('107', number, phoneBottom, { batch: nightPaper.batch, title: nightPaper.document.title }) : ''}
@@ -1005,10 +1021,9 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
     ${phoneBottom ? '' : '<p class="phone-guide">点便笺填号，再按「拨出」。其他分机看单据上的「经手窗口」。</p>'}
   </section>`;
   return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine" data-phone-face="${phoneBottom ? 'bottom' : 'front'}">${face}<span class="phone-turn-light" aria-hidden="true"></span></div>
-    <div class="phone-side">${directory}
-    ${papers}
+    <div class="phone-side">${papers}
     <div class="phone-log" aria-live="polite"${call ? '' : ' hidden'}>${call ? `<b>${caller}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : ''}${lookup}${registration}</div>
-    </div></div>`, 'phone-modal', actions, { closeText, closeLabel, closeClass: 'phone-hangup' });
+    ${directory}</div></div>`, 'phone-modal', actions, { closeText, closeLabel, closeClass: 'phone-hangup' });
 }
 
 function handoffPairSide(row, source, original) {

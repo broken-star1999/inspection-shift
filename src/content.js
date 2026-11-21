@@ -236,6 +236,10 @@ export function documentExtension(field) {
   return PHONE[number] ? number : null;
 }
 
+export function documentReportNumber(field) {
+  return ['报告编号', '原报告编号'].includes(field?.[0]) && /^R-\d{3}$/.test(field[1]) ? field[1] : null;
+}
+
 export const INCOMING_CALLS = {
   'lab-close': {
     number: '204', npc: PHONE['204'].npc,

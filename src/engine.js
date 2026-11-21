@@ -821,10 +821,11 @@ function dialLab(state, action, number) {
   const bothOldPapers = ids.has(TRACE_CASE_ID) && ids.has(TRACE_WITHDRAWAL_ID);
   if (!bothOldPapers) {
     const retest = explicit.lastIndexOf('retest');
-    const latestPriorPaper = Math.max(explicit.lastIndexOf(oldCase), retest);
+    const oldPaper = explicit.lastIndexOf(oldCase);
+    const latestPriorPaper = Math.max(oldPaper, retest);
     const request = selectedLabRequest(state, script, explicit.slice(latestPriorPaper + 1));
     if (request) return dialLabRequest(state, number, script.npc, request);
-    if (retest >= 0) return callResult(state, number, script.npc, [script.retestHint], 'hint');
+    if (retest > oldPaper) return callResult(state, number, script.npc, [script.retestHint], 'hint');
   }
   if (!oldCase) return callResult(state, number, script.npc, [script.greeting]);
   if (state.flags.traceDocument) return callResult(state, number, script.npc, [script.received]);

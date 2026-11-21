@@ -1971,12 +1971,18 @@ test('204 distinguishes the current R-084 report from the two actual R-071 origi
     assert.equal(getPhoneReportLookup({ ...single, phone: legacyPhone }), reportNumber);
     assert.equal(getPhoneReportLookup({ ...single, seen: [] }), null);
   }
-  for (const papers of [[retest], [first, retest], [retest, first], [withdrawn, retest]]) {
-    const wrongPair = call(papers);
-    assert.equal(wrongPair.phone.line, script.retestHint);
-    assert.equal(getPhoneReportLookup(wrongPair), null);
-    assert.equal(getTraceInquiry(wrongPair), null);
-    assert.deepEqual(wrongPair.pending, []);
+  for (const [papers, hint, lookup] of [
+    [[retest], script.retestHint, null],
+    [[first, retest], script.retestHint, null],
+    [[withdrawn, retest], script.retestHint, null],
+    [[retest, first], script.relatedHint, 'R-071'],
+    [[retest, withdrawn], script.archiveHint, 'R-071'],
+  ]) {
+    const checked = call(papers);
+    assert.equal(checked.phone.line, hint);
+    assert.equal(getPhoneReportLookup(checked), lookup);
+    assert.equal(getTraceInquiry(checked), null);
+    assert.deepEqual(checked.pending, []);
   }
   assert.equal(call([{ ...first, index: 0 }, withdrawn]).phone.line, script.archiveHint);
   assert.equal(call([{ ...first, index: null }, { ...withdrawn, index: null }]).phone.line, script.greeting);

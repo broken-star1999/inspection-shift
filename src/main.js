@@ -1,5 +1,5 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, getTraceHandoffReview, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
-import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
+import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension, documentReportNumber } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { mountSampleImage, retrySampleImage, updateSampleImage } from './sample-images.js';
 import { bindViewport, toggleFullscreen, stagePoint } from './devices.js';
@@ -2198,8 +2198,7 @@ function phoneFromDocument(caseId, index, field, opener) {
   }
   const reference = doc?.fields[field];
   const number = documentExtension(reference);
-  const holdReport = ['docs', 'sample'].includes(panel) && reference &&
-    ['报告编号', '原报告编号'].includes(reference[0]) && /^R-\d{3}$/.test(reference[1]);
+  const holdReport = ['docs', 'sample'].includes(panel) && documentReportNumber(reference);
   if (!number && !holdReport) return;
   interaction.phoneNumber = number ?? '204';
   const displaced = pinPhonePaper(caseId, index);
