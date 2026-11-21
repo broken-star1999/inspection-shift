@@ -2826,7 +2826,7 @@ function beginDeskPress(event) {
     if (event.pointerId !== deskPress.pointerId) cancelDeskPress();
     return;
   }
-  const button = event.target.closest('#desk :is([data-act="stamp"], .sample-preview):enabled, .work-stamp-machine [data-act="stamp"]:enabled');
+  const button = event.target.closest('#desk :is([data-act="stamp"], .sample-preview):enabled, .work-stamp-machine [data-act="stamp"]:enabled, .sample-surface .gauge-clamp:enabled');
   if (!button || event.button !== 0 || !event.isPrimary || drag || toolDrag || run?.phase !== 'case') return;
   const isStamp = button.dataset.act === 'stamp';
   if (isStamp && !atStampMachine()) return;
@@ -2856,6 +2856,7 @@ function finishDeskPress(event) {
   press.button.removeAttribute('data-stamp-armed');
   if (event.type === 'pointerup' && !press.cancelled && insideDeskPress(press, event)) {
     if (press.isStamp) stamp(press.button.dataset.key);
+    else if (press.button.dataset.act === 'sample-gauge-clamp') checkSample('sample-gauge-clamp');
     else openSample(press.button);
   }
   setGazeTarget(gaze.targetX, gaze.targetY);
