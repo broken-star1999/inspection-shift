@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint } from './devices.js';
@@ -781,7 +781,10 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const original = archivePaper && archivedPaper(archivePaper.id, archivePaper.index);
     markup = original ? view.archiveSourcePaper(original, pinned, { returnTo: reportIndex ? 'report-index' : returnTo, finished, historyLabel })
       : reportIndex && sources.length
-      ? view.archiveReportPanel(reportIndex, sources, pinned, { returnTo, finished, historyLabel, fromInquiry: archiveFocus === TRACE_INQUIRY_KEY })
+      ? view.archiveReportPanel(reportIndex, sources, pinned, {
+        returnTo, finished, historyLabel, fromInquiry: archiveFocus === TRACE_INQUIRY_KEY,
+        fromPhoneLookup: returnTo === 'phone' && archiveReturn.opener?.act === 'report-search',
+      })
       : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
         returnTo, historyLabel,
@@ -802,7 +805,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     });
     markup = view.phone(phoneNumber, run.phone, papers, interaction.phoneBottom, item, {
       returnTo: phoneReturn?.archivePaper ? 'archive-paper' : phoneReturn?.reportIndex ? 'report-index' : phoneReturn?.panel,
-      incomingCall,
+      incomingCall, reportLookup: getPhoneReportLookup(run),
     });
   }
   if (panel === 'handoff' && run?.phase === 'handoff') {

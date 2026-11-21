@@ -736,6 +736,16 @@ function isTraceSource(id, document) {
   return id === TRACE_WITHDRAWAL_ID && document.type === 'archive' && citesReport(document, '原报告编号', TRACE_REPORT_NUMBER);
 }
 
+export function getPhoneReportLookup(state) {
+  const call = state?.phone;
+  if (call?.number !== '204' || call.kind !== 'hint') return null;
+  const lab = PHONE['204'];
+  const oldHint = call.reportNumber === undefined && [lab.relatedHint, lab.archiveHint].includes(call.line);
+  if (call.reportNumber !== TRACE_REPORT_NUMBER && !oldHint) return null;
+  return archivedReportSources(state, TRACE_REPORT_NUMBER).some(({ id, document }) => isTraceSource(id, document))
+    ? TRACE_REPORT_NUMBER : null;
+}
+
 function traceInquirySources(state) {
   const matches = archivedReportSources(state, TRACE_REPORT_NUMBER).filter(({ id, document }) => isTraceSource(id, document));
   const shippingSlip = matches.find(({ id }) => id === TRACE_CASE_ID);
@@ -794,7 +804,8 @@ function dialLab(state, action, number) {
       return queueVisit(called, 'trace');
     }
   }
-  return callResult(state, number, script.npc, [oldCase === TRACE_WITHDRAWAL_ID ? script.archiveHint : script.relatedHint], 'hint');
+  const line = oldCase === TRACE_WITHDRAWAL_ID ? script.archiveHint : script.relatedHint;
+  return callResult(state, number, script.npc, [line], 'hint', { reportNumber: TRACE_REPORT_NUMBER });
 }
 
 function selectedLabRequest(state, script, explicit) {

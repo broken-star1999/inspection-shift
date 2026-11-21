@@ -850,7 +850,7 @@ function phonePinButton(id, index, title, pinned, className) {
     `data-i="${id}" data-doc="${index}"${active(selected)} aria-label="${text} · ${esc(title)}"`);
 }
 
-export function archiveReportPanel(number, sources, pinned, { returnTo, finished, historyLabel, fromInquiry } = {}) {
+export function archiveReportPanel(number, sources, pinned, { returnTo, finished, historyLabel, fromInquiry, fromPhoneLookup } = {}) {
   const closeText = { phone: '回到电话', docs: '回到单据', sample: '回到检样', receipt: '回到回执' }[returnTo] ?? '合上簿子';
   const back = button(fromInquiry ? '回到电话登记' : '返回交接簿', 'report-index-back', 'secondary report-index-back');
   const phoneAction = !finished && returnTo !== 'phone' ? button('拿电话', 'phone', 'secondary report-index-phone') : '';
@@ -861,7 +861,8 @@ export function archiveReportPanel(number, sources, pinned, { returnTo, finished
       <div class="modal-actions report-index-actions">${pin}${original}</div>${sheet(document, index)}</section>`;
   }).join('');
   const heading = [`报告号 ${number}`, historyLabel].filter(Boolean).join(' · ');
-  return deskSurface(heading, papers ? `<div class="report-index-papers">${papers}</div>` : '<p class="archive-empty">交接簿里还没有这个报告号的留底。</p>',
+  const note = fromPhoneLookup && sources.length === 1 ? '<p class="report-index-note">目前只查到这一张留底。</p>' : '';
+  return deskSurface(heading, papers ? `${note}<div class="report-index-papers">${papers}</div>` : '<p class="archive-empty">交接簿里还没有这个报告号的留底。</p>',
     'archive-surface report-index-surface', closeText, number, { headerActions: back + phoneAction, closeLabel: closeText });
 }
 
@@ -882,7 +883,7 @@ function contactSlip(extension, number, phoneBottom, batchPaper = null, carry = 
   </button>`;
 }
 
-export function phone(number, call, pinned, phoneBottom, current, { returnTo, incomingCall } = {}) {
+export function phone(number, call, pinned, phoneBottom, current, { returnTo, incomingCall, reportLookup } = {}) {
   const order = current?.documents.findIndex(({ type, fields }) =>
     type === 'order' && fields.some((field) => documentExtension(field) === '204')) ?? -1;
   const labOrder = order >= 0 ? { id: current.id, index: order, batch: current.batch, title: current.documents[order].title } : null;
@@ -903,6 +904,8 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
   const registration = call?.kind === 'trace'
     ? button('查看本次登记', 'archive-call', 'secondary phone-registration', `data-key="${TRACE_INQUIRY_KEY}"`)
     : PHONE['204'].requests[call?.caseId] ? button('查看登记留底', 'archive-call', 'secondary phone-registration', `data-i="${esc(call.caseId)}"`) : '';
+  const lookup = reportLookup ? button(`查号 ${esc(reportLookup)}`, 'report-search', 'secondary phone-registration',
+    `data-key="${esc(reportLookup)}" aria-label="在交接簿查报告号 ${esc(reportLookup)}"`) : '';
   const face = phoneBottom
     ? `<div class="phone-face phone-face-bottom" role="group" aria-label="电话机底"><span class="phone-base-hardware" aria-hidden="true"></span><span class="phone-service-label"><span>内线</span><strong>880</strong><small>回铃自测</small></span></div>`
     : `<div class="phone-face phone-face-front"><div class="phone-head"><span class="phone-cradle" aria-hidden="true"><i></i><i></i></span><div class="phone-screen" aria-live="polite">${esc(number || '— — —')}</div></div><div class="phone-pad">${'1234567890'.split('').map((n) => `<button data-act="phone-digit" data-key="${n}">${n}</button>`).join('')}<button data-act="phone-clear" aria-label="删除一位">⌫</button><button class="phone-call" data-act="dial" aria-label="拨出">拨出</button></div></div>`;
@@ -914,7 +917,7 @@ export function phone(number, call, pinned, phoneBottom, current, { returnTo, in
   return dialog('窗口电话', `<div class="phone-layout"><div class="phone-machine" data-phone-face="${phoneBottom ? 'bottom' : 'front'}">${face}</div>
     <div class="phone-side">${directory}
     ${papers}
-    <div class="phone-log" aria-live="polite"${call ? '' : ' hidden'}>${call ? `<b>${caller}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : ''}${registration}</div>
+    <div class="phone-log" aria-live="polite"${call ? '' : ' hidden'}>${call ? `<b>${caller}</b>${call.lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : ''}${lookup}${registration}</div>
     </div></div>`, 'phone-modal', actions, { closeText, closeLabel, closeClass: 'phone-hangup' });
 }
 
