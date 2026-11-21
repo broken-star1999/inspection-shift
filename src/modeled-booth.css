@@ -259,6 +259,11 @@
   opacity: 1;
 }
 
+#game[data-modeled='true'] .booth-layout .stamp[data-stamp-armed]::before {
+  --fixture-glow: #ffe4a4;
+  opacity: 1;
+}
+
 #game[data-modeled='true'][data-between-batches] .booth-layout .wall-tool[data-fixture-visible]::before {
   opacity: .72;
 }
@@ -357,7 +362,7 @@
   translate: -50% 0;
 }
 
-@container workstation (max-width: 900px) and (max-height: 440px) {
+@container workstation (max-height: 440px) {
   #game[data-modeled='true'][data-compact-stamps] .booth-layout .room-hud .training {
     --guide-position: calc(100% - 1.25rem) auto;
     --guide-width: min(46cqw, 20rem);

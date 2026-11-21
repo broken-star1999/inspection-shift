@@ -89,7 +89,8 @@ let workspaceScrollTimer = 0;
 let drag;
 let toolDrag = null;
 let toolClickTarget = null;
-let stampTouch = null;
+let stampPress = null;
+let suppressStampClick = false;
 let suppressPaperClick = false;
 let modalOpener = null;
 let archiveReturn = null;
@@ -142,6 +143,7 @@ let fixtureLayout = {};
 
 bindViewport(root, ({ fullscreen, immersive, rotated }) => {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
+  cancelStampPress();
   const expanded = fullscreen || immersive;
   fullscreenToggle.setAttribute('aria-pressed', String(expanded));
   fullscreenToggle.setAttribute('aria-label', expanded ? '退出全屏' : '全屏');
@@ -154,7 +156,7 @@ function placeFixtures() {
   const sampleBottom = sample ? `${(sample.y + sample.h).toFixed(1)}px` : '';
   const stampControls = fixtureLayout.stampControls;
   root.toggleAttribute('data-compact-stamps', Boolean(stampControls));
-  const stampRadius = stampControls && Math.min(22, Math.max(1, (Math.min(
+  const stampRadius = stampControls && Math.min(24, Math.max(1, (Math.min(
     stampControls.fail.x - stampControls.pass.x, stampControls.review.x - stampControls.fail.x,
   ) - 1) / 2));
   for (const element of fixtureElements) {
@@ -201,7 +203,7 @@ function suspendModeledScene() {
   modeledReady = false;
   if (root.dataset.modeled !== 'true') return;
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
-  stampTouch = null;
+  cancelStampPress();
   delete root.dataset.modeled;
   setScene();
 }
@@ -294,7 +296,7 @@ function resetGaze() {
 
 function followGaze(time) {
   gaze.frame = 0;
-  if (drag || toolDrag) { gaze.time = 0; return; }
+  if (drag || toolDrag || stampPress) { gaze.time = 0; return; }
   if (reducedMotion.matches || (root.dataset.rotated === 'true' && !glancedPanel)) { resetGaze(); return; }
   const targetY = glancedPanel ? Math.min(gaze.targetY, -.32) : gaze.targetY;
   const elapsed = gaze.time ? Math.min(time - gaze.time, 48) : 16;
@@ -314,19 +316,20 @@ function followGaze(time) {
 function setGazeTarget(x, y) {
   gaze.targetX = Math.max(-1, Math.min(1, x));
   gaze.targetY = Math.max(-1, Math.min(1, y));
-  if (!gaze.frame && !drag && !toolDrag) gaze.frame = requestAnimationFrame(followGaze);
+  if (!gaze.frame && !drag && !toolDrag && !stampPress) gaze.frame = requestAnimationFrame(followGaze);
 }
 
 root.addEventListener('pointerdown', (event) => {
   toolClickTarget = null;
   suppressPaperClick = false;
-  if (event.pointerType !== 'mouse' && !drag && !glancedPanel) resetGaze();
+  beginStampPress(event);
+  if (event.pointerType !== 'mouse' && !drag && !glancedPanel && !stampPress) resetGaze();
 }, { capture: true });
 
 root.addEventListener('pointermove', (event) => {
   if (toolDrag) return;
   if (drag && drag.pointerId !== event.pointerId) return;
-  if (event.pointerType !== 'mouse') { if (!drag && !glancedPanel) resetGaze(); return; }
+  if (event.pointerType !== 'mouse') { if (!drag && !glancedPanel && !stampPress) resetGaze(); return; }
   if (!run || root.dataset.rotated === 'true' || reducedMotion.matches) return;
   const bounds = root.getBoundingClientRect();
   if (!bounds.width || !bounds.height) return;
@@ -678,6 +681,7 @@ function setScene() {
 
 function render(resumeScroll, resumeScrollLeft = 0) {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
+  cancelStampPress();
   const settingDownCloseSheet = run?.phase === 'summary' &&
     (root.dataset.phase === 'receipt' || root.dataset.phase === 'summary') &&
     !screenLayer.querySelector('.shift-close-sheet');
@@ -2030,6 +2034,11 @@ function checkSample(act) {
 
 function stamp(value) {
   if (arrival || activeVisit() || run?.phase !== 'case') return;
+  if (stampPress) return;
+  if (drag || toolDrag) {
+    toast('先把手里的东西放回台面');
+    return;
+  }
   if (panel) {
     if (['docs', 'sample', 'carton', 'archive'].includes(panel)) toast('先回到台面，再用开单机盖章');
     return;
@@ -2349,6 +2358,7 @@ function closePanel() {
 }
 
 root.addEventListener('click', (event) => {
+  if (suppressStampClick && event.detail > 0) return;
   const target = event.target.closest('[data-act]');
   if (!target || target.matches(':disabled')) return;
   if (target === toolClickTarget && event.detail > 0) return;
@@ -2484,7 +2494,7 @@ root.addEventListener('click', (event) => {
         focusControl(modalLayer, { act: 'sample', key: 'thickness', i: source }) || focusControl(modalLayer, { act: 'sample' });
       }
       break;
-    case 'stamp': stamp(key); break;
+    case 'stamp': if (event.detail === 0) stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
     case 'report-search': openReportIndex(key, target); break;
     case 'report-index-paper': openArchivePaper(index, Number(target.dataset.doc), target); break;
@@ -2678,36 +2688,55 @@ root.addEventListener('click', (event) => {
   }
 });
 
-root.addEventListener('touchstart', (event) => {
-  const button = event.target.closest('[data-act="stamp"]');
-  stampTouch = root.dataset.modeled === 'true' && button && !button.disabled && event.touches.length === 1
-    ? event.touches[0]
-    : null;
-}, { passive: true });
-
-function withinStampTap(start, touch) {
-  return start.identifier === touch.identifier && Math.hypot(start.clientX - touch.clientX, start.clientY - touch.clientY) <= 12;
+function beginStampPress(event) {
+  if (stampPress) {
+    if (event.pointerId !== stampPress.pointerId) cancelStampPress();
+    return;
+  }
+  suppressStampClick = false;
+  const button = event.target.closest('#desk [data-act="stamp"]:enabled');
+  if (!button || event.button !== 0 || !event.isPrimary || drag || toolDrag || panel) return;
+  const { pointerId, clientX, clientY } = event;
+  suppressStampClick = true;
+  // Browsers may target a nearby button when the actual touch lands between controls.
+  if (!button.contains(document.elementFromPoint(clientX, clientY))) return;
+  stampPress = { button, pointerId, clientX, clientY, cancelled: false };
+  button.setAttribute('data-stamp-armed', '');
 }
 
-root.addEventListener('touchmove', (event) => {
-  if (stampTouch && (event.touches.length !== 1 || !withinStampTap(stampTouch, event.touches[0]))) {
-    stampTouch = null;
+function cancelStampPress() {
+  if (!stampPress) return;
+  stampPress.cancelled = true;
+  stampPress.button.removeAttribute('data-stamp-armed');
+}
+
+function insideStampPress(press, event) {
+  const { clientX, clientY } = event;
+  return press.button.isConnected && !press.button.disabled &&
+    Math.hypot(clientX - press.clientX, clientY - press.clientY) <= 12 &&
+    press.button.contains(document.elementFromPoint(clientX, clientY));
+}
+
+function finishStampPress(event) {
+  if (!stampPress || event.pointerId !== stampPress.pointerId) return;
+  const press = stampPress;
+  stampPress = null;
+  press.button.removeAttribute('data-stamp-armed');
+  if (event.type === 'pointerup' && !press.cancelled && insideStampPress(press, event)) stamp(press.button.dataset.key);
+  setGazeTarget(gaze.targetX, gaze.targetY);
+}
+
+window.addEventListener('pointermove', (event) => {
+  if (stampPress && event.pointerId === stampPress.pointerId && !stampPress.cancelled && !insideStampPress(stampPress, event)) {
+    cancelStampPress();
   }
-}, { passive: true });
-
-root.addEventListener('touchend', (event) => {
-  const start = stampTouch;
-  stampTouch = null;
-  const end = event.changedTouches[0];
-  if (!start || !end || event.touches.length || !withinStampTap(start, end)) return;
-  const button = start.target.closest('[data-act="stamp"]');
-  if (!button || button.disabled || !button.contains(document.elementFromPoint(end.clientX, end.clientY))) return;
-  // Touch browsers can suppress the first synthesized click after a drag.
-  event.preventDefault();
-  stamp(button.dataset.key);
-}, { passive: false });
-
-root.addEventListener('touchcancel', () => { stampTouch = null; });
+});
+window.addEventListener('pointerup', finishStampPress);
+window.addEventListener('pointercancel', finishStampPress);
+window.addEventListener('lostpointercapture', finishStampPress);
+window.addEventListener('blur', () => {
+  if (stampPress) finishStampPress({ type: 'blur', pointerId: stampPress.pointerId });
+});
 
 root.addEventListener('submit', (event) => {
   if (event.target.dataset.form !== 'archive') return;

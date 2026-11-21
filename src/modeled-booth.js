@@ -503,6 +503,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
   const renderer = new THREE.WebGLRenderer({ canvas, context, antialias: true, alpha: false });
 
   const reduced = view.matchMedia('(prefers-reduced-motion: reduce)');
+  const touchInput = view.matchMedia('(any-pointer: coarse)');
   const art = `${baseUrl.replace(/\/?$/, '/')}art/`;
   const roomPath = `${art}room.webp`;
   const scene = new THREE.Scene();
@@ -1121,11 +1122,12 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
   function syncSize() {
     const w = host.clientWidth;
     const h = host.clientHeight;
-    if (w === width && h === height) return;
+    const useCompactStamps = h <= 540 && (w <= 900 || touchInput.matches);
+    if (w === width && h === height && useCompactStamps === compactStamps) return;
     width = w;
     height = h;
     if (!w || !h) return;
-    compactStamps = w <= 900 && h <= 540;
+    compactStamps = useCompactStamps;
     desktopStampDeck.visible = desktopStampShadow.visible = !compactStamps;
     compactStampDeck.deck.visible = compactStampShadow.visible = compactStamps;
     camera.aspect = w / h;
@@ -1245,6 +1247,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
   resizeObserver?.observe(host);
   view.addEventListener('resize', invalidate);
   reduced.addEventListener('change', updateMotionPreference);
+  touchInput.addEventListener('change', invalidate);
   invalidate();
 
   return {
@@ -1270,6 +1273,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
       resizeObserver?.disconnect();
       view.removeEventListener('resize', invalidate);
       reduced.removeEventListener('change', updateMotionPreference);
+      touchInput.removeEventListener('change', invalidate);
       canvas.removeEventListener('webglcontextlost', loseContext);
       canvas.removeEventListener('webglcontextrestored', restoreContext);
       sampleImageEvents.abort();

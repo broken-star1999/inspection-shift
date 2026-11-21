@@ -800,6 +800,7 @@
   white-space: normal;
   text-align: center;
   text-wrap: balance;
+  touch-action: manipulation;
 }
 
 .booth-layout .stamp-rail .stamp-glyph {
@@ -824,7 +825,7 @@
   transform: none;
 }
 
-.booth-layout .stamp-rail .stamp:active:not(:disabled) .stamp-glyph {
+.booth-layout .stamp-rail .stamp[data-stamp-armed] .stamp-glyph {
   translate: 0 2px;
   box-shadow: 0 1px 0 #30271d, 0 3px 1px #292117b3, inset 0 1px #fff3be59;
 }
