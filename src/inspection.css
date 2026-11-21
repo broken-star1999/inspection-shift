@@ -1029,7 +1029,7 @@
 }
 @container workstation (max-height: 360px) {
   .phone-papers ul:has(li:nth-child(2)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .phone-papers ul:has(li:nth-child(2)) .phone-paper { grid-template-columns: minmax(0, 1fr) auto; min-block-size: 2.75rem; gap: .1rem .24rem; }
+  .phone-papers ul:has(li:nth-child(2)) .phone-paper { grid-template-columns: minmax(0, 1fr) auto; min-block-size: var(--phone-paper-height, 2.75rem); gap: .1rem .24rem; }
   .phone-papers ul:has(li:nth-child(2)) .phone-paper span { grid-column: 1 / -1; grid-row: 2; }
   .phone-papers ul:has(li:nth-child(2)) .phone-paper small { grid-column: 2; grid-row: 1; }
 }
@@ -1980,6 +1980,22 @@
   .receipt-surface { inset-inline-start: auto; inset-inline-end: 1rem; inline-size: min(52cqw, 22rem); }
 }
 
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  .work-stamp-machine { gap: .18rem; padding: .14rem .22rem .19rem; }
+  .work-stamp-machine .stamp { min-block-size: 2.25rem; padding: .18rem .33rem; }
+  .work-stamp-machine .stamp-glyph { min-inline-size: 1.21em; min-block-size: 1.18em; }
+  .documents-surface .desk-surface-tools :is(.phone-bring-order, .intake-close, .relabel-close),
+  .documents-surface .document-action-value .document-field-action,
+  .documents-surface .intake-slip .intake-actions .intake-evidence,
+  .carton-surface :is(.surface-close, .carton-turn, .carton-note) { min-block-size: 2.25rem; }
+  .carton-surface .desk-surface-footer { align-items: center; }
+  .documents-surface .report-number-value .report-lookup { min-block-size: 2.25rem; padding-block: .14rem; }
+  .documents-surface .spread.pair dd.document-action-value:has(.delivery-check-action) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
 @container workstation (max-height: 330px) {
   .first-documents .doc-grid.spread .sheet > small { display: none; }
   .first-documents .doc-grid.spread .fields > div { padding-block: .08rem; }
@@ -2023,7 +2039,7 @@
   .receipt-surface .receipt-slip > .eyebrow { display: none; }
   .receipt-surface .receipt-slip > :is(.receipt-basis-link, .receipt-disposition, .receipt-facts, .receipt-window-change) { grid-column: 1 / -1; }
   .receipt-surface .receipt-slip > b { margin: 0; font-size: 1.35rem; }
-  .receipt-surface .desk-surface-footer .button { min-block-size: 2.75rem; }
+  .receipt-surface .desk-surface-footer .button { min-block-size: 2.35rem; }
 }
 
 @container workstation (max-height: 330px) {

@@ -29,6 +29,13 @@
   }
 }
 
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  .sample-surface .modal-actions .sample-flip-control,
+  .sample-surface .desk-surface-tools :is(.reference-control, .findings-toggle),
+  .sample-surface .surface-close,
+  .sample-surface .sample-findings .sample-basis-control { min-block-size: 2.25rem; }
+}
+
 .sample-findings .sample-basis-control {
   display: flex;
   align-items: center;

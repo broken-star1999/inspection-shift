@@ -561,6 +561,11 @@
 @container workstation (max-height: 540px) {
   .utility .window-glance-live { margin-block: calc((2rem - 44px) / 2); }
 }
+@container workstation (max-width: 900px) and (max-height: 440px) {
+  .topbar { min-block-size: 2.35rem; padding-block: .13rem; }
+  .utility { gap: .24rem; }
+  .utility .window-glance-live { min-block-size: 2rem; margin-block: 0; touch-action: manipulation; }
+}
 @container workstation (min-width: 561px) and (max-width: 720px) {
   .topbar:has(.window-glance-live) { grid-template-columns: minmax(0, 1fr) auto max-content; }
 }

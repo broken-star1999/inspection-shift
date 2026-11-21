@@ -556,14 +556,14 @@
       inset-block-start: var(--fixture-h);
       inline-size: max-content;
       max-inline-size: var(--fixture-w);
-      padding: .18rem .34rem;
+      padding: .12rem .3rem;
       border: 1px solid #a48556;
       border-block-end-color: #6d553a;
       border-radius: 0 0 .17rem .17rem;
       background: linear-gradient(#e6d4ac, #c8ac7c);
       box-shadow: 0 .12rem .19rem #241a1480;
       color: #3c2d20;
-      font-size: .75rem;
+      font-size: .72rem;
       line-height: 1.13;
       text-align: center;
       text-shadow: none;
@@ -585,13 +585,13 @@
 
     #game[data-modeled='true'] .booth-layout [data-fixture='sample'][data-fixture-visible]:enabled:not([data-lifted])::after {
       inset-block-start: var(--fixture-h);
-      padding: .18rem .38rem;
+      padding: .12rem .31rem;
       border: 1px solid #839073;
       border-block-end-color: #4b5945;
       border-radius: 0 0 .17rem .17rem;
       background: linear-gradient(#4e6047, #374835);
       box-shadow: 0 .12rem .19rem #241a1480;
-      font-size: .75rem;
+      font-size: .72rem;
       line-height: 1.13;
       translate: -50% -.08rem;
       opacity: 1;
