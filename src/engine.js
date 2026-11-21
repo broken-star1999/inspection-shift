@@ -443,7 +443,7 @@ function stamp(state, action) {
     original: value,
     answer: item.answer,
     reason: item.reason,
-    note: String(action.note ?? action.reason ?? '').trim().slice(0, 100) || (value === 'review' ? '请核对送检材料' : ''),
+    note: String(action.note ?? action.reason ?? '').trim().slice(0, 100),
     ...(findings.length ? { findings } : {}),
     ...(item.shownFinding ? { shownFinding: { ...item.shownFinding } } : {}),
     ...(isOffsite(previous?.status) ? { priorShipmentId: previous.id } : {}),
@@ -787,6 +787,7 @@ export function getEnding(state) {
   const issues = [];
   const pendingRecalls = [];
   const confirmedRecalls = [];
+  const heldReceipts = [];
   const traceReceipt = state.flags.traceAttached ? getRecord(state, TRACE_CASE_ID) ?? null : null;
   const acceptance = getShipmentAcceptance(state);
   const acceptedReceipt = isAcceptedShipment(state.records, acceptance?.record, acceptance?.day) ? acceptance.record : null;
@@ -806,6 +807,7 @@ export function getEnding(state) {
     counts[decision] += 1;
     const latestReceipt = findVerifiedReceipt(state.records, receipt);
     if (latestReceipt) continue;
+    if (receiptDisposition(receipt) === 'held') heldReceipts.push(receipt);
     if ((decision === 'pass' || status === 'recallPending') && answer !== 'pass') issues.push(receipt);
     if (status === 'recallPending') pendingRecalls.push(receipt);
     if (status === 'recalled' && receipt.recallReceipt && id !== traceReceipt?.id) confirmedRecalls.push(receipt);
@@ -817,7 +819,7 @@ export function getEnding(state) {
   const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
   const delayedReceipts = [...delayedByBatch.values()];
   const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已登记追加复检，去向待核。');
-  const shared = { issues, pendingRecalls, confirmedRecalls, acceptedReceipt, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
+  const shared = { issues, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
   if (issues.length) {
     const detail = issues.map(({ batch, reason, answer, status }) => {
       const action = status === 'recallPending' ? '召回待确认' : answer === 'review' ? '暂缓入库' : '收货方复核';
@@ -828,5 +830,10 @@ export function getEnding(state) {
   if (state.flags.traceAttached) {
     return { id: 'trace', ...HANDOFF.investigation, detail: traceDetail, ...shared };
   }
-  return { id: 'routine', ...HANDOFF.normal, detail: '本周来件已经核对。留在黄线内的待审查批次由下一班接手。', ...shared };
+  const heldBatches = [...new Set(heldReceipts.map(({ batch }) => batch))];
+  const firstBatches = heldBatches.slice(0, 2).join('、');
+  let detail = '本周出货回执已归档。';
+  if (heldBatches.length === 1) detail = `${firstBatches} 留在黄线内，由下一班继续查。`;
+  if (heldBatches.length > 1) detail = `黄线内有 ${firstBatches}${heldBatches.length > 2 ? ' 等' : ''}，共 ${heldBatches.length} 个待查批号，由下一班接手。`;
+  return { id: 'routine', ...HANDOFF.normal, detail, ...shared };
 }

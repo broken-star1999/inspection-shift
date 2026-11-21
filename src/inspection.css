@@ -1354,6 +1354,22 @@
   white-space: normal;
 }
 .receipt-surface .receipt-origin:is(:hover, :focus-visible) { background: #f7e8c4; }
+.receipt-surface .receipt-basis-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: .43rem;
+  inline-size: fit-content;
+  min-block-size: 2.75rem;
+  margin: .24rem 0 0;
+  padding: .2rem .53rem;
+  border: 1px solid #9d7d50;
+  background: #f4e4bf;
+  color: #523b25;
+  text-shadow: none;
+  font: 740 .83rem / 1.2 var(--mono);
+}
+.receipt-surface .receipt-basis-link:is(:hover, :focus-visible) { background: #fff0cc; }
 .receipt-surface .desk-surface-footer { flex: 0 0 auto; display: flex; align-items: stretch; justify-content: flex-end; gap: .38rem; padding: 0 .45rem; }
 .receipt-surface .desk-surface-footer .primary { min-block-size: 2.15rem; padding-inline: .48rem; font-size: .83rem; white-space: nowrap; }
 
@@ -1690,6 +1706,7 @@
     inline-size: var(--receipt-side-width);
     max-block-size: 45cqh;
   }
+  #game[data-phase='receipt'] .receipt-surface:has(.receipt-basis-link) { max-block-size: 58cqh; }
   #game[data-phase='receipt']:has(.receipt-surface) .booth-layout .room-hud .speech {
     inset-inline-start: calc(var(--receipt-speaker-edge) - var(--fixture-x, 17cqw));
     inset-inline-end: auto;
@@ -1707,7 +1724,7 @@
     rotate: none;
   }
   .receipt-surface .receipt-slip > .eyebrow { display: none; }
-  .receipt-surface .receipt-slip > :is(.receipt-disposition, .receipt-facts) { grid-column: 1 / -1; }
+  .receipt-surface .receipt-slip > :is(.receipt-basis-link, .receipt-disposition, .receipt-facts) { grid-column: 1 / -1; }
   .receipt-surface .receipt-slip > b { margin: 0; font-size: 1.35rem; }
   .receipt-surface .desk-surface-footer .button { min-block-size: 2.75rem; }
 }

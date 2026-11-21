@@ -272,7 +272,7 @@ test('a receipt preserves selected findings alongside the legacy note after relo
   assert.equal(receipt.note, '初查材料齐全');
   state = act(state, 'stamp', { value: 'review', findings: [] });
   assert.equal(Object.hasOwn(state.records[1], 'findings'), false);
-  assert.equal(state.records[1].note, '请核对送检材料');
+  assert.equal(state.records[1].note, '');
 });
 
 test('receipt feedback follows handling rather than revealing whether the stamp was right', () => {
@@ -831,6 +831,29 @@ test('sending every batch to review reports the release-ready batches that remai
   assert.deepEqual(ending.delayed, { count: 12, batches: ['G-201', 'G-202', 'G-203'] });
   assert.equal(ending.delayedReceipts.length, 12);
   assert.deepEqual(ending.delayedReceipts.slice(0, 3).map(({ id }) => id), [1, 2, 3]);
+});
+
+test('routine handoff describes the actual batches still in the yellow line', () => {
+  const finished = act(untilHandoff(21), 'finish');
+  const ending = getEnding(finished);
+  assert.equal(ending.id, 'routine');
+  assert.deepEqual(ending.heldReceipts, [finished.records.find(({ id }) => id === 17)]);
+  assert.equal(ending.detail, 'G-217 留在黄线内，由下一班继续查。');
+
+  const noHolds = getEnding(act(untilHandoff(21, { decisions: { 17: 'fail' } }), 'finish'));
+  assert.equal(noHolds.id, 'routine');
+  assert.deepEqual(noHolds.heldReceipts, []);
+  assert.equal(noHolds.detail, '本周出货回执已归档。');
+});
+
+test('routine handoff reports unique held batch codes and excludes paperwork-only supplements', () => {
+  const week = untilHandoff(21, { decisions: { 1: 'review', 4: 'review', 5: 'pass', 9: 'review', 15: 'review' } });
+  const recovered = takeRecallReceipt(act(week, 'recheck', { id: 5, value: 'review' }), 5);
+  const ending = getEnding(act(recovered, 'finish'));
+  assert.equal(ending.id, 'routine');
+  assert.equal(isSupplementOnly(ending.delayedReceipts.find(({ id }) => id === 9)), true);
+  assert.deepEqual(ending.heldReceipts.map(({ id }) => id), [1, 4, 15, 17]);
+  assert.equal(ending.detail, '黄线内有 G-201、G-204 等，共 3 个待查批号，由下一班接手。');
 });
 
 test('a corrected decision removes the released batch from the handoff delay', () => {

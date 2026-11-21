@@ -205,11 +205,11 @@ export function desk(run, item, tutorial, interaction) {
       ${benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
 
-function endingReceipt(record, detail) {
+function endingReceipt(record, detail, section = '') {
   const day = DAYS[record.day]?.title;
   const lot = record.batch === 'G-204' ? (record.id === 4 ? '原批' : '留厂件') : '';
   const label = [day, lot].filter(Boolean).join(' · ');
-  return `<button type="button" class="summary-record ending-receipt" data-act="archive-receipt" data-i="${esc(record.id)}">
+  return `<button type="button" class="summary-record ending-receipt" data-act="archive-receipt" data-i="${esc(record.id)}"${section ? ` data-key="${esc(section)}"` : ''}>
     <span class="ending-receipt-batch"><b>${esc(record.batch)}</b><small>${esc(label)}</small></span><span class="ending-receipt-detail">${esc(detail)}</span><span class="ending-receipt-arrow" aria-hidden="true">›</span>
   </button>`;
 }
@@ -221,7 +221,7 @@ function endingRecallGroup(records, kind, title, detail) {
 }
 
 function endingView(ending, reviewingHistory) {
-  const { delayedReceipts = [], traceReceipt, traceDisposition, pendingRecalls = [], confirmedRecalls = [], acceptedReceipt } = ending;
+  const { delayedReceipts = [], heldReceipts = [], traceReceipt, traceDisposition, pendingRecalls = [], confirmedRecalls = [], acceptedReceipt } = ending;
   const pendingText = '已申请召回 · 尚未回签';
   const pendingIds = new Set(pendingRecalls.map(({ id }) => id));
   const inIssueOrTrace = new Set([...ending.issues.map(({ id }) => id), traceReceipt?.id]);
@@ -243,10 +243,12 @@ function endingView(ending, reviewingHistory) {
     <div class="ending-body"><p>${esc(ending.line)}</p><div class="ending-note">${note}</div>
       ${ending.id === 'issue' && trace ? `<div class="ending-note">${trace}</div>` : ''}
       ${acceptedReceipt ? `<section class="ending-recall ending-acceptance"><h3>到货验收</h3>${endingReceipt(acceptedReceipt, '已签收，验收联已归档')}</section>` : ''}
+      ${ending.id === 'routine' && heldReceipts.length ? `<details class="ending-held"><summary>翻黄线隔离回执</summary>
+        <ul class="ending-receipts">${heldReceipts.map((record) => `<li>${endingReceipt(record, '留厂隔离', 'held')}</li>`).join('')}</ul></details>` : ''}
       ${endingRecallGroup(pending, 'pending', '待召回回执', pendingText)}
       ${endingRecallGroup(confirmed, 'confirmed', '召回确认', '已收下收货方回执')}
       ${delayed.length ? `<details class="ending-delay"><summary><b>仍未放行</b> ${delayed.length} 批来件已符合放行要求</summary>
-        <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, dispositionLabel(record))}</li>`).join('')}</ul></details>` : ''}
+        <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, dispositionLabel(record), 'delayed')}</li>`).join('')}</ul></details>` : ''}
       <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
     </div>
     <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(reviewingHistory ? '返回首页' : '返回窗口', 'home')}${reviewingHistory ? '' : button('再接一周', 'new', 'primary')}</footer>
@@ -636,7 +638,7 @@ function archivedReceipt(record, latestReceipt, previousReceipt) {
       <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(amendmentDisposition(record, index, entry.from, entry.previousStatus))} → ${esc(amendmentDisposition(record, index + 1, entry.to, entry.status))}</small>${amendmentFindings(entry)}${recallConfirmation(record.recallReceipt, index)}</li>`).join('')}</ol>` : ''}</article>`;
 }
 
-export function receipt(record, previous) {
+export function receipt(record, previous, nextPhase) {
   const disposition = {
     shipping: '这批货等装车，回执交装货台。',
     shipped: '这批货已经出库，补签回执归入原批留底。',
@@ -651,8 +653,13 @@ export function receipt(record, previous) {
     ? button('原出货回执', 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}" aria-label="查看原出货回执 · ${esc(DAYS[previous.day]?.title)}"`)
     : '';
   const copy = button('翻本批留底', 'archive-receipt', 'receipt-origin', `data-i="${esc(record.id)}"`);
-  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record)}</div>`;
-  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + copy + button('接着值班', 'next', 'primary') });
+  const next = nextPhase === 'summary' ? '本班收工' : nextPhase === 'handoff' ? '去交班' : '接着值班';
+  const findings = readFindings(record);
+  const shownSeparately = record.shownFinding && !findings.some((finding) => sameFinding(finding, record.shownFinding));
+  const findingCount = findings.length + (shownSeparately ? 1 : 0);
+  const basis = findingCount ? button(`查看依据 <b>${findingCount} 条</b> <span aria-hidden="true">↓</span>`, 'receipt-basis', 'receipt-basis-link') : '';
+  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record, '去向', record.decision === 'review')}</div>`;
+  return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + copy + button(next, 'next', 'primary') });
 }
 
 function correctionPanel(record, findings, selected, supportingBasis) {

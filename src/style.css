@@ -1031,15 +1031,16 @@ button:disabled { opacity: .46; }
 .ending-receipt-batch small { color: #6b5740; font-size: .72rem; }
 .ending-receipt-detail { flex: 1; min-inline-size: 0; }
 .ending-receipt-arrow { color: #6b5133; font: 700 1rem / 1 var(--mono); }
-.ending-delay {
+:is(.ending-delay, .ending-held) {
   margin-block-start: .5rem;
   padding: .42rem .62rem;
   border-inline-start: 2px solid #9b6048;
   background: #aa765822;
 }
-.ending-delay summary { padding-block: .24rem; cursor: pointer; }
+.ending-held { border-inline-start-color: #9b804b; background: #aa915822; }
+:is(.ending-delay, .ending-held) summary { padding-block: .24rem; cursor: pointer; }
 .ending-delay summary b { margin-inline-end: .28em; color: #713f30; }
-.ending-delay .ending-receipts { margin-block-start: .36rem; }
+:is(.ending-delay, .ending-held) .ending-receipts { margin-block-start: .36rem; }
 .ending-counts { display: flex; flex-wrap: wrap; gap: .55rem; margin-block: .6rem; }
 .ending-counts span { display: flex; align-items: center; gap: .4rem; padding: .2rem .45rem; font-size: .75rem; background: #aa976f4a; }
 .ending-counts b { font: 850 1.07rem / 1.25 var(--mono); }

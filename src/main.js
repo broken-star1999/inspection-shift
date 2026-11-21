@@ -520,7 +520,7 @@ function render(resumeScroll) {
   showModeledScene();
   if (root.dataset.modeled === 'true') placeFixtures();
   const recapScroll = screenLayer.querySelector('.summary-body, .ending-body')?.scrollTop;
-  const delayOpen = screenLayer.querySelector('details.ending-delay')?.open;
+  const openEndingDetails = [...screenLayer.querySelectorAll('.ending-card details')].map(({ open }) => open);
   screenLayer.innerHTML = run
     ? (arrival || visit || closingShot ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, reviewingHistory, incomingCall))
     : view.home(saved, endings, completedShifts.size);
@@ -531,8 +531,7 @@ function render(resumeScroll) {
       { translate: '0 0', rotate: '0deg', opacity: 1 },
     ], 300);
   }
-  const delayDetails = screenLayer.querySelector('details.ending-delay');
-  if (delayDetails && delayOpen) delayDetails.open = true;
+  screenLayer.querySelectorAll('.ending-card details').forEach((details, index) => { details.open = openEndingDetails[index] === true; });
   if (recapScroll !== undefined) screenLayer.querySelector('.summary-body, .ending-body')?.scrollTo(0, recapScroll);
   setScene();
   renderModal(item, step);
@@ -615,7 +614,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (!markup && !arrival && run?.phase === 'receipt' && !activeVisit()) {
     const record = run.records.at(-1);
     const previous = run.records.find(({ id }) => id === record.priorShipmentId);
-    markup = view.receipt(record, previous);
+    const next = windowAdvance('next');
+    markup = view.receipt(record, previous, activeVisit(next) ? null : next?.phase);
   }
 
   const focused = document.activeElement;
@@ -659,10 +659,9 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       issuedReceiptId !== null && run.records.at(-1)?.id === issuedReceiptId;
     if (printsHere && !reducedMotion.matches) {
       object.animate?.([
-        { translate: '0 1rem', opacity: 0 },
-        { translate: '0 1rem', opacity: 0, offset: .42, easing: 'cubic-bezier(.2,.78,.27,1)' },
+        { translate: '0 .66rem', opacity: .92, easing: 'cubic-bezier(.2,.78,.27,1)' },
         { translate: '0 0', opacity: 1 },
-      ], 410);
+      ], 310);
     } else {
       animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
     }
@@ -1791,6 +1790,14 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
+    case 'receipt-basis': {
+      const facts = modalLayer.querySelector('.receipt-surface .receipt-findings');
+      if (!facts || !target.closest('.receipt-surface')) break;
+      facts.tabIndex = -1;
+      facts.focus({ preventScroll: true });
+      facts.scrollIntoView({ block: 'start', inline: 'nearest' });
+      break;
+    }
     case 'visit-paper':
       if (!arrival && visitDocument(activeVisit())) {
         playSound('paper');
