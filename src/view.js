@@ -655,6 +655,16 @@ function correctionPanel(record, findings, selected, reworkBasis) {
   </section>`;
 }
 
+function correctionStamps(row, followup) {
+  const { record, previousReceipt } = row;
+  const disposition = receiptDisposition(record);
+  const source = disposition === 'supplementHeld' || disposition === 'supplementReturned' ? '补验联'
+    : previousReceipt?.sameLot === false ? '留厂件'
+      : followup?.previousReceipt?.sameLot === false ? '原批' : '出货回执';
+  return `<p id="correction-target" class="correction-target"><b>${esc(record.batch)}</b><small>${esc(DAYS[record.day]?.title)} · ${source}</small></p>
+    <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, false, 'recheck', record.decision)}</div>`;
+}
+
 export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], reworkBasis, reportSuggestion } = {}) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
@@ -682,7 +692,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
     const correcting = Boolean(editing && canAmend);
     const findings = correcting ? readFindings({ findings: correctionFindings }) : [];
     const correction = correcting ? { action: 'correction-basis', selected: new Set(findings.map(({ key }) => key)) } : null;
-    if (correcting) footer = `<div class="stamp-buttons archive-correction" aria-label="更正开单">${stampButtons(false, false, 'recheck', row.record.decision)}</div>`;
+    if (correcting) footer = correctionStamps(row, rows.find(({ previousReceipt }) => previousReceipt?.record?.id === row.id));
     const actions = [
       canComparePrevious && button('放到桌上对照', 'previous-compare', 'secondary', `data-i="${row.id}"`),
       previousReceipt && button(previousReceipt.sameLot ? '查看前次回执' : '查看前次同号回执', 'archive-followup', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`),
@@ -831,7 +841,10 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const editAction = !latestReceipt && !editing ? button('更正开单', 'edit-record', 'secondary handoff-detail-edit', `data-i="${esc(row.id)}"`) : '';
     const compareAction = canCompare && !editing ? button('并排核对', 'handoff-compare', 'secondary handoff-detail-compare', active(false)) : '';
     const tools = compareAction ? `<div class="handoff-detail-tools">${compareAction}${editAction}</div>` : editAction;
-    header = `<div class="handoff-detail-heading"><div class="handoff-detail-name"><h3>${esc(row.batch)}</h3><small>${esc(provenance(row))}</small></div><span class="handoff-detail-status">${esc(dispositionLabel(latestReceipt ?? record))}</span>
+    const status = !latestReceipt && !editing && record.status === 'recallPending'
+      ? receiveRecallAction(record, 'handoff-detail-status handoff-detail-recall')
+      : `<span class="handoff-detail-status">${esc(dispositionLabel(latestReceipt ?? record))}</span>`;
+    header = `<div class="handoff-detail-heading"><div class="handoff-detail-name"><h3>${esc(row.batch)}</h3><small>${esc(provenance(row))}</small></div>${status}
       ${tools}</div>${tabs}`;
     const related = [
       previousReceipt && button(previousReceipt.sameLot ? '前次回执' : '原批回执', 'handoff-focus', 'secondary', `data-i="${esc(previousReceipt.record.id)}"`),
@@ -841,7 +854,7 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const paper = doc ? sheet(doc, documentIndex, attached ? null : correction) : archivedReceipt(record, latestReceipt, previousReceipt);
     detail = `${attached?.document.kind === 'rework' ? draft + paper : paper + draft}
       ${related && !editing ? `<div class="modal-actions handoff-related">${related}</div>` : ''}`;
-    if (editing) actions = `<div class="stamp-buttons archive-correction" aria-label="更正开单">${stampButtons(false, false, 'recheck', record.decision)}</div>${button('取消更正', 'edit-record', 'secondary handoff-cancel', `data-i="${esc(row.id)}"`)}`;
+    if (editing) actions = correctionStamps(row, next) + button('取消更正', 'edit-record', 'secondary handoff-cancel', `data-i="${esc(row.id)}"`);
   }
 
   return dialog('周五交接', `<div class="handoff-paper handoff-sheet"><p class="handoff-instruction">点批号核对原单，改章另开更正联。</p>

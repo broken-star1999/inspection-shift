@@ -97,6 +97,7 @@ let correctionDraft = null;
 let handoffFocus = null;
 let handoffDocument = null;
 let handoffPairOpen = false;
+let recallPairReturn = null;
 let phoneReturn = null;
 let ringing = null;
 let issuedReceiptId = null;
@@ -724,10 +725,7 @@ function persistRun() {
     ...context, panel: workspacePanel, scrollTop: archivedPanel ? archiveReturn.scrollTop : body?.scrollTop ?? 0,
     returnTo: workspacePanel === 'phone' ? phoneReturn : undefined,
   } : undefined;
-  const handoffParent = panel === 'archive' && archiveReturn?.panel === 'handoff' ? archiveReturn : null;
-  const pairWorkspace = run.phase === 'handoff' && handoffPairOpen && (panel === 'handoff' || handoffParent) ? {
-    id: handoffFocus, documentIndex: handoffDocument, scrollTop: handoffParent?.detailScroll ?? body?.scrollTop ?? 0,
-  } : null;
+  const pairWorkspace = recallPairReturn ?? handoffPairWorkspace();
   saved = {
     ...run,
     ...(arrival ? { arrivalAction: arrival.action } : {}),
@@ -802,6 +800,7 @@ function openPanel(name, opener) {
 function enter(restore) {
   cancelArrivalPause();
   cancelClosingShot();
+  recallPairReturn = null;
   reviewingHistory = false;
   issuedReceiptId = null;
   presentedEvidence = null;
@@ -840,6 +839,9 @@ function enter(restore) {
   handoffPairOpen = false;
   correctionDraft = restoreCorrectionDraft(savedCorrection);
   const next = windowAdvance(arrivalAction);
+  const visit = activeVisit();
+  const recallId = visit?.kind === 'recall' ? visit.caseId : windowAction(arrivalAction)?.id;
+  if (Number.isInteger(recallId)) recallPairReturn = pairForRecall(savedPair, recallId);
   if (needsArrival(next)) {
     panel = null;
     pauseBeforeArrival(arrivalAction, next, true, true);
@@ -959,12 +961,18 @@ function finishWindowAdvance(value, restoreFocus) {
     interaction.archiveQuery = '';
     if (visit.kind === 'recall') {
       const confirmed = run.records.find(({ id }) => id === visit.caseId)?.status === 'recalled';
+      const returnPair = recallPairReturn;
+      recallPairReturn = null;
+      if (!confirmed) toast('这份回执需要再核对');
+      if (returnPair && restoreHandoffPair(returnPair)) {
+        revealHandoffSelection(true);
+        return;
+      }
       panel = 'handoff';
       modalOpener = { act: 'handoff' };
       handoffFocus = visit.caseId;
       handoffDocument = null;
       handoffPairOpen = false;
-      if (!confirmed) toast('这份回执需要再核对');
     } else {
       const paper = { rework: '复核联', acceptance: '到货验收联' }[visit.kind] ?? '留底';
       toast(`${paper}已收入交接簿`);
@@ -1545,6 +1553,23 @@ function openHandoff(opener) {
   revealHandoffSelection();
 }
 
+function handoffPairWorkspace() {
+  if (!handoffPairOpen || run?.phase !== 'handoff') return null;
+  const parent = panel === 'archive' && archiveReturn?.panel === 'handoff' ? archiveReturn : null;
+  if (panel !== 'handoff' && !parent) return null;
+  return {
+    id: handoffFocus,
+    documentIndex: handoffDocument,
+    scrollTop: parent?.detailScroll ?? workspaceBody()?.scrollTop ?? 0,
+  };
+}
+
+function pairForRecall(workspace, caseId) {
+  if (!workspace || run?.phase !== 'handoff') return null;
+  const comparison = handoffComparison(archive(run), workspace.id);
+  return comparison && [comparison.earlier.id, comparison.later.id].includes(caseId) ? workspace : null;
+}
+
 function restoreHandoffPair(workspace) {
   if (run?.phase !== 'handoff' || activeVisit() || correctionDraft?.id === workspace.id) return false;
   const rows = archive(run).filter(({ record }) => record);
@@ -1658,6 +1683,7 @@ root.addEventListener('click', (event) => {
       cancelClosingShot();
       run = null;
       reviewingHistory = false;
+      recallPairReturn = null;
       phoneReturn = null;
       resetGaze();
       closePanel();
@@ -1686,6 +1712,10 @@ root.addEventListener('click', (event) => {
       const action = act === 'receive-recall' ? { type: act, id: index } : act === 'next' ? 'next' : 'ack-visit';
       const next = !arrival && windowAdvance(action);
       if (!next) break;
+      if (act === 'receive-recall') {
+        recallPairReturn = pairForRecall(handoffPairWorkspace(), index);
+        toast('');
+      }
       captureCorrectionScroll();
       panel = null;
       archiveReturn = null;
@@ -1830,17 +1860,18 @@ root.addEventListener('click', (event) => {
       const findings = selectedCorrectionFindings(row, correctionDraft.keys);
       if (update({ type: 'recheck', id: row.id, value: key, findings }, false)) {
         correctionDraft = null;
+        const needsRecall = run.records.find(({ id }) => id === row.id)?.status === 'recallPending';
         if (panel === 'handoff') {
           handoffDocument = null;
           render(0);
-          revealHandoffSelection(true);
+          revealHandoffSelection(!needsRecall);
+          if (needsRecall) modalLayer.querySelector('.handoff-detail-recall')?.focus({ preventScroll: true });
         } else {
           render();
           revealArchiveReceipt(false);
         }
         playSound('stamp');
-        const status = run.records.find(({ id }) => id === row.id)?.status;
-        if (status !== 'recallPending') toast('更正已留底');
+        if (!needsRecall) toast('更正已留底');
       }
       break;
     }
