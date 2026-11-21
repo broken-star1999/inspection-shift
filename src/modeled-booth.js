@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RECEIPT_FEED_MS } from './booth-motion.js';
+import { CARGO_DEPARTURE_MS, RECEIPT_FEED_MS, RECEIPT_HANDOVER_MS } from './booth-motion.js';
 import { CUFF_SPLIT_PATCHES } from './samples.js';
 import { BOOTH_METRICS, createWorkbenchModels } from './workbench-models.js';
 
@@ -14,7 +14,6 @@ const { hatch: deliveryHatch, lip: deliveryLip } = BOOTH_METRICS.delivery;
 const deliveryPitch = Math.atan2(deliveryHatch.y - deliveryLip.y, deliveryLip.z - deliveryHatch.z);
 const shutterTravelMs = 420;
 const catTravelMs = 900;
-const cargoTravelMs = 740;
 const slipFeedStartMs = 42;
 const evidencePassingMs = 590;
 const phoneLiftMs = 230;
@@ -26,13 +25,9 @@ const cargoDestinations = {
   returned: { x: -3.96, z: -.060, angle: -.042 },
   held: { x: -2.11, z: -.015, angle: -.034 },
 };
-const cargoStaging = {
-  shipping: { x: 1.92, z: -.045, angle: .035 },
-  returned: { x: -2.46, z: -.060, angle: -.042 },
-};
 const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'review', supplementHeld: 'review', review: 'review' };
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, presentedEvidence: null, phoneHeld: false, phoneRinging: false };
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, handedReceipt: null, presentedEvidence: null, phoneHeld: false, phoneRinging: false };
 
 function visibleVisitor(frame) {
   if (frame.phase === 'waiting' && !frame.keepVisitor && !frame.visitorWaiting) return null;
@@ -556,6 +551,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let cargoMotionAt = -Infinity;
   const cargoBounds = new THREE.Box3();
   let slipMotionAt = -Infinity;
+  let handoffMotionAt = -Infinity;
   let evidenceKey = null;
   let evidenceMotionAt = -Infinity;
   let phoneFrom = 0;
@@ -654,6 +650,10 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   }));
   evidenceSlip.visible = false;
   scene.add(evidenceSlip);
+  const { paper: printedPaper, imprint: printImprint } = models.outgoingSlip;
+  const handedPaper = printedPaper.clone();
+  const handedImprint = handedPaper.children[printedPaper.children.indexOf(printImprint)];
+  scene.add(handedPaper);
   const sample = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({
@@ -668,6 +668,16 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   scene.add(sample);
 
   scene.updateMatrixWorld(true);
+  // Pull the slip clear of the printer, then carry it over the sill to the visitor.
+  const handoffPath = new THREE.CatmullRomCurve3([
+    models.outgoingSlip.pickup.getWorldPosition(new THREE.Vector3()),
+    new THREE.Vector3(2.82, .91, 1.76),
+    new THREE.Vector3(1.48, 1.03, 1.21),
+    new THREE.Vector3(.62, 1.05, .04),
+    new THREE.Vector3(.30, 1.31, -1.15),
+    new THREE.Vector3(.33, 1.53, -1.85),
+    new THREE.Vector3(.34, 1.60, -2.24),
+  ]);
   const staticBounds = Object.fromEntries(Object.entries(models.anchors ?? {}).map(([key, object]) =>
     [key, new THREE.Box3().setFromObject(object)]));
   const compactBounds = { ...staticBounds, findings: staticBounds.pass };
@@ -743,12 +753,9 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   }
 
   function updateCargo(now, waiting, closing) {
-    const closingDeparture = closing && cargo && Object.hasOwn(cargoStaging, cargo.route);
-    const requested = frame.cargo ?? (waiting || closingDeparture ? cargo : null);
-    const release = (waiting || closing) && requested?.staged;
-    const next = release ? { ...requested, staged: false, animate: true } : requested;
+    const closingDeparture = closing && cargo && cargo.route !== 'ready';
+    const next = frame.cargo ?? (waiting || closingDeparture ? cargo : null);
     if (next?.id === cargo?.id && next?.route === cargo?.route &&
-        Boolean(next?.staged) === Boolean(cargo?.staged) &&
         Boolean(next?.inspectable) === Boolean(cargo?.inspectable)) return;
 
     const sameBatch = next && cargo && next.id === cargo.id;
@@ -801,7 +808,12 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       slipMotionAt = slip?.animate ? now : -Infinity;
       if (slip) models.outgoingSlip.imprint.material = models.outgoingSlip.inks[slipInks[slip.route] ?? 'pass'];
     }
-    if ((waiting || arriving) && before.phase !== frame.phase) deskMotionAt = now;
+    const handed = frame.handedReceipt;
+    if (handed?.id !== before.handedReceipt?.id || handed?.route !== before.handedReceipt?.route) {
+      handoffMotionAt = handed ? now : -Infinity;
+      if (handed) handedImprint.material = models.outgoingSlip.inks[slipInks[handed.route] ?? 'pass'];
+    }
+    if (((waiting || arriving) && before.phase !== frame.phase) || (waiting && before.handedReceipt && !handed)) deskMotionAt = now;
     if (models.anchors?.pencil) models.anchors.pencil.visible = working && !arriving && Boolean(frame.pencil);
     const { npc: nextNpc, sampleFilename: nextSample } = frame.approach ?? {};
     if (workerNames.has(nextNpc)) loadTexture(`${art}${nextNpc}.webp`);
@@ -854,7 +866,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   }
 
   function placeDesk(now) {
-    const leaving = frame.phase === 'waiting';
+    const leaving = frame.phase === 'waiting' && !frame.handedReceipt;
     const arriving = frame.phase === 'arriving';
     const moving = (leaving || arriving) && !reduced.matches;
     const duration = leaving ? deskDepartureMs : deskArrivalMs;
@@ -906,17 +918,16 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   }
 
   function cargoDestination() {
-    if (!cargo) return null;
-    return (cargo.staged && cargoStaging[cargo.route]) || cargoDestinations[cargo.route];
+    return cargo ? cargoDestinations[cargo.route] : null;
   }
 
   function cargoPose(now) {
     const destination = cargoDestination();
     if (!destination) return null;
-    const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - cargoMotionAt) / cargoTravelMs, 0, 1);
+    const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - cargoMotionAt) / CARGO_DEPARTURE_MS, 0, 1);
     const moving = progress < 1;
-    const rests = cargo.staged || cargo.route === 'ready' || cargo.route === 'held';
-    const slide = cargo.staged || cargo.route === 'held' ? 1 - (1 - progress) ** 3 : progress ** 1.5;
+    const rests = cargo.route === 'ready' || cargo.route === 'held';
+    const slide = cargo.route === 'held' ? 1 - (1 - progress) ** 3 : progress ** 1.5;
     return {
       x: THREE.MathUtils.lerp(cargoFrom.x, destination.x, slide),
       z: THREE.MathUtils.lerp(cargoFrom.z, destination.z, slide),
@@ -941,6 +952,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   function updateMotionPreference() {
     if (reduced.matches) {
       cargoMotionAt = -Infinity;
+      handoffMotionAt = -Infinity;
       phoneMotionAt = -Infinity;
     }
     invalidate();
@@ -979,6 +991,17 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       paper.position.set(x, y, THREE.MathUtils.lerp(.342, z, travel));
     }
     return feeding;
+  }
+
+  function placeHandedReceipt(now) {
+    const elapsed = now - handoffMotionAt;
+    handedPaper.visible = Boolean(frame.handedReceipt && !reduced.matches && elapsed < RECEIPT_HANDOVER_MS);
+    if (!handedPaper.visible) return false;
+    const travel = THREE.MathUtils.smoothstep(elapsed, 0, RECEIPT_HANDOVER_MS);
+    handoffPath.getPointAt(travel, handedPaper.position);
+    const turn = Math.sin(travel * Math.PI);
+    handedPaper.rotation.set(.46 * turn + .22 * travel, -.22 * turn, .14 * turn);
+    return true;
   }
 
   function placeEvidenceSlip(now) {
@@ -1100,6 +1123,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
     const cargoMoving = placeCargo(now);
     const slipVisible = placeOutgoingSlip(now);
+    const handedReceiptMoving = placeHandedReceipt(now);
     const evidenceVisible = placeEvidenceSlip(now);
     const deskMoving = placeDesk(now);
     const phoneMoving = placePhone(now);
@@ -1123,7 +1147,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       ready = true;
       onReady?.();
     }
-    if (shutterMoving || catMoving || deskMoving || phoneMoving || cargoMoving || slipVisible || evidenceVisible || (portrait.visible && progress < 1) ||
+    if (shutterMoving || catMoving || deskMoving || phoneMoving || cargoMoving || slipVisible || handedReceiptMoving || evidenceVisible || (portrait.visible && progress < 1) ||
         (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 

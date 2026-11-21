@@ -220,8 +220,6 @@
 .booth-cargo[data-cargo-route='shipping'] { --cargo-position: 108%; }
 .booth-cargo[data-cargo-route='returned'] { --cargo-position: calc(var(--cargo-width) * -1.45); }
 .booth-cargo[data-cargo-route='held'] { --cargo-position: 7.5%; }
-.booth-cargo[data-cargo-staged][data-cargo-route='shipping'] { --cargo-position: 72%; }
-.booth-cargo[data-cargo-staged][data-cargo-route='returned'] { --cargo-position: 8%; }
 
 @media (prefers-reduced-motion: no-preference) {
   .booth-cargo[data-cargo-moving] .booth-cargo-crate {
@@ -315,6 +313,30 @@
   pointer-events: none;
 }
 #game[data-modeled='true'] :is(.booth-transfer-slot, .booth-print-slot) { display: none; }
+
+.booth-handoff-slip { display: none; }
+
+@media (prefers-reduced-motion: no-preference) {
+  #game:not([data-modeled='true'])[data-receipt-handover] .booth-handoff-slip {
+    position: absolute;
+    inset: auto auto 2% 50%;
+    z-index: 5;
+    display: block;
+    inline-size: clamp(1.8rem, 5cqw, 3.5rem);
+    aspect-ratio: 1.52;
+    border: 1px solid #a88c58;
+    background: repeating-linear-gradient(#e9d7ae 0 3px, #b49a6b 3px 4px, #e9d7ae 4px 6px);
+    box-shadow: 1px 2px 3px #372d22;
+    pointer-events: none;
+    animation: pass-receipt-to-window var(--receipt-handover-time) ease-in-out both;
+  }
+}
+
+@keyframes pass-receipt-to-window {
+  from { translate: 2rem 1.2rem; rotate: -7deg; scale: 1.15 .69; }
+  74% { translate: -50% -.34rem; rotate: -2deg; scale: .82 1; opacity: 1; }
+  to { translate: -50% -1.5rem; scale: .61 .7; opacity: 0; }
+}
 
 .booth-layout .room::after {
   inset: 0;
@@ -472,6 +494,11 @@
   z-index: 10;
   border-color: #b69b65;
   background: #29291de8;
+}
+
+#game[data-receipt-handover] .arrival-status {
+  inset-block-start: .35rem;
+  translate: -50% 0;
 }
 
 .window-glance {

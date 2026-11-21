@@ -3,7 +3,7 @@ import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExt
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
-import { ARRIVAL_APPROACH_MS, RECEIPT_FEED_MS } from './booth-motion.js';
+import { ARRIVAL_APPROACH_MS, CARGO_DEPARTURE_MS, RECEIPT_FEED_MS, RECEIPT_HANDOVER_MS } from './booth-motion.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
 import { reportWorkspace, TRACE_INQUIRY_KEY } from './report-workspace.js';
@@ -28,6 +28,8 @@ const ARRIVAL_PAUSE_MS = 1150;
 const NEXT_BATCH_PAUSE_MS = 1650;
 const VISIT_HANDOVER_MS = 760;
 const PAPER_PAIR_HOLD_MS = 250;
+const RECEIPT_LIFT_MS = 235;
+const cargoRoutes = new Set(['shipping', 'returned', 'held']);
 
 function readStorage(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
@@ -91,6 +93,7 @@ let phoneReturn = null;
 let ringing = null;
 let issuedReceiptId = null;
 let pendingReceiptPrint = false;
+let receiptPrintTimer = 0;
 let presentedEvidence = null;
 let interaction = freshInteraction();
 
@@ -115,6 +118,7 @@ const roomHost = root.querySelector('.canvas-room');
 const cargoHost = root.querySelector('.booth-cargo');
 const illustratedWorker = roomHost.querySelector('.static-worker');
 const modelHost = root.querySelector('.model-world');
+root.style.setProperty('--receipt-handover-time', `${RECEIPT_HANDOVER_MS}ms`);
 const homeShortcut = root.querySelector('.home-shortcut');
 const soundToggle = root.querySelector('[data-act="sound"]');
 const fullscreenToggle = root.querySelector('[data-act="fullscreen"]');
@@ -138,6 +142,7 @@ function placeFixtures() {
   const binder = fixtureLayout.archive;
   const sampleBottom = sample ? `${(sample.y + sample.h).toFixed(1)}px` : '';
   const stampControls = fixtureLayout.stampControls;
+  root.toggleAttribute('data-compact-stamps', Boolean(stampControls));
   const stampRadius = stampControls && Math.min(22, Math.max(1, (Math.min(
     stampControls.fail.x - stampControls.pass.x, stampControls.review.x - stampControls.fail.x,
   ) - 1) / 2));
@@ -329,7 +334,7 @@ function animatePrintedReceipt(paper) {
     translate: `${start.x + start.w / 2 - rest.x - rest.w / 2}px ${start.y + start.h / 2 - rest.y - rest.h / 2}px`,
     scale: `${Math.max(.12, start.w / rest.w)} ${Math.max(.04, start.h / rest.h)}`,
   };
-  const duration = RECEIPT_FEED_MS + 235;
+  const duration = RECEIPT_FEED_MS + RECEIPT_LIFT_MS;
   const feed = RECEIPT_FEED_MS / duration;
   paper.animate([
     { ...from, clipPath: 'inset(100% 0 0)', offset: 0 },
@@ -337,6 +342,19 @@ function animatePrintedReceipt(paper) {
     { ...from, clipPath: 'inset(-1rem)', offset: feed, easing: 'cubic-bezier(.17,.73,.33,1)' },
     { translate: '0 0', scale: '1', clipPath: 'inset(-1rem)', offset: 1 },
   ], duration);
+}
+
+function beginReceiptPrint(id) {
+  issuedReceiptId = id;
+  pendingReceiptPrint = true;
+  if (reducedMotion.matches) return;
+  clearTimeout(receiptPrintTimer);
+  receiptPrintTimer = setTimeout(() => {
+    receiptPrintTimer = 0;
+    const surface = modalLayer.querySelector('.receipt-surface');
+    surface?.querySelectorAll('button').forEach((control) => { control.disabled = false; });
+    if (surface && document.activeElement === document.body) focusControl(surface, { act: 'next' });
+  }, RECEIPT_FEED_MS + RECEIPT_LIFT_MS);
 }
 
 function tutorialStep() {
@@ -352,7 +370,7 @@ function activeVisit(state = run) {
 }
 
 function toolsAvailableBetweenBatches() {
-  return arrival?.action === 'next' && arrival.stage === 'waiting';
+  return arrival?.action === 'next' && arrival.hasVisitor && arrival.stage === 'waiting' && !arrival.handingReceipt;
 }
 
 function windowCase() {
@@ -543,12 +561,13 @@ function sceneShipment(state, item, waiting) {
     const record = state.records.at(-1);
     if (!record) return {};
     const route = receiptDisposition(record);
-    const animate = issuedReceiptId === record.id;
-    const shipment = { id: record.id, route, animate, staged: !waiting, inspectable: Boolean(getCase(state)?.carton) };
-    const movingCargo = ['shipping', 'returned', 'held'].includes(route);
+    const handing = Boolean(waiting && arrival.handingReceipt);
+    const departed = waiting && !handing;
+    const slip = { id: record.id, route };
     return {
-      cargo: movingCargo ? shipment : null,
-      outgoingSlip: waiting ? null : shipment,
+      cargo: cargoRoutes.has(route) ? { ...slip, route: departed ? route : 'ready', animate: departed, inspectable: Boolean(getCase(state)?.carton) } : null,
+      outgoingSlip: waiting ? null : { ...slip, animate: issuedReceiptId === record.id },
+      handedReceipt: handing ? slip : null,
     };
   }
   if (!item) return {};
@@ -561,6 +580,7 @@ function setScene() {
   const approaching = arrival?.stage === 'approach';
   const waiting = arrival && !approaching;
   const waitingNpc = waiting && arrival.ready ? visitorAt(windowAdvance(arrival.action)) : null;
+  const keepVisitor = Boolean(arrival?.keepVisitor || arrival?.handingReceipt);
   const sceneRun = approaching ? arrival.next : run;
   const visit = waiting ? null : activeVisit(sceneRun);
   const phase = approaching ? 'arriving' : waiting ? 'waiting' : (run?.phase ?? 'home');
@@ -571,7 +591,7 @@ function setScene() {
   if (catPassing) root.dataset.catPassing = 'true';
   else delete root.dataset.catPassing;
   const item = !waiting && !visit && sceneRun ? getCase(sceneRun) : null;
-  const npc = closingShot ? null : waiting ? (waitingNpc ?? (arrival.keepVisitor ? visitorAt(run) : null))
+  const npc = closingShot ? null : waiting ? (waitingNpc ?? (keepVisitor ? visitorAt(run) : null))
     : visit?.npc ?? (['brief', 'handoff', 'ending'].includes(phase) ? 'zhou' : item?.npc);
   if (illustratedWorker && root.dataset.modeled !== 'true' && roomHost.dataset.sceneReady !== 'true') {
     if (npc) {
@@ -594,7 +614,7 @@ function setScene() {
     documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, item, visit) })),
     sample: appearance ? { ...inspection, filename: `${appearance.stem}${side}.webp`, kind: item.sample.kind, cuffSplit: cuffSplitVisible(item.sample, inspection) } : null,
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
-    keepVisitor: arrival?.keepVisitor ?? false, visitorWaiting: Boolean(waitingNpc),
+    keepVisitor, visitorWaiting: Boolean(waitingNpc),
     phoneHeld, phoneRinging: Boolean(incomingAtWindow()),
     approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
     presentedEvidence: phase === 'case' && item?.shownFinding === presentedEvidence ? presentedEvidence : null,
@@ -661,10 +681,15 @@ function render(resumeScroll, resumeScrollLeft = 0) {
 }
 
 function renderArrivalStatus() {
+  const handingReceipt = Boolean(arrival?.handingReceipt);
   const someoneWaiting = arrival?.ready && arrival.stage === 'waiting';
-  const message = someoneWaiting ? '窗口有人等候'
+  const message = handingReceipt ? '递出回执…'
+    : someoneWaiting ? '窗口有人等候'
     : arrival?.stage === 'approach' ? '窗口递件…'
-    : arrival?.action?.type === 'receive-recall' ? '等收货方回执…' : arrival ? '等下一位…' : '';
+    : arrival?.action?.type === 'receive-recall' ? '等收货方回执…'
+    : arrival?.action === 'next' && !arrival.hasVisitor ? (arrival.nextPhase === 'handoff' ? '去交班…' : '本班收工…')
+    : arrival ? '等下一位…' : '';
+  root.toggleAttribute('data-receipt-handover', handingReceipt);
   arrivalStatus.toggleAttribute('data-visitor-waiting', Boolean(someoneWaiting));
   if (arrivalStatus.textContent !== message) arrivalStatus.textContent = message;
 }
@@ -830,6 +855,9 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const handoffDetailScroll = modalLayer.querySelector('.handoff-detail-scroll')?.scrollTop;
   modalLayer.innerHTML = markup;
   const surface = modalLayer.querySelector('[data-desk-surface]');
+  if (receiptPrintTimer && surface?.matches('.receipt-surface')) {
+    surface.querySelectorAll('button').forEach((control) => { control.disabled = true; });
+  }
   const archiveSearch = searchDraft && surface?.querySelector('#archive-query');
   if (archiveSearch && archiveSearch.defaultValue === searchDraft.query) {
     archiveSearch.value = searchDraft.value;
@@ -849,15 +877,17 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
-  const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]') ?? focusables.find((element) => element instanceof HTMLButtonElement &&
+  const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]:enabled') ?? focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
     !['close', 'toggle-findings', 'remove-finding'].includes(element.dataset.act));
   (glancedPanel ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
   if (surface && surface.dataset.deskSurface !== previousSurface?.dataset.deskSurface) {
     const object = surface.querySelector('.sheet, .sample-stage .sample-object, .receipt-slip');
-    if (object?.classList.contains('receipt-slip') && pendingReceiptPrint) {
-      pendingReceiptPrint = false;
-      animatePrintedReceipt(object);
+    if (object?.classList.contains('receipt-slip')) {
+      if (pendingReceiptPrint) {
+        pendingReceiptPrint = false;
+        animatePrintedReceipt(object);
+      }
     } else {
       animateOnDesk(object, [{ translate: '0 1.3rem', rotate: '-1.4deg', opacity: .56 }, { translate: '0 0', rotate: '0deg', opacity: 1 }], 235);
     }
@@ -1028,6 +1058,8 @@ function enter(restore) {
   historyNavigation = null;
   issuedReceiptId = null;
   pendingReceiptPrint = false;
+  clearTimeout(receiptPrintTimer);
+  receiptPrintTimer = 0;
   presentedEvidence = null;
   let workspace;
   let arrivalAction;
@@ -1079,6 +1111,11 @@ function enter(restore) {
   if (needsArrival(next)) {
     panel = null;
     pauseBeforeArrival(arrivalAction, next, true, true);
+    return;
+  }
+  if (arrivalAction === 'next' && next) {
+    panel = null;
+    finishWindowAdvance(arrivalAction, true);
     return;
   }
   if (savedPair && restoreHandoffPair(savedPair)) return;
@@ -1286,16 +1323,18 @@ function beginWindowApproach() {
 function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
   modalOpener = null;
   const npc = visitorAt(next);
+  const hasVisitor = Boolean(needsArrival(next));
+  const handingReceipt = action === 'next' && !resumed && !reducedMotion.matches;
   arrival = {
     action, restoreFocus, stage: 'waiting', keepVisitor: !resumed && npc !== null && npc === visitorAt(run),
-    approach: arrivalApproach(next),
+    approach: arrivalApproach(next), hasVisitor, nextPhase: next.phase, handingReceipt,
   };
   if (action === 'start-day' && activeVisit(next)?.kind !== 'rework') {
     beginWindowApproach();
     return;
   }
   const duration = action === 'next' ? NEXT_BATCH_PAUSE_MS : action === 'ack-visit' ? VISIT_HANDOVER_MS : ARRIVAL_PAUSE_MS;
-  arrivalTimer = setTimeout(() => {
+  const advance = () => {
     arrivalTimer = 0;
     if (panel && toolsAvailableBetweenBatches()) {
       arrival.ready = true;
@@ -1304,7 +1343,20 @@ function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
       setScene();
       playSound('knock');
     } else beginWindowApproach();
-  }, duration - ARRIVAL_APPROACH_MS);
+  };
+  if (handingReceipt) {
+    const record = run.records.at(-1);
+    const travel = cargoRoutes.has(receiptDisposition(record)) ? CARGO_DEPARTURE_MS : 0;
+    const wait = hasVisitor ? duration - ARRIVAL_APPROACH_MS - RECEIPT_HANDOVER_MS : travel;
+    arrivalTimer = setTimeout(() => {
+      arrival.handingReceipt = false;
+      if (hasVisitor || !getIncomingCall(windowAdvance(action))) playSound('bell');
+      renderArrivalStatus();
+      syncWindowGlance();
+      setScene();
+      arrivalTimer = setTimeout(advance, wait);
+    }, RECEIPT_HANDOVER_MS);
+  } else arrivalTimer = setTimeout(advance, duration - ARRIVAL_APPROACH_MS);
   render();
 }
 
@@ -1819,8 +1871,7 @@ function stamp(value) {
     return;
   }
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
-    issuedReceiptId = run.records.at(-1).id;
-    pendingReceiptPrint = true;
+    beginReceiptPrint(run.records.at(-1).id);
     clearTimeout(toastTimer);
     toastBox.textContent = '';
     playSound('print');
@@ -2183,9 +2234,9 @@ root.addEventListener('click', (event) => {
       captureCorrectionScroll();
       panel = null;
       archiveReturn = null;
-      if (act !== 'next') playSound('paper');
+      if (act !== 'next' || !reducedMotion.matches) playSound('paper');
       else if (needsArrival(next) || !getIncomingCall(next)) playSound('bell');
-      if (needsArrival(next)) pauseBeforeArrival(action, next, event.detail === 0);
+      if (needsArrival(next) || (act === 'next' && !reducedMotion.matches)) pauseBeforeArrival(action, next, event.detail === 0);
       else finishWindowAdvance(action, event.detail === 0);
       break;
     }
@@ -2349,8 +2400,7 @@ root.addEventListener('click', (event) => {
         correctionDraft = null;
         const needsRecall = run.records.find(({ id }) => id === row.id)?.status === 'recallPending';
         if (atWindow) {
-          issuedReceiptId = row.id;
-          pendingReceiptPrint = true;
+          beginReceiptPrint(row.id);
           toast('');
           closePanel();
           scenery?.setPressed?.(key);

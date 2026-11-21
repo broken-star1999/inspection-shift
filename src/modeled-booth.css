@@ -349,13 +349,13 @@
   text-shadow: 0 1px #211d15;
 }
 
-#game[data-modeled='true'] .booth-layout:has(.stamp[data-stamp-control]) .wall-tool[data-fixture='archive'] b {
+#game[data-modeled='true'][data-compact-stamps] .booth-layout .wall-tool[data-fixture='archive'] b {
   inset-block: auto .18rem;
   translate: -50% 0;
 }
 
 @container workstation (max-width: 900px) and (max-height: 440px) {
-  #game[data-modeled='true'] .booth-layout:has(.stamp[data-stamp-control]) .room-hud .training {
+  #game[data-modeled='true'][data-compact-stamps] .booth-layout .room-hud .training {
     --guide-position: calc(100% - 1.25rem) auto;
     --guide-width: min(46cqw, 20rem);
     inset-inline-start: calc(50% - 1.8rem);
@@ -584,7 +584,7 @@
       pointer-events: auto;
     }
 
-    #game[data-modeled='true'] .booth-layout:has(.stamp[data-stamp-control]) [data-fixture='sample'][data-fixture-visible]:enabled:not([data-lifted])::after {
+    #game[data-modeled='true'][data-compact-stamps] .booth-layout [data-fixture='sample'][data-fixture-visible]:enabled:not([data-lifted])::after {
       inset-block-start: calc(var(--fixture-h) - .53rem);
     }
   }

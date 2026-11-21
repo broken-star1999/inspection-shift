@@ -1,5 +1,5 @@
 import { DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
-import { intakeComparison } from './document-comparison.js';
+import { intakeComparison, projectComparison } from './document-comparison.js';
 import { normalizeFindings } from './inspection-findings.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
@@ -490,6 +490,23 @@ function disposition(records, item, decision) {
   return 'shipping';
 }
 
+function receiptAside(state, record) {
+  const item = CASE_BY_ID.get(record.id);
+  if (!item?.reviewAside) return item?.receiptAside;
+  if (record.decision !== 'review') return null;
+  if (item.id === 5 && getWindowSupplementRequest(state)) return G205_SUPPLEMENT_REQUEST.receipt;
+  if (labRequest(state, record.id)) return item.reviewAside.called;
+
+  const order = item.documents.findIndex(({ type }) => type === 'order');
+  const report = item.documents.findIndex(({ type }) => type === 'report');
+  const comparisons = [intakeComparison(item, order), projectComparison(item, order, report)];
+  const amendment = record.amendments?.at(-1);
+  const findings = normalizeFindings(amendment?.atWindow ? amendment.findings : record.findings);
+  const compared = [...findings, record.shownFinding].some((finding) =>
+    comparisons.some((comparison) => sameFinding(finding, comparison?.finding)));
+  return compared ? item.reviewAside.compared : null;
+}
+
 export function receiptFeedback(state) {
   if (state?.phase !== 'receipt') return null;
   const record = withPriorShipment(state.records, state.records.at(-1));
@@ -498,8 +515,7 @@ export function receiptFeedback(state) {
   let line = RECEIPT_HANDLING[record.npc]?.[kind] ?? RECEIPT_HANDLING.default[kind] ?? '';
   if (record.id === state.flags.warningCase && record.decision === 'review') line = '行，我先让他们挪进黄线里。';
   const umbrella = record.id === 17 && state.flags.umbrella ? '你也看见了？老周这两天看见我就催我晾伞。' : null;
-  const aside = record.id === 5 && getWindowSupplementRequest(state) ? G205_SUPPLEMENT_REQUEST.receipt : CASE_BY_ID.get(record.id)?.receiptAside;
-  return [line, umbrella, aside].filter(Boolean).join(' ');
+  return [line, umbrella, receiptAside(state, record)].filter(Boolean).join(' ');
 }
 
 function showFinding(state, value) {

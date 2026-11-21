@@ -341,7 +341,11 @@ export const DAYS = [
       {
         id: 5, batch: 'G-205', npc: 'luo', title: '少来了一张报告',
         line: '二零五，先看这摞。装货台还等着回单。',
-        answer: 'review', reason: '未随货提供本批检验报告', receiptAside: '拿到报告我再来一趟。',
+        answer: 'review', reason: '未随货提供本批检验报告',
+        reviewAside: {
+          compared: '拿到报告我再来一趟。',
+          called: '实验室已经记了这批。签好的报告一到，我先送窗口。',
+        },
         documents: [label('G-205', [], '防噪耳罩'), order('G-205', earmuffChecks, labContact)], sample: earmuff,
       },
       {
@@ -388,7 +392,11 @@ export const DAYS = [
       {
         id: 10, batch: 'G-248', npc: 'zhou', title: '等着上车的二四八',
         line: '二四八这张签过了。装车那边在等。',
-        answer: 'review', reason: '缺少本批耐冲击结果', receiptAside: '实验室那份，我明早去问。',
+        answer: 'review', reason: '缺少本批耐冲击结果',
+        reviewAside: {
+          compared: '耐冲击那份，我明早去实验室问。',
+          called: '实验室已经记了这批。签好的耐冲击结果一到，我先送窗口。',
+        },
         documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-079', [visual, seal], '外观抽检报告'), order('G-248', [['必查项目', '外观、耐冲击'], ['随货要求', '附本批实验室耐冲击结果']], labContact)], sample: shield,
       },
       {

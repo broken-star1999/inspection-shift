@@ -54,7 +54,7 @@ export function shell() {
           <button class="wall-tool wall-phone" data-act="phone" data-fixture="phone"><img src="${asset('tool-phone.webp')}" alt="" fetchpriority="low" draggable="false"><b>内线电话</b><span class="phone-ring-indicator" aria-hidden="true"></span></button>
           <button class="wall-tool wall-archive" data-act="archive" data-fixture="archive"><img src="${asset('tool-archive.webp')}" alt="" fetchpriority="low" draggable="false"><b>交接簿</b></button>
         </aside>
-        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="booth-cargo" aria-hidden="true" hidden><span class="booth-cargo-lane"></span><span class="booth-cargo-crate"></span></div><span class="booth-cat" aria-hidden="true"></span><span class="booth-transfer-slot" aria-hidden="true"></span><div class="booth-shutter" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
+        <div class="room" data-fixture="window"><div class="canvas-room" aria-hidden="true"><img class="static-worker" alt="" decoding="async" draggable="false" hidden></div><div class="booth-cargo" aria-hidden="true" hidden><span class="booth-cargo-lane"></span><span class="booth-cargo-crate"></span></div><span class="booth-cat" aria-hidden="true"></span><span class="booth-transfer-slot" aria-hidden="true"></span><span class="booth-handoff-slip" aria-hidden="true"></span><div class="booth-shutter" aria-hidden="true"></div><div class="glass-stripe" aria-hidden="true"></div><div class="room-hud" id="room-hud"></div></div>
         <aside class="booth-wing booth-right" aria-label="值班告示">
           <div id="wall-shift" data-fixture="shift"></div>
           <button class="wall-notice" data-act="rules" data-fixture="rules">查验要求<span aria-hidden="true">﹣﹣﹣</span></button>
@@ -118,12 +118,9 @@ export function setRoomCargo(layer, cargo) {
   }
   const id = String(cargo.id);
   const sameCase = !layer.hidden && layer.dataset.cargoId === id;
-  const wasStaged = layer.hasAttribute('data-cargo-staged');
-  const staged = Boolean(cargo.staged);
   layer.toggleAttribute('data-cargo-inspectable', Boolean(cargo.inspectable));
-  if (sameCase && layer.dataset.cargoRoute === cargo.route && wasStaged === staged) return;
-  layer.toggleAttribute('data-cargo-moving', Boolean(sameCase && (cargo.animate || wasStaged)));
-  layer.toggleAttribute('data-cargo-staged', staged);
+  if (sameCase && layer.dataset.cargoRoute === cargo.route) return;
+  layer.toggleAttribute('data-cargo-moving', Boolean(sameCase && cargo.animate));
   layer.dataset.cargoId = id;
   layer.dataset.cargoRoute = cargo.route;
   layer.hidden = false;
@@ -738,7 +735,7 @@ export function receipt(record, previous, nextPhase, { supplementKey, canCorrect
     : '';
   const copy = button(canCorrect ? '留底与更正' : '翻本批留底', 'archive-receipt', 'receipt-origin', `data-i="${esc(record.id)}"`);
   const supplement = supplementKey ? button('补件登记联', 'archive-evidence', 'receipt-origin', `data-key="${esc(supplementKey)}"`) : '';
-  const next = nextPhase === 'summary' ? '本班收工' : nextPhase === 'handoff' ? '去交班' : '接着值班';
+  const next = nextPhase === 'summary' ? '递单收工' : nextPhase === 'handoff' ? '递单交班' : '递回执';
   const amendment = record.amendments?.at(-1);
   const correctedHere = amendment?.atWindow === true;
   const currentSlip = correctedHere

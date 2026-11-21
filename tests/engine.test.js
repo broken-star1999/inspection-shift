@@ -406,6 +406,43 @@ test('receipt feedback follows handling rather than revealing whether the stamp 
   assert.match(receiptFeedback(umbrella), /晾伞/);
 });
 
+test('lab paperwork appears in receipt dialogue only for a review supported by that batch', () => {
+  const checked = [];
+  untilHandoff(21, { inspect: (state, item) => {
+    if (item.id !== 5 && item.id !== 10) return state;
+    const isIntake = item.id === 5;
+    const orderIndex = isIntake ? 1 : 2;
+    const comparison = isIntake ? intakeComparison(item, orderIndex) : projectComparison(item, orderIndex, 1);
+    const { finding } = comparison;
+    const missing = isIntake ? /报告|实验室/ : /耐冲击|实验室/;
+    const compared = isIntake ? /拿到报告我再来一趟/ : /耐冲击那份，我明早去实验室问/;
+    const stamp = (atWindow, value, findings) => act(atWindow, 'stamp', { value, findings });
+    const ignored = act(state, 'dial', { number: '204', papers: [{ id: item.id, index: 0 }] });
+    const requested = act(state, 'dial', { number: '204', papers: [{ id: item.id, index: orderIndex }] });
+
+    assert.doesNotMatch(receiptFeedback(stamp(state, 'review')), missing);
+    assert.doesNotMatch(receiptFeedback(stamp(ignored, 'review')), missing);
+    assert.doesNotMatch(receiptFeedback(stamp(state, 'review', [{ ...finding, text: '批号吻合' }])), missing);
+    assert.match(receiptFeedback(stamp(state, 'review', [finding])), compared);
+    assert.match(receiptFeedback(stamp(requested, 'review')), /实验室已经记了这批/);
+    for (const decision of ['pass', 'fail']) {
+      const issued = stamp(requested, decision, [finding]);
+      assert.doesNotMatch(receiptFeedback(issued), missing);
+    }
+    const unsupported = stamp(state, 'pass', [finding]);
+    const corrected = act(unsupported, 'recheck-receipt', { id: item.id, value: 'review' });
+    assert.equal(corrected.records.at(-1).decision, 'review');
+    assert.doesNotMatch(receiptFeedback(corrected), missing);
+    if (isIntake) {
+      const shown = act(requested, 'show-finding', { finding });
+      assert.match(receiptFeedback(stamp(shown, 'review')), /我带补件联去趟实验室/);
+    }
+    checked.push(item.id);
+    return requested;
+  } });
+  assert.deepEqual(checked, [5, 10]);
+});
+
 test('the next day brings a single G-202 rework or hold record without changing the original receipt', () => {
   for (const [decision, status] of [['fail', 'returned'], ['review', 'held']]) {
     const monday = act(receiptAt(4, 'fail', { decisions: { 2: decision } }), 'next');
