@@ -535,6 +535,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let cargo = null;
   let cargoFrom = cargoStart;
   let cargoMotionAt = -Infinity;
+  const cargoBounds = new THREE.Box3();
   let slipMotionAt = -Infinity;
   let evidenceKey = null;
   let evidenceMotionAt = -Infinity;
@@ -713,7 +714,9 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const requested = frame.cargo ?? (waiting || closingDeparture ? cargo : null);
     const release = (waiting || closing) && requested?.staged;
     const next = release ? { ...requested, staged: false, animate: true } : requested;
-    if (next?.id === cargo?.id && next?.route === cargo?.route && Boolean(next?.staged) === Boolean(cargo?.staged)) return;
+    if (next?.id === cargo?.id && next?.route === cargo?.route &&
+        Boolean(next?.staged) === Boolean(cargo?.staged) &&
+        Boolean(next?.inspectable) === Boolean(cargo?.inspectable)) return;
 
     const sameBatch = next && cargo && next.id === cargo.id;
     const from = sameBatch ? cargoPose(now) : null;
@@ -873,6 +876,8 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     const pose = cargoPose(now);
     box.visible = Boolean(pose?.visible);
     if (!pose?.visible) return false;
+    models.cargoLabels.torn.visible = Boolean(cargo.inspectable);
+    models.cargoLabels.intact.visible = !cargo.inspectable;
     box.position.set(pose.x, 0, pose.z);
     box.rotation.y = pose.angle;
     return pose.moving;
@@ -916,6 +921,10 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     for (const [key, box] of Object.entries(staticBounds)) {
       const rect = projectBox(box, camera, width, height);
       if (rect) controls[key] = rect;
+    }
+    if (frame.phase === 'case' && cargo?.route === 'ready' && cargo.inspectable && models.cargo.visible) {
+      const rect = projectBox(cargoBounds.setFromObject(models.cargo), camera, width, height);
+      if (rect) controls.carton = rect;
     }
     if (frame.phase !== 'waiting' && frame.phase !== 'arriving') {
       paperSet.forEach((paper, index) => {

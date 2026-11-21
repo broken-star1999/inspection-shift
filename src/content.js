@@ -115,6 +115,17 @@ function g206Documents(reportBatch) {
   ];
 }
 
+function g217Documents(orderFields = earmuffChecks) {
+  return [
+    label('无法识别', [['残留', '只剩空白底纸']], '防噪耳罩'),
+    report('G-217', 'R-087', earmuffReport),
+    order('G-217', orderFields),
+  ];
+}
+
+const g217ExpectedCode = 'C-217-03';
+const g217ReplayDocuments = g217Documents([...earmuffChecks, ['箱底喷码', g217ExpectedCode]]);
+
 const clear = { kind: 'clear', appearance: 'classic', front: '视窗平整，转一个角度也看不到裂纹或划伤。', back: '两侧插片完整。扣上后轻拉，没有脱开。' };
 const shield = { kind: 'clear', appearance: 'shield', front: '弧形透明面屏的视野内没有划伤，前缘完整。', back: '沿内侧接缝检查，面屏与头带固定座贴合，连接点没有开裂。' };
 const glove = { kind: 'clear', appearance: 'glove', front: '掌面覆层平整，指尖没有起皮或破口。', back: '背面的缝线连续，织布腕口边缘收得齐整。' };
@@ -445,7 +456,18 @@ export const DAYS = [
         id: 17, batch: 'G-217', npc: 'luo', title: '掉了的箱签',
         line: '签掉了。我肯定这是二一七，库里那排只剩这一箱。',
         answer: 'review', reason: '箱与本批报告无法对应',
-        documents: [label('无法识别', [['残留', '只剩空白底纸']], '防噪耳罩'), report('G-217', 'R-087', earmuffReport), order('G-217', earmuffChecks)], sample: earmuff,
+        documents: g217Documents(), sample: earmuff, carton: { code: null },
+        variants: [
+          {},
+          {
+            answer: 'pass', reason: '箱底喷码 C-217-03 与送检联登记一致',
+            documents: g217ReplayDocuments, carton: { code: g217ExpectedCode },
+          },
+          {
+            answer: 'review', reason: '箱底喷码 C-271-03 与送检联登记 C-217-03 不符',
+            documents: g217ReplayDocuments, carton: { code: 'C-271-03' },
+          },
+        ],
       },
       {
         id: 18, batch: 'G-218', npc: 'xu', title: '卡扣插片的厚度',

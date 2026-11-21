@@ -63,6 +63,8 @@ function workshopMaterials() {
     cargoTop: mat('#b38753', .97, 0, paint), cargoSide: mat('#94663b', .96, 0, paint),
     cargoTape: mat('#d6b979', .87), cargoLane: mat('#4a534a', .96, 0, paint),
     cargoMark: mat('#e2b546', .95),
+    cargoAdhesive: mat('#ba9e70', .9, 0, grain),
+    cargoResidue: mat('#e5d4aa', .98, 0, grain),
   };
 }
 
@@ -375,6 +377,35 @@ function markStroke(parent, material, x1, z1, x2, z2, thickness, y) {
   stroke.rotateZ(-Math.atan2(z2 - z1, x2 - x1));
 }
 
+function cartonScrap(parent, material, points, depth) {
+  const outline = new THREE.Shape();
+  points.forEach(([x, y], index) => {
+    if (index) outline.lineTo(x, y);
+    else outline.moveTo(x, y);
+  });
+  outline.closePath();
+  return place(parent, new THREE.Mesh(new THREE.ShapeGeometry(outline), material), 0, 0, depth);
+}
+
+function makeTornCartonLabel(cargo, m, z) {
+  const remnant = place(cargo, new THREE.Group(), -.224, .272, z);
+  remnant.rotation.z = -.047;
+  cartonScrap(remnant, m.cargoAdhesive, [
+    [-.152, -.088], [.143, -.086], [.152, .087], [-.147, .094],
+  ], .001);
+  cartonScrap(remnant, m.cargoResidue, [
+    [-.139, -.073], [-.109, -.071], [-.080, -.084], [-.051, -.071], [-.016, -.079],
+    [.015, -.068], [.061, -.073], [.079, -.059], [.127, -.063], [.141, -.020],
+    [.113, -.003], [.133, .026], [.091, .018], [.052, .052], [.019, .045],
+    [-.019, .066], [-.056, .058], [-.091, .072], [-.128, .077], [-.144, .040],
+  ], .004);
+  for (const [x, y, length] of [[-.096, .049, .074], [-.084, -.054, .04], [.042, -.065, .07], [.068, .02, .025]]) {
+    box(remnant, m.paperEdge, length, .0035, .001, x, y, .0055);
+  }
+  remnant.visible = false;
+  return remnant;
+}
+
 function makeCargoLane(parent, m) {
   const lane = place(parent, new THREE.Group(), .15, 1.27, -2.39);
   flat(lane, [m.cargoLane, m.rail], 7.24, .96, .096, 0, -.079, 0, .046, .016);
@@ -410,9 +441,10 @@ function makeCargoLane(parent, m) {
   for (const x of [-.076, -.046, -.020, .013, .037, .075]) {
     box(label, m.graphite, .013, .037, .007, x, -.039, .009);
   }
+  const tornLabel = makeTornCartonLabel(cargo, m, depth / 2 + .020);
   box(cargo, m.oldInk, .115, .072, .007, .286, .133, depth / 2 + .023);
   cargo.visible = false;
-  return cargo;
+  return { cargo, cargoLabels: { intact: label, torn: tornLabel } };
 }
 
 function makeStampMachine(parent, m, anchors, caps) {
@@ -471,6 +503,6 @@ export function createWorkbenchModels() {
   anchors.sample = makeTray(group, m);
   anchors.pencil = makePencil(group, m);
   const outgoingSlip = makeStampMachine(group, m, anchors, caps);
-  const cargo = makeCargoLane(group, m);
-  return { group, anchors, caps, cargo, outgoingSlip };
+  const { cargo, cargoLabels } = makeCargoLane(group, m);
+  return { group, anchors, caps, cargo, cargoLabels, outgoingSlip };
 }

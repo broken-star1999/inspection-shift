@@ -86,7 +86,7 @@ export function createRun(seed) {
 }
 
 export function createFollowingRun(previousRun, seed) {
-  const run = { ...createRun(seed), sampleSet: 4, replayDocuments: true, tutorial: TUTORIAL.length };
+  const run = { ...createRun(seed), sampleSet: 4, replayDocuments: true, replayCartons: true, tutorial: TUTORIAL.length };
   if (!previousRun || REPLAY_VARIANT_CASES.some((item) => variantIndex(previousRun, item) !== variantIndex(run, item))) {
     return run;
   }
@@ -125,6 +125,7 @@ function variantIndex(state, item) {
   if (item.id === 3 && state.sampleSet !== 4) return 0;
   if (item.id === 6) return state.replayDocuments === true ? seededChoice(state.seed, item.id, item.variants.length) : 0;
   if (item.id === 16 && ![2, 3, 4].includes(state.sampleSet)) return 0;
+  if (item.id === 17) return state.replayCartons === true ? 1 + seededChoice(state.seed, item.id, item.variants.length - 1) : 0;
   if (item.id === 18 && ![3, 4].includes(state.sampleSet)) return 0;
   const override = state.variantOverride;
   if (override?.caseId === item.id && Number.isInteger(override.index) && override.index >= 0 && override.index < item.variants.length) {

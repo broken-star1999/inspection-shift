@@ -1,5 +1,6 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
-import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
+import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
+import { cartonModel } from './carton-inspector.js';
 import { canShowFinding, receiptDisposition, receiptFeedback, TRACE_CASE_ID } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { CUFF_SPLIT_PATCHES, cuffSplitVisible, earCupMark, sampleAppearance, sampleFinding, sampleObservation } from './samples.js';
@@ -115,6 +116,7 @@ export function setRoomCargo(layer, cargo) {
   const sameCase = !layer.hidden && layer.dataset.cargoId === id;
   const wasStaged = layer.hasAttribute('data-cargo-staged');
   const staged = Boolean(cargo.staged);
+  layer.toggleAttribute('data-cargo-inspectable', Boolean(cargo.inspectable));
   if (sameCase && layer.dataset.cargoRoute === cargo.route && wasStaged === staged) return;
   layer.toggleAttribute('data-cargo-moving', Boolean(sameCase && (cargo.animate || wasStaged)));
   layer.toggleAttribute('data-cargo-staged', staged);
@@ -213,10 +215,13 @@ export function desk(run, item, tutorial, interaction) {
     ${button(`查验依据 ${findings.length}`, 'bench-findings', 'bench-draft-toggle', `aria-expanded="${Boolean(benchFindingsOpen)}" aria-controls="bench-findings"`)}
     <div class="bench-draft-body${cls('bench-facing-visitor', viewer)}" id="bench-findings" role="region" aria-label="出票前查验依据"${benchFindingsOpen ? '' : ' hidden'}>${benchFindingsOpen ? findingLines(findings, 'remove-finding', { viewer, shown, supplement }) : ''}</div>
   </aside>` : '';
+  const carton = item.carton && !stampBlocked && !issued
+    ? '<button type="button" class="carton-fixture" data-act="carton" data-fixture="carton" aria-label="拿近外箱"><span>看外箱</span></button>' : '';
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, target, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
+      ${carton}
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
     <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="拿起检样，${appearance.name}"${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
-    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
+    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${item.carton ? '申报 ' : ''}${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
       ${benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
 
@@ -509,6 +514,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     let fieldActions;
     if (!tutorial && !comparing) {
       if (page.type === 'order') fieldActions = orderFieldActions(item, position, visible, inspection.selected);
+      else if (item.carton && page.type === 'label') fieldActions = new Map([['批号', button('看外箱', 'carton', 'secondary document-field-action')]]);
       else if (relabelComparison(item, position)) fieldActions = new Map([['原箱批号',
         button('对批号', 'relabel-check', 'secondary document-field-action', `data-i="${position}"${active(false)}`)]]);
     }
@@ -606,13 +612,27 @@ export function sample(item, inspection, tutorial, progress) {
   const observationCard = `<div class="sample-findings"><b>${inGauge ? '已放入量规' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>
     ${back && appearance.clasp && clasp && !tug && !practicing ? '<p class="sample-clasp-feedback">已按下扣件，可以轻拉。</p>' : ''}
     ${inGauge ? `<p class="reading">量规读数 <strong>${esc(spec.reading)}</strong></p>` : ''}</div>`;
-  return deskSurface(`${item.batch} · ${appearance.name}`, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
+  const title = item.carton ? `${appearance.name} · 箱号待核` : `${item.batch} · ${appearance.name}`;
+  return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(spec.reading, measured) : ''}${thicknessAction}</div>
     ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded) : observationCard}</div>
     <div class="modal-actions">${guidedFlip ? '' : flipAction}${basis}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
     headerActions: (guidedFlip ? flipAction : '') + referenceActions + phoneAction + draft.header,
     closeLabel: stampReady ? '回台面开单' : '放下检样', closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
   });
+}
+
+export function carton(item, progress) {
+  const bottom = progress.cartonBottom === true;
+  const order = item.documents.find(({ type }) => type === 'order');
+  const reference = order ? sheet({ ...order, fields: order.fields.filter(([field]) => ['批号', '箱底喷码'].includes(field)) }) : '';
+  const finding = cartonFinding(item, bottom);
+  const selected = finding && readFindings(progress).some(({ key }) => key === finding.key);
+  const turn = button(bottom ? '翻回正面' : '翻看箱底', 'carton-turn', 'secondary carton-turn');
+  const note = finding ? button(selected ? '已记下' : '记下箱底观察', 'carton-note', 'secondary carton-note', active(selected)) : '';
+  const empty = bottom && !item.carton.code ? '<p class="carton-no-ink">箱底没有可辨喷码。</p>' : '';
+  const body = `<div class="carton-workbench"><div class="carton-inspect-object">${cartonModel(bottom ? item.carton.code : null, bottom)}${empty}</div>${reference}</div>`;
+  return deskSurface('外箱查验', body, 'carton-surface', '放下外箱', bottom ? 'bottom' : 'front', { footer: turn + note, closeLabel: '放下外箱' });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {
@@ -690,12 +710,13 @@ export function receipt(record, previous, nextPhase, { supplementKey, canCorrect
   const shownSeparately = currentSlip.shownFinding && !findings.some((finding) => sameFinding(finding, currentSlip.shownFinding));
   const findingCount = findings.length + (shownSeparately ? 1 : 0);
   const basis = findingCount ? button(`查看依据 <b>${findingCount} 条</b> <span aria-hidden="true">↓</span>`, 'receipt-basis', 'receipt-basis-link') : '';
-  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${change}${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(currentSlip, '去向', correctedHere || record.decision === 'review', correctedHere ? '更正依据' : '开单依据')}</div>`;
+  const batch = record.id === 17 ? `申报 ${esc(record.batch)}` : esc(record.batch);
+  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${batch}</b><span class="receipt-result">${labels[record.decision]}</span>${change}${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(currentSlip, '去向', correctedHere || record.decision === 'review', correctedHere ? '更正依据' : '开单依据')}</div>`;
   return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + supplement + copy + button(next, 'next', 'primary') });
 }
 
 function correctionPanel(record, findings, selected, supportingBasis) {
-  const originals = readFindings(record).filter(({ key }) => key.startsWith('sample:') || key.startsWith('compare:'));
+  const originals = readFindings(record).filter(({ key }) => key.startsWith('sample:') || key.startsWith('compare:') || key.startsWith('box:'));
   const option = ({ key, source, text }) =>
     button(`<small>${esc(source)}</small><span>${esc(text)}</span>`, 'correction-original', 'secondary correction-original', `data-key="${esc(key)}"${active(selected.has(key))}`);
   return `<section class="correction-panel" aria-label="本次更正依据">

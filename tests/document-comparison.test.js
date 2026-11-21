@@ -1,11 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DAYS, PRESSURE } from '../src/content.js';
-import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
+import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
 import { createRun, dispatch, getCase, getDay } from '../src/engine.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress } from '../src/inspection-progress.js';
 
 const cases = new Map(DAYS.flatMap(({ cases }) => cases.map((item) => [item.id, item])));
+
+test('records the actual carton face only after turning it, independently of the stamp', () => {
+  const item = cases.get(17);
+  assert.equal(cartonFinding(item, false), null);
+  assert.equal(cartonFinding(cases.get(18), true), null);
+  assert.deepEqual(cartonFinding(item, true), {
+    key: 'box:17:bottom', source: '外箱底面', text: '箱底没有可辨喷码',
+  });
+  const mismatch = { ...item, ...item.variants[2] };
+  assert.equal(cartonFinding(mismatch, false), null);
+  assert.deepEqual(cartonFinding({ ...mismatch, answer: 'pass' }, true), {
+    key: 'box:17:bottom', source: '外箱底面 / 送检联', text: '箱底实码 · C-271-03；送检登记 · C-217-03',
+  });
+});
 
 test('thickness compares the actual gauge value with the two original paper fields', () => {
   const item = cases.get(18);

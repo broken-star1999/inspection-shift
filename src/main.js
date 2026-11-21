@@ -7,7 +7,7 @@ import { freshInteraction, captureInspectionProgress, restoreInspectionProgress,
 import { readFindings } from './inspection-findings.js';
 import { reportWorkspace } from './report-workspace.js';
 import { completedShiftHistory, collectedEndingIds, createWeekId } from './completed-shifts.js';
-import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
+import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { handoffComparison } from './handoff-comparison.js';
 import * as view from './view.js';
 import './style.css';
@@ -17,6 +17,7 @@ import './view-camera.css';
 import './modeled-booth.css';
 import './devices.css';
 import './sample-inspection.css';
+import './carton-inspector.css';
 
 const root = document.querySelector('#game');
 const SAVE_KEY = 'nandu-inspection-save-v1';
@@ -437,7 +438,7 @@ function sceneShipment(state, item, waiting) {
     if (!record) return {};
     const route = receiptDisposition(record);
     const animate = issuedReceiptId === record.id;
-    const shipment = { id: record.id, route, animate, staged: !waiting };
+    const shipment = { id: record.id, route, animate, staged: !waiting, inspectable: Boolean(getCase(state)?.carton) };
     const movingCargo = ['shipping', 'returned', 'held'].includes(route);
     return {
       cargo: movingCargo ? shipment : null,
@@ -447,7 +448,7 @@ function sceneShipment(state, item, waiting) {
   if (!item) return {};
   const prior = getPreviousReceipt(state, item);
   if (prior?.sameLot && ['shipped', 'recallPending'].includes(prior.record.status)) return {};
-  return { cargo: { id: item.id, route: 'ready', animate: false } };
+  return { cargo: { id: item.id, route: 'ready', animate: false, inspectable: Boolean(item.carton) } };
 }
 
 function setScene() {
@@ -601,6 +602,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   if (panel === 'docs' && item) markup = view.documents(item, viewedDocument(), compare, step, work, previousInspection(item));
   if (panel === 'sample' && item) markup = view.sample(item, inspection, step, work);
+  if (panel === 'carton' && item?.carton) markup = view.carton(item, work);
   if (panel === 'archive' && run) {
     const sources = archivedReportSources(run, reportIndex ?? archiveQuery);
     const returnTo = archiveReturn?.panel;
@@ -761,6 +763,7 @@ function workspaceContext() {
 function workspaceBody() {
   if (panel === 'docs') return modalLayer.querySelector('.documents-surface .desk-surface-content');
   if (panel === 'sample') return modalLayer.querySelector('.sample-surface .desk-surface-content');
+  if (panel === 'carton') return modalLayer.querySelector('.carton-surface .desk-surface-content');
   if (panel === 'phone') return modalLayer.querySelector('.phone-modal .modal-body');
   if (panel === 'handoff') return modalLayer.querySelector('.handoff-detail-scroll');
   if (panel === 'archive') return modalLayer.querySelector('.archive-surface .desk-surface-content');
@@ -949,7 +952,7 @@ function enter(restore) {
     if (panel === 'handoff') revealHandoffSelection();
     return;
   }
-  const resumeSound = { docs: 'paper', sample: 'slide', phone: 'click' }[panel];
+  const resumeSound = { docs: 'paper', sample: 'slide', carton: 'slide', phone: 'click' }[panel];
   if (resumeSound) playSound(resumeSound);
   else if (run.phase !== 'summary') playSound(run.phase === 'ending' ? 'paper' : 'shutter');
   render(lookup?.scrollTop ?? workspace?.scrollTop);
@@ -1301,7 +1304,7 @@ function selectedCorrectionFindings(row, keys = []) {
   if (!row) return [];
   const available = [
     ...row.documents.flatMap((doc, index) => doc.fields.map((_, field) => paperFieldFinding(doc, index, field))),
-    ...readFindings(row.record).filter(({ key }) => key.startsWith('sample:') || key.startsWith('compare:')),
+    ...readFindings(row.record).filter(({ key }) => key.startsWith('sample:') || key.startsWith('compare:') || key.startsWith('box:')),
   ];
   const supporting = filedCorrectionBasis(row);
   if (supporting) available.push(supporting.finding);
@@ -1487,6 +1490,32 @@ function openSample(opener) {
   openPanel('sample', opener);
 }
 
+function checkCarton(action, opener) {
+  const item = windowCase();
+  if (run?.phase !== 'case' || !item?.carton) return;
+  if (action === 'carton') {
+    if (panel && panel !== 'docs') return;
+    playSound('slide');
+    openPanel('carton', opener);
+    return;
+  }
+  if (panel !== 'carton') return;
+  if (action === 'carton-turn') {
+    interaction.cartonBottom = !interaction.cartonBottom;
+    playSound('slide');
+    render();
+    animateOnDesk(modalLayer.querySelector('.carton-model'), [
+      { rotate: 'x -24deg', opacity: .7 }, { rotate: 'x 0deg', opacity: 1 },
+    ], 235);
+  } else {
+    const finding = cartonFinding(item, interaction.cartonBottom);
+    if (!finding) return;
+    toggleFinding(finding);
+    playSound('click');
+    render();
+  }
+}
+
 function toggleReference() {
   if (panel !== 'sample') return;
   const documents = getCase(run)?.documents;
@@ -1588,7 +1617,7 @@ function checkSample(act) {
 function stamp(value) {
   if (arrival || activeVisit() || run?.phase !== 'case') return;
   if (panel) {
-    if (['docs', 'sample', 'archive'].includes(panel)) toast('先回到台面，再用开单机盖章');
+    if (['docs', 'sample', 'carton', 'archive'].includes(panel)) toast('先回到台面，再用开单机盖章');
     return;
   }
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
@@ -1855,6 +1884,7 @@ root.addEventListener('click', (event) => {
   if (act === 'doc' && suppressPaperClick && event.detail > 0) return;
   if (act.startsWith('sample-')) { checkSample(act); return; }
   switch (act) {
+    case 'carton': case 'carton-turn': case 'carton-note': checkCarton(act, target); break;
     case 'window-glance': toggleWindowGlance(); break;
     case 'how': case 'rules': openPanel(act, target); break;
     case 'completed-shifts':

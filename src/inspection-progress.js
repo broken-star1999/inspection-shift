@@ -61,6 +61,7 @@ function caseProgress(item, progress) {
     orderSeen: progress?.orderSeen === true,
     filmChecked: item?.id === 2 && (progress?.filmChecked === true || inspection?.film === true),
     benchFindingsOpen: progress?.benchFindingsOpen === true,
+    ...(item?.carton && progress?.cartonBottom === true ? { cartonBottom: true } : {}),
   };
 }
 
@@ -90,9 +91,10 @@ function hasRecordedSignature(item, findings) {
 function workspaceProgress(item, work, inspection, context = {}) {
   const { prior, guided } = context;
   const panel = work?.panel;
-  if (!['docs', 'sample', 'phone'].includes(panel)) return null;
+  if (!['docs', 'sample', 'phone', 'carton'].includes(panel)) return null;
   const scrollTop = Number.isFinite(work.scrollTop) ? Math.max(0, work.scrollTop) : 0;
   const workspace = { panel, scrollTop };
+  if (panel === 'carton') return item.carton ? workspace : null;
   if (panel === 'phone') {
     const source = work.returnTo;
     if (['docs', 'sample'].includes(source?.panel)) {

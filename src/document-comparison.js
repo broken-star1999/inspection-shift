@@ -16,6 +16,18 @@ function fieldText(document, labels) {
   return rowsOf(document).filter(([label]) => labels.includes(label)).map(([, value]) => cleanText(value)).filter(Boolean).join('；');
 }
 
+export function cartonFinding(item, bottom) {
+  if (!item?.carton || bottom !== true) return null;
+  const order = item.documents.find(({ type }) => type === 'order');
+  const expected = fieldText(order, ['箱底喷码']);
+  const observed = item.carton.code || '无可辨喷码';
+  return {
+    key: `box:${item.id}:bottom`,
+    source: expected ? '外箱底面 / 送检联' : '外箱底面',
+    text: expected ? `箱底实码 · ${observed}；送检登记 · ${expected}` : item.carton.code ? `箱底实码 · ${observed}` : '箱底没有可辨喷码',
+  };
+}
+
 export function intakeComparison(item, orderIndex) {
   const order = documentAt(item, orderIndex, 'order');
   const requirement = fieldText(order, ['随货材料', '随货要求']);

@@ -76,7 +76,7 @@ test('an experienced week can begin without a previous snapshot and stamp the fi
   const seed = 'experienced replay';
   const original = createRun(seed);
   const experienced = createFollowingRun(null, seed);
-  assert.deepEqual(experienced, { ...original, sampleSet: 4, replayDocuments: true, tutorial: TUTORIAL.length });
+  assert.deepEqual(experienced, { ...original, sampleSet: 4, replayDocuments: true, replayCartons: true, tutorial: TUTORIAL.length });
   const first = act(experienced, 'start-day');
   assert.equal(getCase(first).id, 1);
   const stamped = act(first, 'stamp', { value: 'pass' });
@@ -206,6 +206,55 @@ test('G-206 replay checks the report against the original box, with the same cur
     assert.equal(old.item.variant, 0);
     assert.deepEqual(old.row.documents, normal.row.documents);
     assert.deepEqual([old.row.record.answer, old.row.record.status], ['pass', 'shipped']);
+  }
+});
+
+test('G-217 replay keeps the papers and sample the same while the actual carton code changes', () => {
+  function inspectCarton(initialState, decision) {
+    let item;
+    const week = untilHandoff(initialState.seed, { initialState, decisions: { 17: decision }, inspect: (state, arrived) => {
+      if (arrived.id !== 17) return state;
+      const restored = restoreRun(JSON.parse(JSON.stringify(state)));
+      item = getCase(restored);
+      assert.deepEqual(item, arrived);
+      return restored;
+    } });
+    const restoredWeek = restoreRun(JSON.parse(JSON.stringify(week)));
+    const row = archive(restoredWeek).find(({ id }) => id === 17);
+    assert.deepEqual(row.carton, item.carton);
+    assert.deepEqual(row.documents, item.documents);
+    const [report] = archivedReportSources(restoredWeek, 'R-087');
+    assert.deepEqual([report.id, report.index, report.document], [17, 1, item.documents[1]]);
+    return { item, row, ending: getEnding(act(restoredWeek, 'finish')) };
+  }
+
+  const matched = inspectCarton(createFollowingRun(null, 1));
+  const mismatched = inspectCarton(createFollowingRun(null, 0));
+  assert.deepEqual([matched.item.variant, mismatched.item.variant], [1, 2]);
+  assert.deepEqual([matched.item.carton, mismatched.item.carton], [{ code: 'C-217-03' }, { code: 'C-271-03' }]);
+  assert.deepEqual(matched.item.documents, mismatched.item.documents);
+  assert.deepEqual(matched.item.documents[2].fields.find(([field]) => field === '箱底喷码'), ['箱底喷码', 'C-217-03']);
+  assert.deepEqual(matched.item.sample, mismatched.item.sample);
+  assert.equal(matched.item.line, mismatched.item.line);
+  assert.equal(matched.item.npc, mismatched.item.npc);
+  assert.deepEqual([matched.row.record.answer, matched.row.record.status], ['pass', 'shipping']);
+  assert.deepEqual([mismatched.row.record.answer, mismatched.row.record.status], ['review', 'held']);
+  assert.deepEqual(matched.ending.issues, []);
+  assert.ok(mismatched.ending.heldReceipts.some(({ id }) => id === 17));
+
+  const rushed = inspectCarton(createFollowingRun(null, 0), 'pass');
+  assert.deepEqual(rushed.ending.issues.map(({ id }) => id), [17]);
+  const delayed = inspectCarton(createFollowingRun(null, 1), 'review');
+  assert.deepEqual(delayed.ending.delayedReceipts.map(({ id }) => id), [17]);
+
+  const { replayCartons: _cartonMarker, ...oldReplay } = createFollowingRun(null, 1);
+  for (const oldRun of [createRun(1), oldReplay]) {
+    const old = inspectCarton(oldRun);
+    const oldOrderFields = matched.item.documents[2].fields.filter(([field]) => field !== '箱底喷码');
+    assert.equal(old.item.variant, 0);
+    assert.deepEqual(old.item.carton, { code: null });
+    assert.deepEqual(old.item.documents, [...matched.item.documents.slice(0, 2), { ...matched.item.documents[2], fields: oldOrderFields }]);
+    assert.deepEqual([old.row.record.answer, old.row.record.status], ['review', 'held']);
   }
 });
 
