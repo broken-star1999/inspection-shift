@@ -268,6 +268,22 @@ test('restores the exact sample and document comparison behind the phone after r
   assert.equal(invalid.inspection.measured, true);
 });
 
+test('a call started from a filed document can return to the same seen archive row after reload', () => {
+  const current = { ...item, id: 14 };
+  const seen = [11, 14];
+  const work = freshInteraction({ phoneNumber: '107', pinned: [11] });
+  const origin = { panel: 'archive', archiveFocus: 11, archiveQuery: 'G-211', scrollTop: 128 };
+  const saved = captureInspectionProgress(current, work, { panel: 'phone', scrollTop: 17, returnTo: origin, seen });
+  const reloaded = JSON.parse(JSON.stringify(saved));
+  const valid = restoreInspectionProgress(reloaded, current, seen, {});
+  assert.deepEqual(valid.workspace, { panel: 'phone', scrollTop: 17, returnTo: origin });
+  assert.deepEqual(valid.pinned, [11]);
+  assert.equal(valid.phoneNumber, '107');
+  const missing = restoreInspectionProgress(reloaded, current, [14], {});
+  assert.deepEqual(missing.workspace, { panel: 'phone', scrollTop: 17 });
+  assert.deepEqual(missing.pinned, []);
+});
+
 test('rejects unsupported workspaces and invalid document values while preserving case progress', () => {
   const work = { ...freshInteraction(), note: '可恢复' };
   const progress = captureInspectionProgress(item, work);

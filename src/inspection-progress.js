@@ -74,9 +74,17 @@ function workspaceProgress(item, work, context = {}) {
   const scrollTop = Number.isFinite(work.scrollTop) ? Math.max(0, work.scrollTop) : 0;
   const workspace = { panel, scrollTop };
   if (panel === 'phone') {
-    if (['docs', 'sample'].includes(work.returnTo?.panel)) {
-      const origin = workspaceProgress(item, work.returnTo, context);
+    const source = work.returnTo;
+    if (['docs', 'sample'].includes(source?.panel)) {
+      const origin = workspaceProgress(item, source, context);
       if (origin) workspace.returnTo = origin;
+    } else if (source?.panel === 'archive' && Number.isInteger(source.archiveFocus) && context.seen?.includes(source.archiveFocus)) {
+      workspace.returnTo = {
+        panel: 'archive', archiveFocus: source.archiveFocus,
+        archiveQuery: typeof source.archiveQuery === 'string' ? source.archiveQuery : '',
+        scrollTop: Number.isFinite(source.scrollTop) ? Math.max(0, source.scrollTop) : 0,
+        ...(typeof source.reportIndex === 'string' && /^R-\d{3}$/.test(source.reportIndex) ? { reportIndex: source.reportIndex } : {}),
+      };
     }
     return workspace;
   }
@@ -158,10 +166,11 @@ export function restoreInspectionProgress(progress, item, seen = [], context) {
     restored.signed = true;
     restored.reportSeen = true;
   }
-  const workspace = context ? workspaceProgress(item, progress.workspace, context) : null;
+  const workspace = context ? workspaceProgress(item, progress.workspace, { ...context, seen }) : null;
   if (!workspace) return restored;
   const { panel, scrollTop, priorId: _priorId, returnTo, ...fields } = workspace;
   if (!returnTo) return { ...restored, ...fields, workspace: { panel, scrollTop } };
   const { panel: origin, scrollTop: originScroll, priorId: _originPrior, ...originFields } = returnTo;
+  if (origin === 'archive') return { ...restored, ...fields, workspace: { panel, scrollTop, returnTo } };
   return { ...restored, ...originFields, ...fields, workspace: { panel, scrollTop, returnTo: { panel: origin, scrollTop: originScroll } } };
 }

@@ -1,5 +1,5 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, receiptDisposition, TUTORIAL, EVIDENCE } from './engine.js';
-import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE } from './content.js';
+import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
 import { captureDeskProjection } from './desk-projection.js';
@@ -570,7 +570,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const filed = archive(run);
     const papers = pinned.map((id) => filed.find((row) => row.id === id)).filter(Boolean);
     markup = view.phone(phoneNumber, run.phone, papers, run.day >= 1, run.flags.phoneBack, item, {
-      returnTo: phoneReturn?.panel,
+      returnTo: phoneReturn?.reportIndex ? 'report-index' : phoneReturn?.panel,
       incomingCall,
     });
   }
@@ -688,6 +688,7 @@ function workspaceContext() {
   return {
     prior: previous ? { id: previous.record.id, documentCount: previous.documents.length } : null,
     guided: Boolean(tutorialStep()),
+    seen: run.seen,
   };
 }
 
@@ -696,7 +697,7 @@ function workspaceBody() {
   if (panel === 'sample') return modalLayer.querySelector('.sample-surface .desk-surface-content');
   if (panel === 'phone') return modalLayer.querySelector('.phone-modal .modal-body');
   if (panel === 'handoff') return modalLayer.querySelector('.handoff-detail-scroll');
-  if (panel === 'archive' && (reportIndex || activeCorrection())) return modalLayer.querySelector('.archive-surface .desk-surface-content');
+  if (panel === 'archive') return modalLayer.querySelector('.archive-surface .desk-surface-content');
   return null;
 }
 
@@ -764,10 +765,11 @@ function update(action, redraw = true) {
 
 function openPanel(name, opener) {
   if (!panel && opener instanceof HTMLElement) modalOpener = { ...opener.dataset };
-  if (name === 'phone' && (panel === 'docs' || panel === 'sample' || (panel === 'archive' && reportIndex))) {
+  const archiveOrigin = panel === 'archive' && (reportIndex || opener?.dataset?.act === 'phone-document');
+  if (name === 'phone' && (panel === 'docs' || panel === 'sample' || archiveOrigin)) {
     const body = workspaceBody();
     phoneReturn = { panel, opener: { ...opener.dataset }, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0,
-      ...(panel === 'archive' ? { reportIndex, archiveReturn } : {}) };
+      ...(archiveOrigin ? { reportIndex, archiveReturn, archiveFocus: interaction.archiveFocus, archiveQuery: interaction.archiveQuery } : {}) };
   } else if (panel === 'phone' && name !== 'archive' && name !== 'phone') {
     update({ type: 'hang-up' }, false);
     phoneReturn = null;
@@ -814,7 +816,7 @@ function enter(restore) {
     readDocument(documents?.[interaction.compare]);
   }
   advanceTutorial();
-  phoneReturn = workspace?.returnTo ? { ...workspace.returnTo, opener: { act: 'phone' } } : null;
+  phoneReturn = workspace?.returnTo ? { ...workspace.returnTo, opener: { act: workspace.returnTo.panel === 'archive' ? 'phone-document' : 'phone' } } : null;
   if (panel !== 'phone') run = dispatch(run, { type: 'hang-up' });
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
@@ -1422,6 +1424,27 @@ function openPhone(opener) {
   openPanel('phone', opener);
 }
 
+function phoneFromDocument(caseId, index, field, opener) {
+  if (!run || reviewingHistory) return;
+  let doc;
+  const item = windowCase();
+  if (panel === 'archive' && interaction.archiveFocus === caseId && !activeCorrection()) {
+    doc = archive(run).find(({ id }) => id === caseId)?.documents[index];
+  } else if (item?.id === caseId && heldObjects(item).heldDocuments.includes(index)) {
+    doc = item.documents[index];
+  } else if (panel === 'docs' && item && interaction.previousDoc === index) {
+    const previous = previousInspection(item);
+    if (previous?.record.id === caseId) doc = previous.documents[index];
+  }
+  const number = documentExtension(doc?.fields[field]);
+  if (!number) return;
+  interaction.phoneNumber = number;
+  const displaced = pinPhonePaper(caseId);
+  if (displaced) toast(`${displaced} 已收回交接簿`);
+  openPhone(opener);
+  focusControl(modalLayer, { act: 'dial' });
+}
+
 function pinPhonePaper(id) {
   const retained = interaction.pinned.filter((key) => key !== id);
   interaction.pinned = [...retained.slice(-1), id];
@@ -1536,6 +1559,10 @@ function closePanel() {
   panel = previousPanel?.panel ?? null;
   archiveReturn = previousPanel?.archiveReturn ?? null;
   reportIndex = previousPanel?.reportIndex ?? null;
+  if (panel === 'archive' && previousPanel.archiveFocus != null) {
+    interaction.archiveFocus = previousPanel.archiveFocus;
+    interaction.archiveQuery = previousPanel.archiveQuery;
+  }
   if (arrival?.ready && !panel) {
     beginWindowApproach();
     return;
@@ -1549,7 +1576,8 @@ function closePanel() {
       if (body) body.scrollLeft = previousPanel.scrollLeft ?? 0;
       else modalLayer.querySelector('.modal-body')?.scrollTo(0, previousPanel.scrollTop);
     }
-    focusControl(modalLayer, previousPanel.opener);
+    const opener = focusControl(modalLayer, previousPanel.opener);
+    if (opener?.dataset.act === 'phone-document') opener.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   } else if (run?.phase === 'summary' && document.activeElement === document.body) focusControl(screenLayer, { act: 'advance-day' });
 }
 
@@ -1745,6 +1773,7 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'phone': openPhone(target); break;
+    case 'phone-document': phoneFromDocument(Number(key), index, Number(target.dataset.field), target); break;
     case 'phone-answer':
       if (panel === 'phone' && incomingAtWindow()) { playSound('click'); update({ type: 'answer-call' }); }
       break;

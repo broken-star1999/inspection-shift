@@ -572,7 +572,6 @@ function selectedRecords(state, action) {
   if (state.flags.source211) ids.add(11);
   const current = getCase(state)?.id;
   if (current === 14 && (action.report || action.context)) ids.add(14);
-  if (current === 11 || current === 13) ids.add(11);
   return ids;
 }
 
@@ -616,11 +615,15 @@ function dialLabRequest(state, number, npc, { caseId, request, arrived }) {
 function dialNight(state, action, number) {
   const script = PHONE[number];
   if (state.flags.nightDocument) return callResult(state, number, script.npc, [script.received]);
-  if (isVisitQueued(state, 'night')) return callResult(state, number, 'sun', ['退回联已经找出来了。到窗口我给你。']);
+  let delivery = '下次交接，我到窗口递给你。';
+  if (activeVisits(state)[0]?.key === 'night') delivery = '回执已经递到窗口了。';
+  else if (state.phase === 'case') delivery = '你先把手上这批办完。我到窗口递给你。';
+  else if (state.phase === 'handoff') delivery = '我这就到窗口。';
+  if (isVisitQueued(state, 'night')) return callResult(state, number, script.npc, ['退回联已经找出来了。', delivery]);
   if (!selectedRecords(state, action).has(11)) {
     return callResult(state, number, script.npc, [script.greeting]);
   }
-  const called = callResult(state, number, script.npc, [script.found], 'night');
+  const called = callResult(state, number, script.npc, [script.found, delivery], 'night');
   return queueVisit(called, 'night');
 }
 

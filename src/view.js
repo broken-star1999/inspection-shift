@@ -1,4 +1,4 @@
-import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE } from './content.js';
+import { CHARACTERS, DAYS, EASTER_EGGS, FILM_TUTORIAL, PHONE, documentExtension } from './content.js';
 import { intakeComparison, projectComparison } from './document-comparison.js';
 import { receiptDisposition, receiptFeedback } from './engine.js';
 import { readFindings } from './inspection-findings.js';
@@ -285,7 +285,7 @@ export function instructions(how) {
     ${how ? '<p>点纸张可打开，拖动可移动，两指可在系统支持时缩放视图。可以先记下查验依据。回到桌面点印章开单，电脑也可用 1、2、3。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
-function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, fieldActions } = {}) {
+function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = false, fieldActions, phoneSource } = {}) {
   const action = inspection?.action ?? 'basis';
   const rows = doc.fields.map(([key, value], field) => {
     const text = esc(value);
@@ -295,7 +295,9 @@ function sheet(doc, index, inspection, { clipboardFront = false, reportLookup = 
     const chosen = inspection?.selected.has(`doc:${index}:${field}`);
     const fieldValue = inspection ? `<button class="field-value${cls('instructed', highlight)}" data-act="${action}" data-i="${index}" data-field="${field}"${signatureTarget ? ' data-tutorial-signature' : ''}${active(chosen)}>${text}</button>` : text;
     const lookup = reportLookup && (key === '报告编号' || key === '原报告编号') && value;
-    const extraAction = fieldActions?.get(key);
+    const extension = phoneSource && documentExtension([key, value]);
+    const extraAction = extension ? button('带这张拨号', 'phone-document', 'secondary document-field-action',
+      `data-i="${index}" data-field="${field}" data-key="${phoneSource}" aria-label="带${esc(doc.title)}拨内线 ${extension}"`) : fieldActions?.get(key);
     const layout = lookup ? 'report-number-value' : extraAction ? 'document-action-value' : '';
     return `<div><dt>${esc(key)}</dt><dd${layout ? ` class="${layout}"` : ''}>${fieldValue}${lookup ? button('查号', 'report-search', 'secondary report-lookup', `data-key="${text}" aria-label="查报告号 ${text}"`) : ''}${extraAction ?? ''}</dd></div>`;
   }).join('');
@@ -391,7 +393,7 @@ function returnComparison(item, index, previous, previousIndex, activeSheet) {
       ${returnTabs(item.documents, 'doc', index, '切换本次单据')}${activeSheet(item.documents[index], index)}</section>
     <section class="return-previous" data-previous-doc="${previousIndex}"><div class="return-source"><b>${sameLot ? '前次留底' : '原批留底'}</b><small>${esc(DAYS[record.day]?.title)}</small>
       <span class="return-disposition">${esc(labels[record.decision])} · ${esc(dispositionLabel(record))}</span></div>
-      ${returnTabs(documents, 'previous-doc', previousIndex, '切换留底单据')}${sheet(documents[previousIndex], previousIndex, null, { reportLookup: true })}</section>
+      ${returnTabs(documents, 'previous-doc', previousIndex, '切换留底单据')}${sheet(documents[previousIndex], previousIndex, null, { reportLookup: true, phoneSource: record.id })}</section>
   </div>`;
 }
 
@@ -446,6 +448,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const activeSheet = (page, position) => sheet(page, position, inspection, {
     clipboardFront: position === clipboardIndex,
     reportLookup: !tutorial,
+    phoneSource: !tutorial ? item.id : null,
     fieldActions: !tutorial && !comparing && page.type === 'order' ? orderFieldActions(item, position, visible, inspection.selected) : undefined,
   });
   const intakeIndex = progress.deliveryCheck;
@@ -498,7 +501,7 @@ export function sample(item, inspection, tutorial, progress) {
   const reference = !tutorial && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
   const referencePicker = reference ? `<aside class="sample-reference" data-reference-doc="${referenceIndex}"><nav class="doc-tabs reference-tabs" aria-label="对照单据">
     ${item.documents.map(({ title }, index) => button(esc(title), 'reference-doc', 'tab', `data-i="${index}"${active(index === referenceIndex)}`)).join('')}
-    </nav>${sheet(reference, referenceIndex, { selected: new Set(findings.map(({ key }) => key)) }, { reportLookup: true })}</aside>` : '';
+    </nav>${sheet(reference, referenceIndex, { selected: new Set(findings.map(({ key }) => key)) }, { reportLookup: true, phoneSource: item.id })}</aside>` : '';
   const canCompare = !tutorial && item.documents.length > 0;
   const referenceActions = canCompare
     ? `${progress?.returnToDocs ? button('回到单据', 'reference-back', 'reference-control') : ''}${button(reference ? '收起单据' : '对照单据', 'reference', 'reference-control', active(Boolean(reference)))}`
@@ -642,7 +645,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
     ].filter(Boolean).join('');
     details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
       ${correction ? correctionPanel(row.record, findings, correction.selected, reworkBasis) : ''}
-      ${archivedReceipt(row.record, latestReceipt, previousReceipt)}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction, { reportLookup: !editing })).join('')}</div>`;
+      ${archivedReceipt(row.record, latestReceipt, previousReceipt)}<div class="doc-grid">${row.documents.map((doc, index) => sheet(doc, index, correction, { reportLookup: !editing, phoneSource: !finished && !editing ? row.id : null })).join('')}</div>`;
   }
   const navigation = { phone: '回到电话', handoff: '回到交接板' }[returnTo];
   const suggestion = reportSuggestion && !editing ? button(`并排核对 ${esc(reportSuggestion)}`, 'report-search', 'secondary report-index-suggestion', `data-key="${esc(reportSuggestion)}"`) : '';
@@ -672,13 +675,14 @@ export function phone(number, call, pinned, numberGuide, phoneBack, current, { r
   const canBring = current && !pinned.some(({ id }) => id === current.id);
   const bringLabel = canBring && PHONE['204'].requests[current.id] ? '带本批送检联' : '带本批单据';
   const papers = pinned.length ? `<div class="phone-pinned phone-papers" aria-label="电话旁的单据"><b>电话旁</b><ul>
-    ${pinned.map(({ id, batch, title }) => {
-    const paper = PHONE['204'].requests[id] ? '送检联' : title;
+    ${pinned.map(({ id, batch, title, documents }) => {
+    const contactPaper = documents.find(({ fields }) => fields.some(documentExtension));
+    const paper = PHONE['204'].requests[id] ? '送检联' : contactPaper?.title ?? title;
     return `<li><button type="button" class="phone-paper" data-act="archive-receipt" data-i="${esc(id)}" aria-label="查看 ${esc(batch)} ${esc(paper)}"><b>${esc(batch)}</b><span>${esc(paper)}</span></button></li>`;
   }).join('')}
   </ul></div>` : '';
   const actions = `<footer class="modal-actions phone-actions">${incomingCall ? button('接电话', 'phone-answer', 'secondary phone-answer') : ''}${canBring ? button(bringLabel, 'archive-pin', 'secondary', `data-i="${esc(current.id)}"`) : ''}${button('交接簿', 'archive')}${button(phoneBack ? '机底贴纸 · 880' : '翻看机底', 'phone-back')}</footer>`;
-  const returnLabel = { docs: '回到单据', sample: '回到检样', archive: '回到编号索引' }[returnTo];
+  const returnLabel = { docs: '回到单据', sample: '回到检样', archive: '回到交接簿', 'report-index': '回到编号索引' }[returnTo];
   const closeText = returnLabel || '放下听筒';
   const closeLabel = returnLabel ? `放下听筒，${returnLabel}` : closeText;
   const caller = call ? [call.kind === 'incoming' ? '来电' : '', CHARACTERS[call.npc]?.name ?? '内线', call.number].filter(Boolean).map(esc).join(' · ') : '';

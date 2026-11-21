@@ -183,7 +183,7 @@ export const PHONE = {
   '107': {
     npc: 'sun',
     greeting: '夜班窗口。把你要查的单据放到电话旁，我照手上的登记查。',
-    found: '周二晚上唐禾来问过。我退了那份批号不对的单。我把回执拿给你。',
+    found: '周二晚上唐禾来问过。我退了那份批号不对的单。',
     delivery: '给你，周二夜班那份。时间写在右边，我签过了。',
     received: '存根已经送到了。你从交接簿翻出来，时间和签收人都在上面。',
     evidence: archive('夜班退单存根', [['批号', 'G-211'], ['经手人', '唐禾'], ['退单缘由', '换签登记未对应来箱'], ['记录时间', '周二 22:18'], ['签收人', '孙姐']]),
@@ -194,6 +194,12 @@ export const PHONE = {
     found: '听见响就合格。别拍话筒，拍坏了也得开单。',
   },
 };
+
+export function documentExtension(field) {
+  if (field?.[0] !== '经手窗口') return null;
+  const number = /^内线\s+(\d{3})$/.exec(field[1])?.[1];
+  return PHONE[number] ? number : null;
+}
 
 export const INCOMING_CALLS = {
   'lab-close': {

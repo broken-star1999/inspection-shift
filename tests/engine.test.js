@@ -1066,6 +1066,44 @@ test('a returning delivery finds the exact previous stamp and status after a sav
   assert.deepEqual(checked, new Set(expected.keys()));
 });
 
+test('107 requires the first G-211 record, and tells the player when the visitor can hand over the receipt', () => {
+  const script = PHONE['107'];
+  const checked = [];
+  const handoff = untilHandoff(21, { inspect: (state, item) => {
+    if (item.id !== 11 && item.id !== 13) return state;
+    for (const details of [{}, { caseIds: [13] }]) {
+      const greeting = act(state, 'dial', { number: '107', ...details });
+      assert.equal(greeting.phone.line, script.greeting);
+      assert.deepEqual(greeting.pending, []);
+      assert.equal(greeting.event, null);
+    }
+    const called = act(state, 'dial', { number: '107', caseIds: [11] });
+    assert.equal(called.phone.kind, 'night');
+    assert.deepEqual(called.phone.lines, [script.found, '你先把手上这批办完。我到窗口递给你。']);
+    assert.deepEqual(called.pending, ['night']);
+    assert.equal(called.flags.nightDocument, false);
+    assert.equal(called.event, null);
+    const repeat = act(called, 'dial', { number: '107' });
+    assert.equal(repeat.phone.lines.at(-1), called.phone.lines.at(-1));
+    assert.deepEqual(repeat.pending, ['night']);
+
+    const legacy = JSON.parse(JSON.stringify(act(state, 'explore', { key: 'g211' })));
+    assert.deepEqual(act(legacy, 'dial', { number: '107' }).pending, ['night']);
+    checked.push(item.id);
+    return state;
+  } });
+  assert.deepEqual(checked, [11, 13]);
+
+  const called = act(handoff, 'dial', { number: '107', caseIds: [11] });
+  assert.deepEqual(called.phone.lines, [script.found, '我这就到窗口。']);
+  assert.equal(called.event.key, 'night');
+  assert.equal(called.flags.nightDocument, false);
+  const repeated = act(called, 'dial', { number: '107' });
+  assert.equal(repeated.phone.lines.at(-1), '回执已经递到窗口了。');
+  assert.equal(repeated.events.length, 1);
+  assert.equal(act(repeated, 'ack-visit').flags.nightDocument, true);
+});
+
 test('the night receipt adds context without replacing the previous decision in Tang’s dialogue', () => {
   for (const previous of ['pass', 'fail', 'review']) {
     untilHandoff(21, { decisions: { 11: previous }, inspect: (state, item) => {
