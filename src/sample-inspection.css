@@ -328,10 +328,11 @@
 }
 
 .sample-film-sheet {
-  --film-fold: translate(12%, -20%) rotate(-17deg) scale(.98);
+  --film-lift: var(--film-drag, 0);
   z-index: 3;
   inset: 0;
   transform-origin: 61% 58%;
+  transform: translate(calc(12% * var(--film-lift)), calc(-20% * var(--film-lift))) rotate(calc(-17deg * var(--film-lift))) scale(calc(1 - .02 * var(--film-lift)));
 }
 
 .sample-film-sheet::before,
@@ -368,7 +369,7 @@
   box-shadow: 0 1px #45605c99;
 }
 
-.sample-visual.peeled .sample-film-sheet { transform: var(--film-fold); }
+.sample-visual.peeled .sample-film-sheet { --film-lift: var(--film-drag, 1); }
 
 .sample-visual.peeled .sample-film-sheet::before {
   clip-path: polygon(49% 60%, 57% 48%, 68% 44%, 77% 52%, 78% 68%, 69% 76%, 59% 72%);
@@ -442,6 +443,10 @@
 .sample-stage .sample-object > .clasp-handle { inset: auto -.9rem -.61rem auto; }
 .sample-stage .sample-hotspot[data-drag] { touch-action: none; cursor: grab; }
 .sample-stage .sample-hotspot[data-drag]:active { cursor: grabbing; }
+
+@media (pointer: coarse) {
+  #game .sample-stage .film-handle { min-inline-size: 2.75rem; min-block-size: 2.75rem; }
+}
 
 .sample-stage .sample-hotspot:focus-visible {
   outline: 2px solid #ffe5ac;

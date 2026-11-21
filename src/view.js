@@ -177,7 +177,7 @@ function gaugeArt(reading, measured) {
 }
 
 function sampleHotspot(action, className, text, label, pressed = null, instructed = false) {
-  const gesture = { tug: 'clasp', measure: 'gauge', unpack: 'wrapper' }[action];
+  const gesture = { film: 'film', tug: 'clasp', measure: 'gauge', unpack: 'wrapper' }[action];
   return `<button type="button" class="sample-hotspot ${className}${cls('instructed', instructed)}" data-act="sample-${action}"${gesture ? ` data-drag="${gesture}"` : ''} aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
 }
 
@@ -197,7 +197,7 @@ export function desk(run, item, tutorial, interaction) {
   </aside>` : '';
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, target, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
-    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="检查${appearance.name}"${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
+    <section class="sample-work"><button class="sample-preview${cls('instructed', tutorial?.target === 'sample')}" data-act="sample" data-fixture="sample"${sampleHeld ? ' data-lifted' : ''} aria-label="拿起检样，${appearance.name}"${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
     <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(tutorial?.key === 'stamp', stampBlocked || run.phase !== 'case' || Boolean(tutorial && tutorial.key !== 'stamp'))}</div>
       ${benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }

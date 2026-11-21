@@ -129,7 +129,7 @@ export const TUTORIAL = [
   { target: 'pass', title: '把单交出去', line: '盖「通过」，把单交给小罗。', sampleLine: '镜片没有裂痕，扣件也没松。' },
 ];
 
-export const FILM_TUTORIAL = '掀开这角再看白痕。';
+export const FILM_TUTORIAL = '点一下膜角，或往右上拉，看看白痕跟着哪一层。';
 
 export const PRESSURE = [
   {

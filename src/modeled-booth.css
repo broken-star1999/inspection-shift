@@ -344,7 +344,7 @@
 }
 
 #game[data-modeled='true'] .booth-layout [data-fixture='sample']::after {
-  content: attr(aria-label);
+  content: '拿起检样';
   position: absolute;
   inset: 100% auto auto 50%;
   opacity: 0;
@@ -527,6 +527,25 @@
     #game[data-modeled='true'] .booth-layout .paper-card[data-fixture-visible].instructed:enabled h3 {
       border-color: #e8bd74;
       background: #efcb87;
+    }
+
+    #game[data-modeled='true'] .booth-layout [data-fixture='sample'][data-fixture-visible]:enabled:not([data-lifted]) {
+      block-size: max(2.75rem, var(--fixture-h));
+    }
+
+    #game[data-modeled='true'] .booth-layout [data-fixture='sample'][data-fixture-visible]:enabled:not([data-lifted])::after {
+      inset-block-start: var(--fixture-h);
+      padding: .18rem .38rem;
+      border: 1px solid #839073;
+      border-block-end-color: #4b5945;
+      border-radius: 0 0 .17rem .17rem;
+      background: linear-gradient(#4e6047, #374835);
+      box-shadow: 0 .12rem .19rem #241a1480;
+      font-size: .75rem;
+      line-height: 1.13;
+      translate: -50% -.08rem;
+      opacity: 1;
+      pointer-events: auto;
     }
   }
 }

@@ -1374,6 +1374,7 @@ function checkSample(act) {
       sample.back = !sample.back;
       break;
     case 'sample-film':
+      if (sample.back || !['film', 'crack'].includes(spec.kind)) return;
       sample.film = !sample.film;
       if (item.id === 2 && sample.film) interaction.filmChecked = true;
       break;
@@ -1996,6 +1997,7 @@ modalLayer.addEventListener('pointerdown', (event) => {
     handle, stage, origin, pointerId: event.pointerId, distance: 0,
     kind: handle.dataset.drag, action: handle.dataset.act,
     slot: stage.querySelector('[data-gauge-target]'), measured: stage.classList.contains('measured'),
+    peeled: stage.classList.contains('peeled'), filmTravel: 0,
   };
   handle.setPointerCapture(event.pointerId);
 });
@@ -2017,6 +2019,13 @@ window.addEventListener('pointermove', (event) => {
   toolDrag.distance = Math.max(toolDrag.distance, distance);
   if (kind === 'clasp') stage.style.setProperty('--clasp-pull', `${Math.min(18, distance).toFixed(1)}px`);
   if (kind === 'wrapper') stage.style.setProperty('--wrap-pull', `${Math.min(26, distance).toFixed(1)}px`);
+  if (kind === 'film') {
+    const { peeled } = toolDrag;
+    const outward = dx * .6 - dy * .8;
+    const travel = Math.max(0, Math.min(30, peeled ? -outward : outward));
+    toolDrag.filmTravel = travel;
+    stage.style.setProperty('--film-drag', peeled ? 1 - travel / 30 : travel / 30);
+  }
   if (kind === 'gauge' && toolDrag.distance >= 9) {
     stage.dataset.toolDrag = kind;
     stage.toggleAttribute('data-gauge-over', isOverGauge(event, slot));
@@ -2027,16 +2036,24 @@ window.addEventListener('pointermove', (event) => {
 
 function endToolDrag(event) {
   if (!toolDrag || (event.type !== 'blur' && event.pointerId !== toolDrag.pointerId)) return;
-  const { handle, stage, distance, kind, action, slot, measured } = toolDrag;
+  const { handle, stage, distance, kind, action, slot, measured, filmTravel } = toolDrag;
   toolDrag = null;
   delete stage.dataset.toolDrag;
   stage.removeAttribute('data-gauge-over');
   for (const property of ['--clasp-pull', '--wrap-pull', '--tool-dx', '--tool-dy']) stage.style.removeProperty(property);
   if (event.type === 'pointerup' && distance >= 9) {
     toolClickTarget = handle;
-    const completed = kind === 'gauge' ? Boolean(slot) && isOverGauge(event, slot) !== measured
-      : kind === 'wrapper' ? distance >= 18 : true;
+    let completed = true;
+    if (kind === 'gauge') completed = Boolean(slot) && isOverGauge(event, slot) !== measured;
+    if (kind === 'wrapper') completed = distance >= 18;
+    if (kind === 'film') completed = filmTravel >= 18;
     if (completed && stage.isConnected) checkSample(action);
+  }
+  if (kind === 'film') {
+    const film = stage.isConnected && filmTravel > 0 ? stage.querySelector('.sample-film-sheet') : null;
+    const from = film ? getComputedStyle(film).transform : null;
+    stage.style.removeProperty('--film-drag');
+    if (film) animateOnDesk(film, [{ transform: from }, { transform: getComputedStyle(film).transform }], 160);
   }
   setGazeTarget(gaze.targetX, gaze.targetY);
 }
