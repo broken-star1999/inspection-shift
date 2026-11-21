@@ -1,7 +1,8 @@
 import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
-import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
+import { bindViewport, toggleFullscreen, stagePoint } from './devices.js';
+import { bindAudio, playSound, isMuted, setMuted, setPhoneRinging } from './audio.js';
 import { captureDeskProjection } from './desk-projection.js';
 import { ARRIVAL_APPROACH_MS, CARGO_DEPARTURE_MS, RECEIPT_FEED_MS, RECEIPT_HANDOVER_MS } from './booth-motion.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
@@ -21,6 +22,7 @@ import './sample-inspection.css';
 import './carton-inspector.css';
 
 const root = document.querySelector('#game');
+bindAudio(root.ownerDocument);
 const SAVE_KEY = 'nandu-inspection-save-v1';
 const COLLECTION_KEY = 'nandu-inspection-endings-v1';
 const COMPLETED_KEY = 'nandu-inspection-completed-v1';
@@ -90,7 +92,6 @@ let handoffDocument = null;
 let handoffPairOpen = false;
 let recallPairReturn = null;
 let phoneReturn = null;
-let ringing = null;
 let issuedReceiptId = null;
 let pendingReceiptPrint = false;
 let receiptPrintTimer = 0;
@@ -483,8 +484,7 @@ function showRinging(call) {
   else delete root.dataset.ringing;
   const label = call ? '接电话' : '内线电话';
   if (phoneFixtureLabel.textContent !== label) phoneFixtureLabel.textContent = label;
-  if (call && call !== ringing) playSound('ring');
-  ringing = call;
+  setPhoneRinging(call);
 }
 
 function previousInspection(item = windowCase()) {
@@ -1267,6 +1267,7 @@ function finishWindowAdvance(value, restoreFocus) {
   const action = windowAction(value);
   const visit = action?.type === 'ack-visit' ? activeVisit() : null;
   if (!action || !update(action, false)) return;
+  if (action.type === 'next' && ['summary', 'handoff'].includes(run.phase) && !getIncomingCall(run)) playSound('bell');
   if (visit) {
     interaction.archiveFocus = visit.key;
     interaction.archiveQuery = '';
@@ -1316,7 +1317,8 @@ function beginWindowApproach() {
     cancelArrivalPause();
     finishWindowAdvance(action, restoreFocus);
   }, ARRIVAL_APPROACH_MS);
-  playSound('delivery');
+  const alreadyAtWindow = arrival.ready || arrival.keepVisitor || (run.phase === 'brief' && arrival.approach.npc === 'zhou');
+  playSound(alreadyAtWindow ? 'delivery' : 'arrival');
   render();
 }
 
@@ -1346,11 +1348,12 @@ function pauseBeforeArrival(action, next, restoreFocus, resumed = false) {
   };
   if (handingReceipt) {
     const record = run.records.at(-1);
-    const travel = cargoRoutes.has(receiptDisposition(record)) ? CARGO_DEPARTURE_MS : 0;
+    const route = receiptDisposition(record);
+    const travel = cargoRoutes.has(route) ? CARGO_DEPARTURE_MS : 0;
     const wait = hasVisitor ? duration - ARRIVAL_APPROACH_MS - RECEIPT_HANDOVER_MS : travel;
     arrivalTimer = setTimeout(() => {
       arrival.handingReceipt = false;
-      if (hasVisitor || !getIncomingCall(windowAdvance(action))) playSound('bell');
+      if (travel) playSound('cargo', route);
       renderArrivalStatus();
       syncWindowGlance();
       setScene();
@@ -2234,8 +2237,7 @@ root.addEventListener('click', (event) => {
       captureCorrectionScroll();
       panel = null;
       archiveReturn = null;
-      if (act !== 'next' || !reducedMotion.matches) playSound('paper');
-      else if (needsArrival(next) || !getIncomingCall(next)) playSound('bell');
+      playSound(act === 'next' && !reducedMotion.matches ? 'handover' : 'paper');
       if (needsArrival(next) || (act === 'next' && !reducedMotion.matches)) pauseBeforeArrival(action, next, event.detail === 0);
       else finishWindowAdvance(action, event.detail === 0);
       break;
