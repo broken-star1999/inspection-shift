@@ -1,7 +1,7 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_BENCH_TUTORIAL, FILM_TUTORIAL, PHONE, SHIPMENT_EXCEPTION, documentExtension, documentReportNumber } from './content.js';
 import { cartonFinding, intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { cartonModel } from './carton-inspector.js';
-import { canShowFinding, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
+import { canShowFinding, getCarriedHolds, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { TRACE_INQUIRY_KEY } from './report-workspace.js';
 import { gaugeArt, gaugeJawStyle } from './gauge-art.js';
@@ -306,13 +306,24 @@ function endingView(ending, historyLabel) {
   </section></div>`;
 }
 
+function openingHolds(run) {
+  const holds = getCarriedHolds(run);
+  if (!holds.length) return '';
+  return `<section class="opening-holds" aria-labelledby="opening-holds-title"><h4 id="opening-holds-title">黄线留厂</h4>
+    <ul>${holds.map(({ id, batch, day }) => {
+      const batchLabel = esc(batch);
+      const date = esc(DAYS[day].title);
+      return `<li><button type="button" data-act="archive-receipt" data-i="${esc(id)}" aria-label="查看${date} ${batchLabel} 留厂回执"><b>${batchLabel}</b><small>${date}</small></button></li>`;
+    }).join('')}</ul></section>`;
+}
+
 export function overlay(run, ending, historyLabel = '', incomingCall = null) {
   const day = DAYS[run.day];
   if (run.phase === 'brief') {
     const returning = run.day === 0 && run.sampleSet === 4;
     const subtitle = returning ? '窗口照常开' : day.subtitle;
     const intro = returning ? '老周把钥匙放在桌上。「窗口这周还是你。批号眼熟，也要照手上这批查。」' : day.intro;
-    return `<div class="stage-overlay"><section class="brief-card"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(subtitle)}</h3><p>${esc(intro)}</p>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
+    return `<div class="stage-overlay"><section class="brief-card opening-card"><div class="opening-body"><div class="eyebrow">代班记录 · 第 ${run.day + 1} 天</div><h2>${day.title}</h2><h3>${esc(subtitle)}</h3><p>${esc(intro)}</p>${openingHolds(run)}</div>${button('拉起卷帘', 'start-day', 'primary')}</section></div>`;
   }
   if (run.phase === 'summary') {
     const records = run.records.filter(({ day: dayIndex }) => dayIndex === run.day);

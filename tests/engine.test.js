@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
-import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPhoneReportLookup, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceHandoffReview, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, nightRegisterForReceipt, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
+import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCarriedHolds, getCase, getDay, getEnding, getIncomingCall, getPhoneReportLookup, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceHandoffReview, getTraceInquiry, getWindowSupplementRequest, isSupplementOnly, nightRegisterForReceipt, receiptFeedback, restoreRun, shipmentIssueFeedback, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 import { sampleFinding } from '../src/samples.js';
 import { overlay } from '../src/view.js';
 
@@ -16,11 +16,14 @@ function takeRecallReceipt(state, id) {
   return act(delivered, 'ack-visit');
 }
 
-function untilHandoff(seed, { decisions = {}, inspect = (state) => state, initialState = createRun(seed) } = {}) {
+function untilHandoff(seed, { decisions = {}, inspect = (state) => state, atOpening, initialState = createRun(seed) } = {}) {
   let state = initialState;
   while (state.phase !== 'handoff') {
     if (state.phase !== 'case' && state.event) state = act(state, 'ack-visit');
-    else if (state.phase === 'brief') state = act(state, 'start-day');
+    else if (state.phase === 'brief') {
+      atOpening?.(state);
+      state = act(state, 'start-day');
+    }
     else if (state.phase === 'summary') state = act(state, 'advance-day');
     else if (state.phase === 'case') {
       const item = getCase(state);
@@ -57,6 +60,42 @@ function tuesdayClosingReceipt() {
   } });
   return receipt;
 }
+
+test('the opening slip lists actual earlier holds and links same-number lots to their own receipts', () => {
+  const openings = [];
+  untilHandoff(21, { decisions: { 4: 'review', 9: 'fail', 15: 'review' }, atOpening: (state) => openings.push(state) });
+
+  assert.doesNotMatch(overlay(openings[0]), /class="opening-holds"/);
+  const wednesday = openings[2];
+  assert.ok(getCarriedHolds(wednesday).some(({ id }) => id === 5));
+  assert.match(overlay(wednesday), /data-act="archive-receipt" data-i="5" aria-label="查看周二 G-205 留厂回执"/);
+  assert.ok(!getCarriedHolds(openings[3]).some(({ id }) => id === 5 || id === 9));
+
+  const friday = openings[4];
+  const matchingNumber = getCarriedHolds(friday).filter(({ batch }) => batch === 'G-204');
+  assert.deepEqual(matchingNumber.map(({ id }) => id), [4, 15]);
+  assert.match(overlay(friday), /查看周一 G-204 留厂回执/);
+  assert.match(overlay(friday), /查看周四 G-204 留厂回执/);
+  assert.match(overlay(friday), /data-act="start-day"/);
+});
+
+test('the next opening skips offsite paperwork and shows a re-held lot only under its latest receipt', () => {
+  const thursday = (decisions) => {
+    let opening;
+    untilHandoff(21, { decisions, atOpening: (state) => {
+      if (state.day === 3) opening = state;
+    } });
+    return opening;
+  };
+  const held = thursday({ 5: 'review', 9: 'review' });
+  assert.deepEqual(getCarriedHolds(held).filter(({ batch }) => batch === 'G-205').map(({ id }) => id), [9]);
+  assert.ok(!getCarriedHolds(thursday({ 5: 'review', 9: 'pass' })).some(({ batch }) => batch === 'G-205'));
+
+  const offsite = structuredClone(thursday({ 5: 'pass', 9: 'review' }));
+  delete offsite.records.find(({ id }) => id === 9).priorShipmentId;
+  assert.ok(!getCarriedHolds(offsite).some(({ batch }) => batch === 'G-205'));
+  assert.doesNotMatch(overlay(restoreRun(offsite)), /G-205 留厂回执/);
+});
 
 test('the first receipt can be issued without recording a finding or finishing optional coaching', () => {
   const initial = createRun(4);

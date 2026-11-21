@@ -415,6 +415,19 @@ export function receiptDisposition(record) {
   return record.status;
 }
 
+export function getCarriedHolds(state) {
+  const held = new Map();
+  for (const record of state.records) {
+    if (record.day >= state.day) continue;
+    const receipt = withPriorShipment(state.records, record);
+    if (isSupplementOnly(receipt)) continue;
+    const previous = previousSameLot(state.records, receipt);
+    if (previous) held.delete(previous.id);
+    if (receipt.status === 'held') held.set(receipt.id, receipt);
+  }
+  return [...held.values()];
+}
+
 function findVerifiedReceipt(records, previous) {
   if (!previous.verifiedBy) return null;
   const next = records.find(({ id }) => id === previous.verifiedBy);

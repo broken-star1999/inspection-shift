@@ -988,6 +988,43 @@ button:disabled { opacity: .46; }
 
 .brief-card h3 { margin: .15rem 0; color: #59422d; font-size: clamp(.9rem, 1.7cqw, 1.18rem); }
 .brief-card p { margin: .6rem 0 .85rem; font-size: clamp(.86rem, 1.2cqw, 1.06rem); line-height: 1.65; }
+.brief-card.opening-card { display: flex; flex-direction: column; min-block-size: 0; overflow: hidden; }
+.opening-body { min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.opening-card > .button { flex: none; align-self: flex-start; }
+.opening-holds {
+  margin-block-end: clamp(.56rem, 2cqh, 1rem);
+  padding-block-start: .42rem;
+  border-block-start: 1px solid #9b783b70;
+}
+.opening-holds h4 { margin: 0 0 .26rem; color: #674a22; font-size: .77rem; letter-spacing: .11em; }
+.opening-holds ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .23rem .34rem;
+  margin: 0;
+  padding: .14rem;
+  list-style: none;
+}
+.opening-holds button {
+  display: flex;
+  align-items: center;
+  gap: .36rem;
+  min-block-size: 2rem;
+  padding: .14rem .48rem;
+  border: 1px solid #aa8650;
+  background: #f0dfba;
+  color: #43528;
+  font: inherit;
+  font-size: .8rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.opening-holds button:is(:hover, :focus-visible) { background: #fff0cd; }
+.opening-holds small { color: #6b5436; font-size: .7rem; }
+@container workstation (max-height: 335px) {
+  .brief-card.opening-card { padding-block: .65rem; }
+  .opening-card p { margin-block: .38rem .56rem; }
+}
 .brief-card.ending-card { display: flex; flex-direction: column; min-block-size: 0; overflow: hidden; }
 .summary-head, .summary-footer, .ending-head, .ending-footer { flex: none; }
 .summary-body, .ending-body { min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
