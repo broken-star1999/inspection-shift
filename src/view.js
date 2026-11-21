@@ -113,8 +113,11 @@ export function setRoomCargo(layer, cargo) {
   }
   const id = String(cargo.id);
   const sameCase = !layer.hidden && layer.dataset.cargoId === id;
-  if (sameCase && layer.dataset.cargoRoute === cargo.route) return;
-  layer.toggleAttribute('data-cargo-moving', Boolean(cargo.animate && sameCase && layer.dataset.cargoRoute === 'ready'));
+  const wasStaged = layer.hasAttribute('data-cargo-staged');
+  const staged = Boolean(cargo.staged);
+  if (sameCase && layer.dataset.cargoRoute === cargo.route && wasStaged === staged) return;
+  layer.toggleAttribute('data-cargo-moving', Boolean(sameCase && (cargo.animate || wasStaged)));
+  layer.toggleAttribute('data-cargo-staged', staged);
   layer.dataset.cargoId = id;
   layer.dataset.cargoRoute = cargo.route;
   layer.hidden = false;
@@ -648,17 +651,19 @@ function archivedReceipt(record, latestReceipt, previousReceipt) {
   if (!record) return '';
   const changed = record.amendments?.length > 0;
   const latestAmendment = latestReceipt?.amendments?.at(-1);
+  const windowAmendment = record.amendments?.findLast(({ atWindow }) => atWindow);
   return `<article class="archive-receipt receipt-${record.decision}" aria-label="出票留底">
     <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
       <span class="receipt-result">${esc(labels[record.decision])}</span></div>
     ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true, changed ? '原开单依据' : '开单依据')}
     ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(dispositionLabel(latestReceipt))}</strong>。</p>` : ''}
     ${previousReceipt && previousReceipt.record.id === record.priorShipmentId ? `<p class="archive-current-disposition">补验时原批已出库，原出货单开于<strong>${esc(DAYS[previousReceipt.record.day]?.title)}</strong>。</p>` : ''}
-    ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry, index) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}更正</b>
+    ${record.supplementRequest && windowAmendment && windowAmendment.to !== 'review' ? '<p class="archive-current-disposition">补件登记随当场更正撤回。</p>' : ''}
+    ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry, index) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}${entry.atWindow ? '当场更正' : '更正'}</b>
       <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(amendmentDisposition(record, index, entry.from, entry.previousStatus))} → ${esc(amendmentDisposition(record, index + 1, entry.to, entry.status))}</small>${amendmentFindings(entry)}${recallConfirmation(record.recallReceipt, index)}</li>`).join('')}</ol>` : ''}</article>`;
 }
 
-export function receipt(record, previous, nextPhase, supplementKey) {
+export function receipt(record, previous, nextPhase, { supplementKey, canCorrect } = {}) {
   const disposition = {
     shipping: '这批货等装车，回执交装货台。',
     shipped: '这批货已经出库，补签回执归入原批留底。',
@@ -672,14 +677,20 @@ export function receipt(record, previous, nextPhase, supplementKey) {
   const original = previous && previous.id === record.priorShipmentId
     ? button('原出货回执', 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}" aria-label="查看原出货回执 · ${esc(DAYS[previous.day]?.title)}"`)
     : '';
-  const copy = button('翻本批留底', 'archive-receipt', 'receipt-origin', `data-i="${esc(record.id)}"`);
+  const copy = button(canCorrect ? '留底与更正' : '翻本批留底', 'archive-receipt', 'receipt-origin', `data-i="${esc(record.id)}"`);
   const supplement = supplementKey ? button('补件登记联', 'archive-evidence', 'receipt-origin', `data-key="${esc(supplementKey)}"`) : '';
   const next = nextPhase === 'summary' ? '本班收工' : nextPhase === 'handoff' ? '去交班' : '接着值班';
-  const findings = readFindings(record);
-  const shownSeparately = record.shownFinding && !findings.some((finding) => sameFinding(finding, record.shownFinding));
+  const amendment = record.amendments?.at(-1);
+  const correctedHere = amendment?.atWindow === true;
+  const currentSlip = correctedHere
+    ? { ...record, findings: amendment.findings, note: '', shownFinding: null, supplementRequest: null }
+    : record;
+  const change = correctedHere ? `<p class="receipt-window-change"><b>当场更正</b> ${labels[amendment.from]} → ${labels[amendment.to]}</p>` : '';
+  const findings = readFindings(currentSlip);
+  const shownSeparately = currentSlip.shownFinding && !findings.some((finding) => sameFinding(finding, currentSlip.shownFinding));
   const findingCount = findings.length + (shownSeparately ? 1 : 0);
   const basis = findingCount ? button(`查看依据 <b>${findingCount} 条</b> <span aria-hidden="true">↓</span>`, 'receipt-basis', 'receipt-basis-link') : '';
-  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(record, '去向', record.decision === 'review')}</div>`;
+  const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div><b>${esc(record.batch)}</b><span class="receipt-result">${labels[record.decision]}</span>${change}${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${receiptFacts(currentSlip, '去向', correctedHere || record.decision === 'review', correctedHere ? '更正依据' : '开单依据')}</div>`;
   return deskSurface('出货回执', body, 'receipt-surface', undefined, undefined, { footer: original + supplement + copy + button(next, 'next', 'primary') });
 }
 
@@ -705,7 +716,7 @@ function correctionStamps(row, followup) {
     <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, false, 'recheck', record.decision)}</div>`;
 }
 
-export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel } = {}) {
+export function archivePanel(rows, visits, focus, selected, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel, windowCorrection } = {}) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const isCall = ([key]) => key.startsWith('call:');
@@ -728,7 +739,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
   }
   if (row) {
     const { latestReceipt, previousReceipt } = row;
-    const canAmend = !finished && handoff && row.record && !latestReceipt;
+    const canAmend = !finished && (handoff || windowCorrection) && row.record && !latestReceipt;
     const correcting = Boolean(editing && canAmend);
     const findings = correcting ? readFindings({ findings: correctionFindings }) : [];
     const correction = correcting ? { action: 'correction-basis', selected: new Set(findings.map(({ key }) => key)) } : null;
@@ -739,8 +750,9 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
       latestReceipt && button('查看后续回执', 'archive-followup', 'secondary', `data-i="${latestReceipt.id}"`),
       ...batchPapers.filter(({ caseId }) => caseId === row.id).map(({ key, document }) =>
         button(batchPaperLabels[document.kind].open, 'archive-evidence', 'secondary', `data-key="${esc(key)}"`)),
-      canAmend && row.record.status === 'recallPending' && receiveRecallAction(row.record, 'archive-recall-action'),
-      canAmend && button(editing ? '取消更正' : '更正开单', 'edit-record'),
+      canAmend && handoff && row.record.status === 'recallPending' && receiveRecallAction(row.record, 'archive-recall-action'),
+      canAmend && button(editing ? '取消更正' : windowCorrection ? '更正本单' : '更正开单', 'edit-record',
+        windowCorrection ? 'secondary window-edit-current' : 'secondary'),
     ].filter(Boolean).join('');
     details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
       ${correction ? correctionPanel(row.record, findings, correction.selected, supportingBasis) : ''}

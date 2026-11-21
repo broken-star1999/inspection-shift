@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, canShowFinding, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, PHONE, SHIPMENT_ACCEPTANCE, documentExtension } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding } from './samples.js';
 import { bindViewport, toggleFullscreen, stagePoint, playSound, isMuted, setMuted } from './devices.js';
@@ -437,7 +437,7 @@ function sceneShipment(state, item, waiting) {
     if (!record) return {};
     const route = receiptDisposition(record);
     const animate = issuedReceiptId === record.id;
-    const shipment = { id: record.id, route, animate };
+    const shipment = { id: record.id, route, animate, staged: !waiting };
     const movingCargo = ['shipping', 'returned', 'held'].includes(route);
     return {
       cargo: movingCargo ? shipment : null,
@@ -613,6 +613,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
         returnTo, historyLabel,
+        windowCorrection: !arrival && canRecheckReceipt(run, archiveFocus),
         reportSuggestion: !correction && sources.length > 1 ? sources[0].number : null,
         canComparePrevious: !archiveReturn && run.phase === 'case' && item && getPreviousReceipt(run, item)?.record.id === archiveFocus,
         correctionFindings: correctionFindings ?? [],
@@ -656,7 +657,10 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const previous = run.records.find(({ id }) => id === record.priorShipmentId);
     const next = windowAdvance('next');
     const supplement = filedWindowSupplement();
-    markup = view.receipt(record, previous, activeVisit(next) ? null : next?.phase, supplement?.caseId === record.id ? supplement.key : null);
+    markup = view.receipt(record, previous, activeVisit(next) ? null : next?.phase, {
+      supplementKey: supplement?.caseId === record.id ? supplement.key : null,
+      canCorrect: canRecheckReceipt(run, record.id),
+    });
   }
 
   const focused = document.activeElement;
@@ -786,7 +790,7 @@ function persistRun() {
   saved = {
     ...run,
     ...(arrival ? { arrivalAction: arrival.action } : {}),
-    ...(run.phase === 'handoff' && correctionDraft ? { correctionDraft } : {}),
+    ...(correctionDraft && (run.phase === 'handoff' || (!arrival && canRecheckReceipt(run, correctionDraft.id))) ? { correctionDraft } : {}),
     ...(pairWorkspace ? { handoffPair: pairWorkspace } : {}),
     ...(lookup ? { reportWorkspace: lookup } : {}),
     inspectionProgress: captureInspectionProgress(item, interaction, workspace),
@@ -829,6 +833,7 @@ function update(action, redraw = true) {
   run = dispatch(run, action);
   if (run !== before) {
     if (getCase(before)?.id !== getCase(run)?.id) interaction = freshInteraction(interaction);
+    if (before.phase === 'receipt' && run.phase !== 'receipt') correctionDraft = null;
     if (run.phase === 'ending') {
       correctionDraft = null;
       run = { ...run, completedAt: Date.now() };
@@ -930,7 +935,15 @@ function enter(restore) {
     if (correctionDraft.fromBoard) {
       handoffFocus = correctionDraft.id;
       handoffDocument = correctionDraft.documentIndex;
-    } else focusArchiveRow(correctionDraft.id);
+    } else {
+      focusArchiveRow(correctionDraft.id);
+      if (run.phase === 'receipt') {
+        archiveReturn = {
+          panel: 'receipt', opener: { act: 'archive-receipt', i: String(correctionDraft.id) },
+          scrollTop: correctionDraft.receiptScrollTop,
+        };
+      }
+    }
     playSound('paper');
     render(correctionDraft.scrollTop);
     if (panel === 'handoff') revealHandoffSelection();
@@ -1256,7 +1269,8 @@ function paperFieldFinding(doc, index, field) {
 }
 
 function correctableRow(id) {
-  return run?.phase === 'handoff' ? archive(run).find((row) => row.id === id && row.record && !row.latestReceipt) : null;
+  if (!run || arrival || reviewingHistory || (run.phase !== 'handoff' && !canRecheckReceipt(run, id))) return null;
+  return archive(run).find((row) => row.id === id && row.record && !row.latestReceipt) ?? null;
 }
 
 function correctionFocus() {
@@ -1317,6 +1331,7 @@ function restoreCorrectionDraft(draft) {
     fromBoard,
     documentIndex: fromBoard && hasHandoffDocument(row, documentIndex) ? documentIndex : null,
     scrollTop: !legacyBoardDraft && Number.isFinite(draft.scrollTop) ? Math.max(0, draft.scrollTop) : 0,
+    ...(run.phase === 'receipt' && Number.isFinite(draft.receiptScrollTop) ? { receiptScrollTop: Math.max(0, draft.receiptScrollTop) } : {}),
   };
 }
 
@@ -1325,6 +1340,7 @@ function captureCorrectionScroll() {
   correctionDraft.scrollTop = workspaceBody()?.scrollTop ?? 0;
   correctionDraft.fromBoard = panel === 'handoff';
   correctionDraft.documentIndex = panel === 'handoff' ? handoffDocument : null;
+  if (archiveReturn?.panel === 'receipt') correctionDraft.receiptScrollTop = archiveReturn.scrollTop;
 }
 
 function focusArchiveRow(id) {
@@ -2048,7 +2064,15 @@ root.addEventListener('click', (event) => {
         correctionDraft = { id: row.id, keys: [], fromBoard, documentIndex: fromBoard ? handoffDocument : null, scrollTop: 0 };
       }
       playSound('paper');
-      render(panel === 'handoff' && !editing ? 0 : undefined);
+      render(!editing && (panel === 'handoff' || run.phase === 'receipt') ? 0 : undefined);
+      if (!editing && run.phase === 'receipt') {
+        const finding = modalLayer.querySelector('.correction-original');
+        if (finding) {
+          finding.focus({ preventScroll: true });
+          finding.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          persistRun();
+        }
+      }
       break;
     }
     case 'correction-basis': editCorrectionFinding(`doc:${index}:${Number(target.dataset.field)}`, { field: target }); break;
@@ -2058,10 +2082,16 @@ root.addEventListener('click', (event) => {
       const row = activeCorrection();
       if (!row) break;
       const findings = selectedCorrectionFindings(row, correctionDraft.keys);
-      if (update({ type: 'recheck', id: row.id, value: key, findings }, false)) {
+      const atWindow = run.phase === 'receipt';
+      if (update({ type: atWindow ? 'recheck-receipt' : 'recheck', id: row.id, value: key, findings }, false)) {
         correctionDraft = null;
         const needsRecall = run.records.find(({ id }) => id === row.id)?.status === 'recallPending';
-        if (panel === 'handoff') {
+        if (atWindow) {
+          issuedReceiptId = row.id;
+          toast('');
+          closePanel();
+          scenery?.setPressed?.(key);
+        } else if (panel === 'handoff') {
           handoffDocument = null;
           render(0);
           revealHandoffSelection(!needsRecall);
@@ -2071,7 +2101,7 @@ root.addEventListener('click', (event) => {
           revealArchiveReceipt(false);
         }
         playSound('stamp');
-        if (!needsRecall) toast('更正已留底');
+        if (!atWindow && !needsRecall) toast('更正已留底');
       }
       break;
     }

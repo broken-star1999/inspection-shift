@@ -144,10 +144,15 @@ function getRecord(state, id) {
   return state.records.find((record) => record.id === id);
 }
 
+function decisionAsHanded(record) {
+  return record?.amendments?.findLast(({ atWindow }) => atWindow === true)?.to ??
+    record?.original ?? record?.amendments?.[0]?.from ?? record?.decision;
+}
+
 export function getReworkFollowup(state) {
   if (!state) return null;
   const receipt = getRecord(state, 2);
-  const decision = receipt?.original ?? receipt?.amendments?.[0]?.from ?? receipt?.decision;
+  const decision = decisionAsHanded(receipt);
   if (decision !== 'fail' && decision !== 'review') return null;
   return { ...G202_RECHECK[decision], key: REWORK_KEY, caseId: receipt.id };
 }
@@ -169,7 +174,7 @@ export function canShowFinding(item, value) {
 export function getWindowSupplementRequest(state) {
   const record = state?.records && getRecord(state, 5);
   const proof = record?.supplementRequest;
-  if ((record?.original ?? record?.decision) !== 'review' || !sameFinding(proof, supplementFinding(CASE_BY_ID.get(5)))) return null;
+  if (decisionAsHanded(record) !== 'review' || !sameFinding(proof, supplementFinding(CASE_BY_ID.get(5)))) return null;
   return { record, proof };
 }
 
@@ -354,13 +359,13 @@ function previousSameLot(records, record) {
 function withPriorShipment(records, record) {
   if (!record || Number.isInteger(record.priorShipmentId)) return record;
   const previous = previousSameLot(records, record);
-  // The original pass went out at the previous close, before any Friday corrections.
-  return previous?.original === 'pass' && previous.day < record.day ? { ...record, priorShipmentId: previous.id } : record;
+  // Only a release still in force when the original slip left the window could have shipped.
+  return previous && decisionAsHanded(previous) === 'pass' && previous.day < record.day ? { ...record, priorShipmentId: previous.id } : record;
 }
 
 function hasAcceptedProof(record) {
-  return record.answer === 'pass' && (record.decision === 'pass' || record.original === 'pass' ||
-    record.amendments?.some(({ to }) => to === 'pass') === true);
+  return record.answer === 'pass' && (record.decision === 'pass' || decisionAsHanded(record) === 'pass' ||
+    record.amendments?.some(({ to, atWindow }) => to === 'pass' && atWindow !== true) === true);
 }
 
 export function isSupplementOnly(record) {
@@ -418,10 +423,15 @@ export function getShipmentAcceptance(state, visit) {
     ? shipmentAcceptance(filed.day, record) : null;
 }
 
-function confirmFollowup(records, record) {
-  if (record.decision !== 'pass' || record.answer !== 'pass') return records;
+function confirmFollowup(records, record, atWindow = false) {
   const previous = previousSameLot(records, record);
-  return previous ? updateRecord(records, previous.id, { verifiedBy: record.id }) : records;
+  if (!previous) return records;
+  if (record.decision === 'pass' && record.answer === 'pass') return updateRecord(records, previous.id, { verifiedBy: record.id });
+  if (atWindow && previous.verifiedBy === record.id) {
+    const { verifiedBy, ...unverified } = previous;
+    return records.map((entry) => entry === previous ? unverified : entry);
+  }
+  return records;
 }
 
 function isOffsite(status) {
@@ -460,13 +470,18 @@ function showFinding(state, value) {
   };
 }
 
+function currentSupplementProof(state, item, decision) {
+  const proof = state.supplementRequestDraft;
+  return decision === 'review' && sameFinding(proof, supplementFinding(item)) ? { ...proof } : null;
+}
+
 function stamp(state, action) {
   const item = getCase(state);
   const { value } = action;
   if (!item || !DECISIONS.includes(value) || (item.id === 1 && state.tutorial < TUTORIAL.length - 1)) return state;
   const findings = normalizeFindings(action.findings);
   const previous = previousSameLot(state.records, item);
-  const supplementRequest = value === 'review' && sameFinding(state.supplementRequestDraft, supplementFinding(item));
+  const supplementRequest = currentSupplementProof(state, item, value);
   const record = {
     id: item.id,
     batch: item.batch,
@@ -480,7 +495,7 @@ function stamp(state, action) {
     note: String(action.note ?? action.reason ?? '').trim().slice(0, 100),
     ...(findings.length ? { findings } : {}),
     ...(item.shownFinding ? { shownFinding: { ...item.shownFinding } } : {}),
-    ...(supplementRequest ? { supplementRequest: { ...state.supplementRequestDraft } } : {}),
+    ...(supplementRequest ? { supplementRequest } : {}),
     ...(isOffsite(previous?.status) ? { priorShipmentId: previous.id } : {}),
     status: disposition(state.records, item, value),
     amendments: [],
@@ -495,23 +510,33 @@ function amendedDisposition(records, record, decision) {
   return disposition(records, record, decision);
 }
 
-function recheck(state, action) {
+export function canRecheckReceipt(state, id) {
+  if (state?.phase !== 'receipt' || !Number.isInteger(id) || activeVisits(state).length) return false;
+  const record = state.records.at(-1);
+  return record?.id === id && record.day === state.day && getDay(state)?.cases[state.index]?.id === id;
+}
+
+function recheck(state, action, atWindow = false) {
   if (!DECISIONS.includes(action.value)) return state;
   const record = withPriorShipment(state.records, getRecord(state, Number(action.id)));
   if (!record || action.value === record.decision || findVerifiedReceipt(state.records, record)) return state;
-  const status = amendedDisposition(state.records, record, action.value);
+  const item = atWindow ? getCase(state) : null;
+  const status = atWindow ? disposition(state.records, item, action.value) : amendedDisposition(state.records, record, action.value);
+  const supplementRequest = atWindow ? currentSupplementProof(state, item, action.value) : null;
   const findings = normalizeFindings(action.findings);
   const amendment = {
     from: record.decision, to: action.value, status, previousStatus: record.status, day: state.day,
+    ...(atWindow ? { atWindow: true } : {}),
     ...(findings.length ? { findings } : {}),
   };
   const revised = {
     ...record,
     decision: action.value,
     status,
-    amendments: [...record.amendments, amendment],
+    ...(supplementRequest ? { supplementRequest } : {}),
+    amendments: [...(record.amendments ?? []), amendment],
   };
-  return { ...state, records: confirmFollowup(updateRecord(state.records, record.id, revised), revised) };
+  return { ...state, records: confirmFollowup(updateRecord(state.records, record.id, revised), revised, atWindow) };
 }
 
 function pendingRecall(state, id) {
@@ -806,6 +831,8 @@ export function dispatch(state, action) {
       return answerCall(state);
     case 'explore':
       return explore(state, action.key);
+    case 'recheck-receipt':
+      return canRecheckReceipt(state, action.id) ? recheck(state, action, true) : state;
     case 'recheck':
       return state.phase === 'handoff' ? recheck(state, action) : state;
     case 'receive-recall':

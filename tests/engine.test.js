@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { G205_SUPPLEMENT_REQUEST, PHONE, PRESSURE } from '../src/content.js';
 import { intakeComparison, projectComparison, relabelComparison } from '../src/document-comparison.js';
-import { archive, archivedReportSources, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
+import { archive, archivedReportSources, canRecheckReceipt, canShowFinding, createFollowingRun, createRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getWindowSupplementRequest, isSupplementOnly, receiptFeedback, restoreRun, TRACE_CASE_ID, TRACE_FINDING, TUTORIAL } from '../src/engine.js';
 
 function act(state, type, details) {
   return dispatch(state, { type, ...details });
@@ -33,14 +33,14 @@ function untilHandoff(seed, { decisions = {}, inspect = (state) => state, initia
   return state;
 }
 
-function receiptAt(id, value, { seed = 21, decisions = {}, inspect = (state) => state } = {}) {
+function receiptAt(id, value, { seed = 21, decisions = {}, findings, inspect = (state) => state } = {}) {
   let receipt;
   untilHandoff(seed, { decisions, inspect: (state, item) => {
     const prepared = inspect(state, item);
     if (item.id === id) {
       let ready = prepared;
       while (ready.event) ready = act(ready, 'ack-visit');
-      receipt = act(ready, 'stamp', { value });
+      receipt = act(ready, 'stamp', { value, findings });
     }
     return prepared;
   } });
@@ -1224,6 +1224,128 @@ test('unadopted offsite supplements only handle their paperwork and preserve the
   const remainder = receiptAt(15, 'fail', { decisions: { 4: 'pass' } }).records.at(-1);
   assert.equal(remainder.priorShipmentId, undefined);
   assert.equal(isSupplementOnly(remainder), false);
+});
+
+test('only the active receipt can be corrected at the window, preserving its original stamp and facts', () => {
+  const originalFinding = { key: 'doc:0:0', source: '外箱标签', text: '批号 · G-204' };
+  const newFinding = { key: 'sample:4:front', source: '护目镜', text: '镜片中央有一道分叉白纹' };
+  const issued = receiptAt(4, 'pass', { findings: [originalFinding] });
+  const fresh = restoreRun(JSON.parse(JSON.stringify(issued)));
+  assert.equal(canRecheckReceipt(fresh, 4), true);
+  assert.equal(canRecheckReceipt(fresh, 3), false);
+  assert.equal(canRecheckReceipt(fresh, '4'), false);
+  assert.equal(act(fresh, 'recheck-receipt', { id: 3, value: 'fail' }), fresh);
+  assert.equal(act(fresh, 'recheck-receipt', { id: 4, value: 'pass' }), fresh);
+  assert.equal(act(fresh, 'recheck-receipt', { id: 4, value: 'recall' }), fresh);
+  assert.equal(act(fresh, 'recheck', { id: 4, value: 'fail' }), fresh);
+  const activeVisit = { ...fresh, events: [{ key: 'trace', npc: 'chen' }] };
+  assert.equal(canRecheckReceipt(activeVisit, 4), false);
+  assert.equal(act(activeVisit, 'recheck-receipt', { id: 4, value: 'fail' }), activeVisit);
+
+  const corrected = act(fresh, 'recheck-receipt', { id: 4, value: 'fail', status: 'shipped', findings: [newFinding] });
+  const record = corrected.records.at(-1);
+  assert.equal(corrected.phase, 'receipt');
+  assert.equal(record.id, 4);
+  assert.equal(record.decision, 'fail');
+  assert.equal(record.original, 'pass');
+  assert.equal(record.status, 'returned');
+  assert.equal(record.findings, fresh.records.at(-1).findings);
+  assert.deepEqual(record.findings, [originalFinding]);
+  assert.equal(record.recallReceipt, undefined);
+  assert.deepEqual(record.amendments, [{ from: 'pass', to: 'fail', previousStatus: 'shipping', status: 'returned',
+    day: 0, atWindow: true, findings: [newFinding] }]);
+  assert.equal(corrected.records.length, fresh.records.length);
+  assert.equal(corrected.records[0], fresh.records[0]);
+  const departed = act(corrected, 'next');
+  assert.equal(departed.phase, 'summary');
+  assert.equal(canRecheckReceipt(departed, 4), false);
+  assert.equal(act(departed, 'recheck-receipt', { id: 4, value: 'pass' }), departed);
+  const week = untilHandoff(21, { initialState: departed });
+  assert.equal(archive(week, 'G-204').find(({ id }) => id === 4).latestReceipt, null);
+  assert.equal(week.records.find(({ id }) => id === 15).priorShipmentId, undefined);
+  assert.deepEqual(getEnding(act(week, 'finish')).issues, []);
+});
+
+test('a pass withdrawn on the original G-205 slip does not make its next-day supplement paperwork-only', () => {
+  const issued = receiptAt(5, 'pass');
+  const corrected = act(issued, 'recheck-receipt', { id: 5, value: 'review' });
+  let supplement;
+  const week = untilHandoff(21, { initialState: restoreRun(JSON.parse(JSON.stringify(corrected))), decisions: { 9: 'review' }, inspect: (state, item) => {
+    if (item.id === 9) supplement = act(state, 'stamp', { value: 'review' });
+    return state;
+  } });
+  assert.equal(getPreviousReceipt(supplement).record.status, 'held');
+  assert.equal(supplement.records.at(-1).priorShipmentId, undefined);
+  const archived = archive(restoreRun(supplement), 'G-205').find(({ id }) => id === 9).record;
+  assert.equal(archived.priorShipmentId, undefined);
+  assert.equal(archived.status, 'held');
+  assert.equal(isSupplementOnly(archived), false);
+  assert.equal(week.records.find(({ id }) => id === 5).status, 'held');
+});
+
+test('withdrawing a same-window acceptance of an offsite supplement changes only the paperwork until handed over', () => {
+  const issued = receiptAt(9, 'pass', { decisions: { 5: 'pass' } });
+  assert.equal(issued.records.find(({ id }) => id === 5).verifiedBy, 9);
+  assert.equal(issued.records.at(-1).status, 'shipped');
+  const withdrawn = act(issued, 'recheck-receipt', { id: 9, value: 'review' });
+  const restored = restoreRun(JSON.parse(JSON.stringify(withdrawn)));
+  const original = archive(restored, 'G-205').find(({ id }) => id === 5);
+  assert.equal(original.record.status, 'shipped');
+  assert.equal(original.record.verifiedBy, undefined);
+  assert.equal(original.latestReceipt, null);
+  const supplemental = restored.records.at(-1);
+  assert.equal(supplemental.priorShipmentId, 5);
+  assert.equal(supplemental.status, 'held');
+  assert.equal(isSupplementOnly(supplemental), true);
+  assert.equal(supplemental.recallReceipt, undefined);
+  assert.equal(act(restored, 'receive-recall', { id: 9 }), restored);
+
+  const reaccepted = act(restored, 'recheck-receipt', { id: 9, value: 'pass' });
+  assert.equal(reaccepted.records.at(-1).status, 'shipped');
+  assert.equal(reaccepted.records.find(({ id }) => id === 5).verifiedBy, 9);
+  const returned = act(reaccepted, 'recheck-receipt', { id: 9, value: 'fail' });
+  assert.equal(returned.records.at(-1).status, 'returned');
+  assert.equal(isSupplementOnly(returned.records.at(-1)), true);
+
+  const week = untilHandoff(21, { initialState: restored });
+  assert.deepEqual(getEnding(week).issues.map(({ id }) => id), [5]);
+  const acceptedFriday = act(week, 'recheck', { id: 9, value: 'pass' });
+  assert.equal(acceptedFriday.records.find(({ id }) => id === 9).status, 'shipped');
+  const recalledFriday = act(acceptedFriday, 'recheck', { id: 9, value: 'review' });
+  const then = archive(recalledFriday, 'G-205').find(({ id }) => id === 5).latestReceipt;
+  assert.equal(then.id, 9);
+  assert.equal(then.status, 'recallPending');
+  assert.equal(Object.hasOwn(then.amendments.at(-1), 'atWindow'), false);
+});
+
+test('G-202 rework and G-205 priority read the last stamp handed over at the window', () => {
+  const failed = receiptAt(2, 'fail');
+  const passed = act(failed, 'recheck-receipt', { id: 2, value: 'pass' });
+  const reviewed = act(passed, 'recheck-receipt', { id: 2, value: 'review' });
+  assert.equal(getReworkFollowup(passed), null);
+  assert.equal(getReworkFollowup(reviewed).document.fields.find(([label]) => label === '原单印章')[1], '要求审查');
+  for (const [state, expected] of [[passed, false], [reviewed, true]]) {
+    let dayOpening;
+    untilHandoff(21, { initialState: state, inspect: (run) => {
+      if (run.day === 1 && run.index === 0) dayOpening = run;
+      return run;
+    } });
+    assert.equal(dayOpening.event?.key === 'rework:2', expected);
+  }
+
+  const state = g205AtWindow(1);
+  const finding = intakeComparison(getCase(state), 1).finding;
+  const shown = act(state, 'show-finding', { finding });
+  const unfiled = act(shown, 'stamp', { value: 'pass' });
+  const filed = act(unfiled, 'recheck-receipt', { id: 5, value: 'review' });
+  assert.deepEqual(getWindowSupplementRequest(filed).proof, finding);
+  assert.deepEqual(getDay({ ...filed, day: 2 }).cases.map(({ id }) => id), [9, 12, 10, 11]);
+  const voided = act(filed, 'recheck-receipt', { id: 5, value: 'pass' });
+  assert.equal(getWindowSupplementRequest(voided), null);
+  assert.deepEqual(getDay({ ...voided, day: 2 }).cases.map(({ id }) => id), [12, 10, 11, 9]);
+  assert.deepEqual(voided.records.at(-1).supplementRequest, finding);
+  const refiled = act(restoreRun(JSON.parse(JSON.stringify(voided))), 'recheck-receipt', { id: 5, value: 'review' });
+  assert.deepEqual(getWindowSupplementRequest(refiled).proof, finding);
 });
 
 test('departure leaves a superseded queued receipt as history while only the active one ships', () => {

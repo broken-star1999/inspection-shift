@@ -21,6 +21,10 @@ const cargoDestinations = {
   returned: { x: -3.96, z: -.060, angle: -.042 },
   held: { x: -2.11, z: -.015, angle: -.034 },
 };
+const cargoStaging = {
+  shipping: { x: 1.92, z: -.045, angle: .035 },
+  returned: { x: -2.46, z: -.060, angle: -.042 },
+};
 const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'review', supplementHeld: 'review', review: 'review' };
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
 const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, presentedEvidence: null };
@@ -529,6 +533,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   let sampleFilename = null;
   let portraitMotionAt = -Infinity;
   let cargo = null;
+  let cargoFrom = cargoStart;
   let cargoMotionAt = -Infinity;
   let slipMotionAt = -Infinity;
   let evidenceKey = null;
@@ -703,6 +708,24 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     return THREE.MathUtils.lerp(shutterFrom, shutterTarget, progress ** 2 * (3 - 2 * progress));
   }
 
+  function updateCargo(now, waiting, closing) {
+    const closingDeparture = closing && cargo && Object.hasOwn(cargoStaging, cargo.route);
+    const requested = frame.cargo ?? (waiting || closingDeparture ? cargo : null);
+    const release = (waiting || closing) && requested?.staged;
+    const next = release ? { ...requested, staged: false, animate: true } : requested;
+    if (next?.id === cargo?.id && next?.route === cargo?.route && Boolean(next?.staged) === Boolean(cargo?.staged)) return;
+
+    const sameBatch = next && cargo && next.id === cargo.id;
+    const from = sameBatch ? cargoPose(now) : null;
+    const continuous = sameBatch && from?.visible;
+    const moving = next && next.route !== 'ready' && (next.animate || continuous) && !reduced.matches;
+    cargoFrom = continuous ? from : cargoStart;
+    cargo = next;
+    const destination = cargoDestination();
+    const alreadyThere = destination?.x === cargoFrom.x && destination.z === cargoFrom.z && destination.angle === cargoFrom.angle;
+    cargoMotionAt = moving && !alreadyThere ? now : -Infinity;
+  }
+
   function setFrame(next = {}) {
     if (destroyed) return;
     const before = frame;
@@ -730,11 +753,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       evidenceKey = nextEvidenceKey;
       evidenceMotionAt = evidence ? now : -Infinity;
     }
-    const nextCargo = frame.cargo ?? (waiting ? cargo : null);
-    if (nextCargo?.id !== cargo?.id || nextCargo?.route !== cargo?.route) {
-      cargo = nextCargo;
-      cargoMotionAt = cargo?.animate && cargo.route !== 'ready' ? now : -Infinity;
-    }
+    updateCargo(now, waiting, nextShutter === 1 || frame.phase === 'handoff');
     const slip = frame.outgoingSlip;
     if (slip?.id !== before.outgoingSlip?.id || slip?.route !== before.outgoingSlip?.route) {
       slipMotionAt = slip?.animate ? now : -Infinity;
@@ -828,22 +847,40 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
     return !resting;
   }
 
+  function cargoDestination() {
+    if (!cargo) return null;
+    return (cargo.staged && cargoStaging[cargo.route]) || cargoDestinations[cargo.route];
+  }
+
+  function cargoPose(now) {
+    const destination = cargoDestination();
+    if (!destination) return null;
+    const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - cargoMotionAt) / cargoTravelMs, 0, 1);
+    const moving = progress < 1;
+    const rests = cargo.staged || cargo.route === 'ready' || cargo.route === 'held';
+    const slide = cargo.staged || cargo.route === 'held' ? 1 - (1 - progress) ** 3 : progress ** 1.5;
+    return {
+      x: THREE.MathUtils.lerp(cargoFrom.x, destination.x, slide),
+      z: THREE.MathUtils.lerp(cargoFrom.z, destination.z, slide),
+      angle: THREE.MathUtils.lerp(cargoFrom.angle, destination.angle, slide),
+      visible: Boolean(rests || moving),
+      moving,
+    };
+  }
+
   function placeCargo(now) {
     const box = models.cargo;
-    const destination = cargo && cargoDestinations[cargo.route];
-    if (!destination) {
-      box.visible = false;
-      return false;
-    }
-    const progress = reduced.matches ? 1 : THREE.MathUtils.clamp((now - cargoMotionAt) / cargoTravelMs, 0, 1);
-    const remainsInWindow = cargo.route === 'ready' || cargo.route === 'held';
-    box.visible = remainsInWindow || progress < 1;
-    if (!box.visible) return false;
-    const slide = cargo.route === 'held' ? 1 - (1 - progress) ** 3 : progress ** 1.5;
-    box.position.set(THREE.MathUtils.lerp(cargoStart.x, destination.x, slide), 0,
-      THREE.MathUtils.lerp(cargoStart.z, destination.z, slide));
-    box.rotation.y = THREE.MathUtils.lerp(cargoStart.angle, destination.angle, slide);
-    return progress < 1;
+    const pose = cargoPose(now);
+    box.visible = Boolean(pose?.visible);
+    if (!pose?.visible) return false;
+    box.position.set(pose.x, 0, pose.z);
+    box.rotation.y = pose.angle;
+    return pose.moving;
+  }
+
+  function updateMotionPreference() {
+    if (reduced.matches) cargoMotionAt = -Infinity;
+    invalidate();
   }
 
   function placeOutgoingSlip(now) {
@@ -1041,7 +1078,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
   const resizeObserver = view.ResizeObserver ? new view.ResizeObserver(invalidate) : null;
   resizeObserver?.observe(host);
   view.addEventListener('resize', invalidate);
-  reduced.addEventListener('change', invalidate);
+  reduced.addEventListener('change', updateMotionPreference);
   invalidate();
 
   return {
@@ -1066,7 +1103,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       if (raf) view.cancelAnimationFrame(raf);
       resizeObserver?.disconnect();
       view.removeEventListener('resize', invalidate);
-      reduced.removeEventListener('change', invalidate);
+      reduced.removeEventListener('change', updateMotionPreference);
       canvas.removeEventListener('webglcontextlost', loseContext);
       canvas.removeEventListener('webglcontextrestored', restoreContext);
       disposeObject(scene);

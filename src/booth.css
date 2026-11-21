@@ -220,6 +220,8 @@
 .booth-cargo[data-cargo-route='shipping'] { --cargo-position: 108%; }
 .booth-cargo[data-cargo-route='returned'] { --cargo-position: calc(var(--cargo-width) * -1.45); }
 .booth-cargo[data-cargo-route='held'] { --cargo-position: 7.5%; }
+.booth-cargo[data-cargo-staged][data-cargo-route='shipping'] { --cargo-position: 72%; }
+.booth-cargo[data-cargo-staged][data-cargo-route='returned'] { --cargo-position: 8%; }
 
 @media (prefers-reduced-motion: no-preference) {
   .booth-cargo[data-cargo-moving] .booth-cargo-crate {
