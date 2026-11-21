@@ -381,11 +381,11 @@ export function visitPaper(doc, visit) {
     });
 }
 
-function orderFieldActions(item, orderIndex, visible, selected) {
+function orderFieldActions(item, orderIndex, visible, selected, guided = false) {
   const order = item.documents[orderIndex];
   const actions = new Map();
   const intakeField = order.fields.find(([key]) => key === '随货材料' || key === '随货要求')?.[0];
-  if (intakeField && intakeComparison(item, orderIndex)) {
+  if (!guided && intakeField && intakeComparison(item, orderIndex)) {
     actions.set(intakeField, button('点收', 'delivery-check', 'secondary document-field-action delivery-check-action', `data-i="${orderIndex}"`));
   }
   const projectField = order.fields.find(([key]) => key === '检验项目' || key === '必查项目')?.[0];
@@ -400,7 +400,8 @@ function orderFieldActions(item, orderIndex, visible, selected) {
     const attributes = `data-i="${orderIndex}" data-key="${report.index}"`;
     const recorded = selected.has(report.comparison.finding.key);
     const action = paired
-      ? button(recorded ? '取回对照' : '记下对照', 'project-evidence', 'secondary document-field-action project-field-action', attributes + active(recorded))
+      ? button(recorded ? '取回对照' : '记下对照', 'project-evidence',
+        `secondary document-field-action project-field-action${cls('instructed', guided)}`, attributes + active(recorded))
       : button('对照报告', 'project-pair', 'secondary document-field-action project-field-action', attributes);
     actions.set(projectField, action);
   }
@@ -515,6 +516,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const reportVisible = visibleTypes.includes('report');
   const labelVisible = visibleTypes.includes('label');
   const batchPairVisible = matchBatch && labelVisible && reportVisible;
+  const projectsPaired = signature && progress.signed && reportVisible && visibleTypes.includes('order');
   let target = tutorial?.target;
   if (matchBatch && reportVisible) target = labelVisible ? null : 'label';
   if (signature && !progress.signed) target = 'report';
@@ -522,18 +524,18 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const inspection = {
     batch: batchPairVisible,
     signature: signature && !progress.signed,
-    projects: sampleReady && reportVisible && visibleTypes.includes('order'),
+    projects: projectsPaired,
     selected: new Set(findings.map(({ key }) => key)),
   };
   const draft = findingsDraft(findings, progress.showFindings, tutorial ? null : item, progress.supplementRequest);
   let guide = tutorial?.line;
   if (batchPairVisible) guide = tutorial.pairLine;
-  else if (signature && progress.signed) guide = tutorial.orderLine;
+  else if (signature && progress.signed) guide = projectsPaired ? tutorial.projectsLine : tutorial.orderLine;
   else if (signature && !reportVisible) guide = tutorial.reportLine;
   let guidedCompare = '';
   if (matchBatch && !batchPairVisible) {
     guidedCompare = button(doc.type === 'report' ? '并排箱签' : '并排报告', 'compare', 'primary tutorial-next', 'data-key="batch"');
-  } else if (signature && progress.signed && !progress.orderSeen) {
+  } else if (signature && progress.signed && !projectsPaired) {
     guidedCompare = button('并排送检联', 'compare', 'primary tutorial-next', 'data-key="order"');
   }
   const sampleAction = sampleReady ? button('拿起检样', 'sample', 'primary tutorial-next')
@@ -563,7 +565,9 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const thickness = canMeasure && thicknessComparison(item, progress.inspection, findings);
   const activeSheet = (page, position) => {
     let fieldActions;
-    if (!tutorial && !comparing) {
+    if (projectsPaired && page.type === 'order') {
+      fieldActions = orderFieldActions(item, position, visible, inspection.selected, true);
+    } else if (!tutorial && !comparing) {
       if (page.type === 'order') fieldActions = orderFieldActions(item, position, visible, inspection.selected);
       else if (relabelComparison(item, position)) fieldActions = new Map([['原箱批号',
         button('对批号', 'relabel-check', 'secondary document-field-action', `data-i="${position}"${active(false)}`)]]);
@@ -632,12 +636,14 @@ export function sample(item, inspection, tutorial, progress) {
   const inGauge = sampleInGauge(spec, inspection);
   const practicing = tutorial?.key === 'sample';
   const stampReady = tutorial?.key === 'stamp';
-  const filmHint = !back && !film && filmLessonPending(item, progress);
+  const filmLesson = !film && filmLessonPending(item, progress);
+  const filmHint = !back && filmLesson;
   const guidedFlip = practicing && !back;
   let guide = '';
   if (stampReady) guide = tutorial.sampleLine;
   else if (practicing) guide = back ? (clasp ? tutorial.tugLine : tutorial.claspLine) : tutorial.frontLine;
   else if (tutorial) guide = '先放下检样，接着核对单据。';
+  else if (filmLesson && back) guide = '白痕在镜片正面，翻回去看看膜角。';
   else if (filmHint) guide = FILM_TUTORIAL;
   const visual = sampleObservation(spec, { ...inspection, back });
   const findings = readFindings(progress);
@@ -664,7 +670,7 @@ export function sample(item, inspection, tutorial, progress) {
   let control = '';
   if (packaged) control = sampleHotspot('unpack', 'pack-handle', '拆袋', '拆开包装');
   if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜', film ? '放回保护膜' : '揭开膜角', film, filmHint);
-  if (appearance.clasp && back && !tug) control = clasp
+  if ((!tutorial || practicing || stampReady) && appearance.clasp && back && !tug) control = clasp
     ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查', null, practicing)
     : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件', null, practicing);
   if (spec.reading) control = sampleHotspot('measure', 'gauge-handle', `<span class="gauge-grip-label">${inGauge ? '取出' : '放入'}</span>`,
@@ -672,13 +678,16 @@ export function sample(item, inspection, tutorial, progress) {
   const clamp = inGauge ? sampleHotspot('gauge-clamp', 'gauge-clamp', measured ? '松开量爪' : '合上量爪', measured ? '松开量爪' : '合上量爪', measured) : '';
   const observation = sampleFinding(spec, inspection);
   const recorded = findings.some(({ key }) => key === observation.key);
-  const basisLabel = measured && spec.reading ? (recorded ? '取回实测' : '记下实测') : packaged ? '记下包装' : '记为查验依据';
+  const basisLabel = measured && spec.reading ? (recorded ? '取回实测' : '记下实测')
+    : packaged ? '记下包装' : !back && film ? (recorded ? '取回揭膜记录' : '记下揭膜结果')
+      : stampReady ? (recorded ? '取回检样记录' : '记下检样结果') : '记为查验依据';
   const basis = !thicknessOpen && !(measured && thicknessRecorded) && (packaged || !tutorial || tug || film || measured || back || unpacked)
     ? button(basisLabel, 'sample-basis', 'secondary sample-basis-control',
       active(recorded) + (inGauge && !measured ? ' disabled' : '')) : '';
   const gaugeBasis = inGauge && measured ? basis : '';
   const show = recorded && !tutorial ? findingShowButton(observation, item, item.shownFinding, progress?.supplementRequest, 'source') : '';
-  const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : 'secondary sample-flip-control');
+  const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip',
+    guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : `secondary sample-flip-control${cls('instructed', filmLesson && back)}`);
   const observationCard = inGauge
     ? `<div class="sample-findings gauge-observation"><div aria-live="polite"><b>量规实测</b><p class="reading"><strong>${measured ? esc(spec.reading) : '—'}</strong></p></div>${gaugeBasis}</div>`
     : `<div class="sample-findings"><b>${packaged ? '包装' : back ? '背面' : appearance.front ?? '正面'}</b><p>${esc(visual)}</p>

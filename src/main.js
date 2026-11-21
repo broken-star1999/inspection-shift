@@ -881,7 +881,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
-  const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]:enabled') ?? focusables.find((element) => element instanceof HTMLButtonElement &&
+  const guidedProject = step?.key === 'signature' && surface?.querySelector('.project-field-action.instructed');
+  const firstAction = guidedProject || surface?.querySelector('.receipt-surface [data-act="next"]:enabled') || focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
     !['close', 'toggle-findings', 'remove-finding'].includes(element.dataset.act));
   (glancedPanel ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
@@ -1520,13 +1521,22 @@ function checkBasis(index, field) {
   const finding = paperFieldFinding(doc, index, field);
   const recorded = toggleFinding(finding);
   if (panel === 'docs') interaction.lastReadDoc = index;
-  if (tutorialStep()) {
+  const step = tutorialStep();
+  if (step) {
     if (label === '签发' && doc.type === 'report') interaction.signed = true;
     advanceTutorial();
   }
   playSound('click');
   toast(`${recorded ? '已记下' : '已移除'} · ${label}`);
   render();
+  if (step?.key === 'report' && tutorialStep()?.key === 'signature') {
+    const signature = modalLayer.querySelector('[data-tutorial-signature]');
+    if (signature) signature.focus({ preventScroll: true });
+    else {
+      const report = windowCase().documents.findIndex(({ type }) => type === 'report');
+      focusControl(modalLayer, { act: 'doc', i: String(report) });
+    }
+  }
 }
 
 function paperFieldFinding(doc, index, field) {
@@ -1707,12 +1717,17 @@ function openProjectComparison(orderIndex, reportIndex) {
 function openDeskPair(left, right, opener) {
   setDocumentPair(left, right);
   interaction.lastReadDoc = right;
+  const documents = windowCase()?.documents;
+  readDocument(documents?.[left]);
+  readDocument(documents?.[right]);
   playSound('slide');
   openPanel('docs', opener);
 }
 
 function recordDocumentComparison(kind, documentIndex, target) {
-  const item = documentCheckItem();
+  const guidedProjects = panel === 'docs' && kind === 'project-evidence' && tutorialStep()?.key === 'signature' &&
+    interaction.signed && interaction.orderSeen;
+  const item = guidedProjects ? windowCase() : documentCheckItem();
   if (!item) return;
   let comparison;
   if (kind === 'delivery-evidence') {
@@ -1731,9 +1746,11 @@ function recordDocumentComparison(kind, documentIndex, target) {
   if (!comparison) return;
   const recorded = toggleFinding(comparison.finding);
   interaction.lastReadDoc = documentIndex;
+  if (guidedProjects && recorded) advanceTutorial();
   playSound('paper');
   toast(recorded ? '已记下纸面记录' : '已取回纸面记录');
   render();
+  if (guidedProjects && recorded) focusControl(modalLayer, { act: 'sample' });
 }
 
 function comparePrevious(opener) {
@@ -1840,6 +1857,8 @@ function checkSample(act) {
   const item = windowCase();
   const spec = item?.sample;
   if (!spec) return;
+  const step = tutorialStep();
+  const waitingForClasp = step && step.key !== 'sample' && step.key !== 'stamp';
   const packed = spec.kind === 'yellow' && !sample.unpacked;
   const inGauge = sampleInGauge(spec, sample);
   const previousJaw = act === 'sample-gauge-clamp' && modalLayer.querySelector('.gauge-moving-jaw');
@@ -1858,12 +1877,12 @@ function checkSample(act) {
       if (item.id === 2 && sample.film) interaction.filmChecked = true;
       break;
     case 'sample-clasp':
-      if (!sample.back || sample.clasp || !sampleAppearance(spec).clasp) return;
+      if (waitingForClasp || !sample.back || sample.clasp || !sampleAppearance(spec).clasp) return;
       sample.clasp = true;
       sound = 'clasp';
       break;
     case 'sample-tug':
-      if (!sample.back || !sample.clasp || sample.tug || !sampleAppearance(spec).clasp) return;
+      if (waitingForClasp || !sample.back || !sample.clasp || sample.tug || !sampleAppearance(spec).clasp) return;
       sample.tug = true;
       sound = ['loose', 'broken'].includes(spec.kind) ? 'claspRelease' : 'tug';
       advanceTutorial();
@@ -1917,6 +1936,14 @@ function checkSample(act) {
   }
   playSound(sound);
   render();
+  if (step?.key === 'sample') {
+    if (act === 'sample-flip' && sample.back) focusControl(modalLayer, { act: sample.clasp ? 'sample-tug' : 'sample-clasp' });
+    if (act === 'sample-clasp') focusControl(modalLayer, { act: 'sample-tug' });
+    if (act === 'sample-tug') focusControl(modalLayer, { act: 'close' });
+  }
+  if (act === 'sample-flip' && !sample.back && view.filmLessonPending(item, {
+    returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked,
+  })) focusControl(modalLayer, { act: 'sample-film' });
   if (act === 'sample-thickness' && interaction.thicknessOpen) {
     modalLayer.querySelector('.sample-inspector')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }

@@ -1,5 +1,5 @@
 import { normalizeFindings } from './inspection-findings.js';
-import { intakeComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
+import { intakeComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { DAYS, EASTER_EGGS, documentExtension } from './content.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -74,7 +74,14 @@ export function tutorialActionComplete(key, interaction, item) {
       const field = item?.documents?.[index]?.fields?.findIndex(([name]) => name === '批号');
       return field >= 0 && interaction?.findings?.some(({ key }) => key === `doc:${index}:${field}`);
     });
-    case 'signature': return interaction?.signed === true && interaction?.orderSeen === true;
+    case 'signature': {
+      if (!interaction?.signed || !interaction.orderSeen || !item?.documents) return false;
+      const order = item.documents.findIndex(({ type }) => type === 'order');
+      const report = item.documents.findIndex(({ type }) => type === 'report');
+      const proof = projectComparison(item, order, report)?.finding;
+      return Boolean(proof && interaction.findings?.some(({ key, source, text }) =>
+        key === proof.key && source === proof.source && text === proof.text));
+    }
     case 'sample': return interaction?.inspection?.tug === true;
     default: return false;
   }

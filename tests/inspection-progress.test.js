@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DAYS } from '../src/content.js';
+import { projectComparison } from '../src/document-comparison.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress, tutorialActionComplete } from '../src/inspection-progress.js';
 
 const item = { id: 7, documents: [{ type: 'label' }, { type: 'report' }] };
@@ -143,9 +144,13 @@ test('keeps early first-batch actions across reload without completing uninspect
   assert.equal(restored.doc, 1);
   assert.equal(restored.compare, 2);
   assert.deepEqual(['label', 'report', 'signature', 'sample', 'stamp'].map((key) => tutorialActionComplete(key, restored, first)),
-    [false, false, true, true, false]);
-  assert.equal(tutorialActionComplete('signature', { ...restored, signed: false }), false);
-  assert.equal(tutorialActionComplete('signature', { ...restored, orderSeen: false }), false);
+    [false, false, false, true, false]);
+  const projects = projectComparison(first, 2, 1).finding;
+  const compared = { ...restored, findings: [projects] };
+  assert.equal(tutorialActionComplete('signature', compared, first), true);
+  assert.equal(tutorialActionComplete('signature', { ...compared, signed: false }, first), false);
+  assert.equal(tutorialActionComplete('signature', { ...compared, orderSeen: false }, first), false);
+  assert.equal(tutorialActionComplete('signature', { ...compared, findings: [{ ...projects, text: '只记了外观' }] }, first), false);
   assert.equal(tutorialActionComplete('label', { ...restored, labelSeen: true }), true);
 
   const legacy = restoreInspectionProgress({ caseId: 1, inspection: { clasp: true, tug: true } }, first, [1]);
@@ -157,7 +162,8 @@ test('keeps early first-batch actions across reload without completing uninspect
     { key: 'doc:1:1', text: '签发 · 已签发' },
   ] }, signedReport, [1]);
   assert.equal(tutorialActionComplete('report', legacySignature, signedReport), false);
-  assert.equal(tutorialActionComplete('signature', legacySignature), true);
+  assert.equal(legacySignature.signed, true);
+  assert.equal(tutorialActionComplete('signature', legacySignature, signedReport), false);
   assert.equal(tutorialActionComplete('sample', restoreInspectionProgress(saved, item, [1, 7])), false);
   assert.equal(captureInspectionProgress(item, { ...work, labelSeen: true }).labelSeen, false);
 });

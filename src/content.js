@@ -139,10 +139,11 @@ export const TUTORIAL = [
   {
     target: 'order', title: '核对签发和项目', line: '点报告上的「已签发」。',
     reportLine: '翻到检验报告，找签发栏。',
-    orderLine: '把送检联放在报告旁，对照外观和扣合两项。',
+    orderLine: '把送检联放到报告旁。',
+    projectsLine: '找到报告上的外观和扣合结果，再点「记下对照」。',
   },
   {
-    target: 'sample', title: '动手检查', line: '对照外观和扣合两项，再拿起检样。',
+    target: 'sample', title: '动手检查', line: '两项都有结果。拿起检样，自己查一遍。',
     frontLine: '看看镜片有没有裂痕，然后翻面。',
     claspLine: '按合背面的扣件。',
     tugLine: '轻拉一下，看看扣件会不会松。',

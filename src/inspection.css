@@ -233,7 +233,8 @@
   min-block-size: 2.75rem;
   padding-inline: .42rem;
 }
-.documents-surface .field-value:is([data-tutorial-signature], [data-tutorial-batch]) {
+.documents-surface .field-value:is([data-tutorial-signature], [data-tutorial-batch]),
+.documents-surface .sheet .document-action-value .project-field-action.instructed {
   min-inline-size: 2.75rem;
   min-block-size: 2.75rem;
   margin-block: 0;
