@@ -401,11 +401,12 @@ function orderFieldActions(item, orderIndex, visible, selected) {
   return actions;
 }
 
-function intakeSlip(comparison, orderIndex, selected) {
+function intakeSlip(item, comparison, orderIndex, selected, supplement) {
   const checked = selected.has(comparison.finding.key);
+  const show = checked ? findingShowButton(comparison.finding, item, item.shownFinding, supplement, 'source') : '';
   return `<article class="sheet intake-slip"><small>质检窗口 · 本批收件</small><h3>实收点数条</h3>
     <ul class="intake-received" aria-label="实际收到的单据">${comparison.received.map((title) => `<li>${esc(title)}</li>`).join('')}</ul>
-    <div class="modal-actions intake-actions">${button(checked ? '取回依据' : '记下点收', 'delivery-evidence', 'secondary intake-evidence', `data-i="${orderIndex}"${active(checked)}`)}</div></article>`;
+    <div class="modal-actions intake-actions">${button(checked ? '取回依据' : '记下点收', 'delivery-evidence', 'secondary intake-evidence', `data-i="${orderIndex}"${active(checked)}`)}${show}</div></article>`;
 }
 
 function relabelSlip(comparison, selected) {
@@ -440,27 +441,38 @@ function sameFinding(finding, shown) {
   return shown?.key === finding.key && shown.text === finding.text && shown.source === finding.source;
 }
 
+function findingShowButton(finding, viewer, shown, supplement, origin = 'list') {
+  if (!viewer || !canShowFinding(viewer, finding)) return '';
+  const name = CHARACTERS[viewer.npc]?.name;
+  if (!name) return '';
+  const { key, source, text } = finding;
+  const wasSupplied = sameFinding(finding, supplement);
+  const wasShown = wasSupplied || sameFinding(finding, shown);
+  const pointCount = viewer.id === 5 && key === 'compare:5:intake:1';
+  const label = wasSupplied ? '已递点收联' : wasShown ? '已出示' : pointCount ? '递点收联' : `递给${esc(name)}`;
+  return button(label, 'show-finding', origin === 'source' ? 'secondary evidence-show-control' : 'finding-show',
+    `data-key="${esc(key)}" data-finding-origin="${origin}"${active(wasShown)} aria-label="${wasShown ? '已递给' : '递给'}${esc(name)}看 ${esc(source || text)}"`);
+}
+
 function findingLines(findings, removeAction = '', { viewer, shown, supplement } = {}) {
   return `<ul class="finding-lines">${findings.map((finding) => {
     const { key, source, text } = finding;
     const wasSupplied = sameFinding(finding, supplement);
     const wasShown = wasSupplied || sameFinding(finding, shown);
-    const showTo = viewer && canShowFinding(viewer, finding) ? CHARACTERS[viewer.npc]?.name : null;
     const marker = !viewer && wasShown ? `<small class="finding-shown">${wasSupplied ? '已列入补件联' : '开单前已出示'}</small>` : '';
     const remove = removeAction ? button('取回', removeAction, 'finding-remove', `data-key="${esc(key)}" aria-label="取回依据 ${esc(text)}"`) : '';
-    const action = viewer?.id === 5 && key === 'compare:5:intake:1' ? '递点收联' : '递给他看';
-    const show = showTo ? button(wasSupplied ? '已递点收联' : wasShown ? '已出示' : action, 'show-finding', 'finding-show',
-      `data-key="${esc(key)}"${active(wasShown)} aria-label="${wasShown ? '已递给' : '递给'}${esc(showTo)}看 ${esc(source || text)}"`) : '';
+    const show = findingShowButton(finding, viewer, shown, supplement);
     return `<li><div class="finding-description">${source ? `<small class="finding-source">${esc(source)}</small>` : ''}<span>${esc(text)}</span>${marker}</div>
       ${viewer ? `<div class="finding-actions">${show}${remove}</div>` : remove}</li>`;
   }).join('')}</ul>`;
 }
 
-function findingsDraft(findings, showFindings) {
+function findingsDraft(findings, showFindings, item, supplement) {
   if (!findings.length) return { header: '', list: '' };
+  const viewer = findings.some((finding) => canShowFinding(item, finding)) ? item : null;
   return {
     header: button(`查验依据 ${findings.length}`, 'toggle-findings', 'findings-toggle', `aria-expanded="${Boolean(showFindings)}" aria-controls="working-findings"`),
-    list: `<div class="working-findings" id="working-findings" role="region" aria-label="已经记录的查验依据"${showFindings ? '' : ' hidden'}>${showFindings ? findingLines(findings, 'remove-finding') : ''}</div>`,
+    list: `<div class="working-findings" id="working-findings" role="region" aria-label="已经记录的查验依据"${showFindings ? '' : ' hidden'}>${showFindings ? findingLines(findings, 'remove-finding', { viewer, shown: item?.shownFinding, supplement }) : ''}</div>`,
   };
 }
 
@@ -507,7 +519,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     projects: sampleReady && reportVisible && visibleTypes.includes('order'),
     selected: new Set(findings.map(({ key }) => key)),
   };
-  const draft = findingsDraft(findings, progress.showFindings);
+  const draft = findingsDraft(findings, progress.showFindings, tutorial ? null : item, progress.supplementRequest);
   let guide = tutorial?.line;
   if (batchPairVisible) guide = tutorial.pairLine;
   else if (signature && progress.signed) guide = tutorial.orderLine;
@@ -557,7 +569,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   if (intake) {
     const closeIntake = button('收起点收条', 'delivery-check', 'secondary intake-close', `data-i="${intakeIndex}"${active(true)}`);
     return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair intake-comparison">${sheet(item.documents[intakeIndex], intakeIndex, inspection, { phoneSource: item.id })}
-      ${intakeSlip(intake, intakeIndex, inspection.selected)}</div>`, 'documents-surface', '放回台面', `intake:${intakeIndex}`,
+      ${intakeSlip(item, intake, intakeIndex, inspection.selected, progress.supplementRequest)}</div>`, 'documents-surface', '放回台面', `intake:${intakeIndex}`,
     { headerActions: draft.header + closeIntake + phoneAction });
   }
   if (relabel) {
@@ -614,7 +626,7 @@ export function sample(item, inspection, tutorial, progress) {
   const thicknessOpen = Boolean(comparison && progress?.thicknessOpen);
   const thicknessRecorded = thicknessOpen && findings.some(({ key }) => key === comparison.finding.key);
   const thicknessAction = comparison ? button(thicknessOpen ? '收起对照' : '核对厚度', 'sample-thickness', 'secondary thickness-check', `aria-expanded="${thicknessOpen}"${thicknessOpen ? ' aria-controls="thickness-comparison"' : ''}`) : '';
-  const draft = findingsDraft(findings, progress?.showFindings);
+  const draft = findingsDraft(findings, progress?.showFindings, tutorial ? null : item, progress?.supplementRequest);
   const referenceIndex = progress?.referenceDoc;
   const reference = !tutorial && !thicknessOpen && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
   const referencePicker = reference ? `<aside class="sample-reference" data-reference-doc="${referenceIndex}"><nav class="doc-tabs reference-tabs" aria-label="对照单据">
@@ -641,6 +653,7 @@ export function sample(item, inspection, tutorial, progress) {
   const basis = packaged || !tutorial || tug || film || measured || back || unpacked
     ? button(packaged ? '记下包装' : '记为查验依据', 'sample-basis', 'secondary sample-basis-control',
       active(recorded) + (inGauge && !measured ? ' disabled' : '')) : '';
+  const show = recorded && !tutorial ? findingShowButton(observation, item, item.shownFinding, progress?.supplementRequest, 'source') : '';
   const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip', guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : 'secondary sample-flip-control');
   const observationCard = inGauge
     ? `<div class="sample-findings" aria-live="polite"><b>量规实测</b><p class="reading"><strong>${measured ? esc(spec.reading) : '—'}</strong></p></div>`
@@ -650,7 +663,7 @@ export function sample(item, inspection, tutorial, progress) {
   return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" data-kind="${esc(kind)}" data-appearance="${appearance.key}">
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${thicknessAction}</div>
     ${thicknessOpen ? thicknessSlip(comparison, thicknessRecorded) : observationCard}</div>
-    <div class="modal-actions">${guidedFlip ? '' : flipAction}${basis}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
+    <div class="modal-actions">${guidedFlip ? '' : flipAction}${basis}${show}</div></div>${referencePicker}</div>`, 'sample-surface', stampReady ? '回台面开单' : '放下检样', undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions + phoneAction,
     closeLabel: stampReady ? '回台面开单' : '放下检样', closeClass: stampReady ? 'tutorial-next tutorial-stamp-return' : '',
   });

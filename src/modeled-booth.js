@@ -40,6 +40,10 @@ const paperStyles = {
   order: { width: 1.04, depth: .88, bright: '#f0d8a4', shade: '#cdb382', edge: '#a38c65', turn: -.033 },
   archive: { width: 1.09, depth: .86, bright: '#e7caa5', shade: '#ceb28b', edge: '#9b795c', turn: -.047 },
 };
+const evidenceTitles = {
+  intake: '点收联', projects: '项目核对', relabel: '换签核对', thickness: '厚度核验',
+  sample: '检样记录', box: '外箱核对',
+};
 
 function makeTexture(doc, style, ownerDocument) {
   const canvas = ownerDocument.createElement('canvas');
@@ -67,15 +71,25 @@ function makeTexture(doc, style, ownerDocument) {
   ctx.font = '750 44px "Microsoft YaHei", "PingFang SC", sans-serif';
   ctx.fillStyle = '#3d3023';
   ctx.fillText(String(doc.title || '单据').slice(0, 14), 36, 82, 420);
-  ctx.font = '750 58px Consolas, "Microsoft YaHei", monospace';
+  const source = doc.source?.split(' / ') ?? [];
+  const evidence = source.length > 0;
+  ctx.font = `750 ${evidence ? 78 : 58}px Consolas, "Microsoft YaHei", monospace`;
   ctx.fillText(String(doc.batch ?? ''), 36, 158, 418);
+  let ruleStart = 220;
+  if (evidence) {
+    ctx.font = '700 38px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.fillText(source[0], 36, 222, 425);
+    if (source.length > 1) ctx.fillText(source.slice(1).join(' / '), 36, 263, 345);
+    ruleStart = source.length > 1 ? 298 : 260;
+  }
 
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = '#725b436c';
-  for (let index = 0; index < 6; index++) {
+  for (let index = 0; ruleStart + index * 22 <= 330; index++) {
+    const height = ruleStart + index * 22;
     ctx.beginPath();
-    ctx.moveTo(36, 220 + index * 22);
-    ctx.lineTo([341, 286, 365, 311, 351, 287][index], 220 + index * 22);
+    ctx.moveTo(36, height);
+    ctx.lineTo([341, 286, 365, 311, 351, 287][index], height);
     ctx.stroke();
   }
   ctx.save();
@@ -88,7 +102,8 @@ function makeTexture(doc, style, ownerDocument) {
   ctx.fillStyle = '#833f32';
   ctx.font = '750 23px "Microsoft YaHei", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText({ label: '批', report: '检', order: '联', archive: '存' }[doc.type] ?? '件', 0, 1);
+  const mark = evidence ? (doc.title === '点收联' ? '收' : '核') : { label: '批', report: '检', order: '联', archive: '存' }[doc.type];
+  ctx.fillText(mark ?? '件', 0, 1);
   ctx.restore();
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -644,10 +659,7 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
 
   const papers = new THREE.Group();
   scene.add(papers);
-  const evidenceSlip = new THREE.Mesh(new THREE.PlaneGeometry(.72, .53), new THREE.MeshBasicMaterial({
-    map: makeTexture({ type: 'archive', title: '查验依据' }, paperStyles.archive, ownerDocument),
-    toneMapped: false,
-  }));
+  const evidenceSlip = new THREE.Mesh(new THREE.PlaneGeometry(.85, .62), new THREE.MeshBasicMaterial({ toneMapped: false }));
   evidenceSlip.visible = false;
   scene.add(evidenceSlip);
   const { paper: printedPaper, imprint: printImprint } = models.outgoingSlip;
@@ -796,11 +808,21 @@ export function mountModeledBooth(host, { baseUrl = import.meta.env.BASE_URL, on
       phoneMotionAt = snap ? -Infinity : now;
     }
     if (frame.phoneRinging && !before.phoneRinging) phoneRingAt = now;
-    const evidence = frame.phase === 'case' && !frame.visit ? frame.presentedEvidence : null;
-    const nextEvidenceKey = evidence ? JSON.stringify([evidence.caseId, evidence.key, evidence.source, evidence.text]) : null;
+    const shown = frame.presentedEvidence;
+    const evidence = frame.phase === 'case' && !frame.visit && typeof shown?.key === 'string' && shown.key ? shown : null;
+    const nextEvidenceKey = evidence ? JSON.stringify([evidence.caseId, evidence.key, evidence.batch, evidence.source, evidence.text]) : null;
     if (nextEvidenceKey !== evidenceKey) {
       evidenceKey = nextEvidenceKey;
       evidenceMotionAt = evidence ? now : -Infinity;
+      if (evidence) {
+        const [kind, , comparison] = evidence.key.split(':');
+        const title = evidenceTitles[kind === 'compare' ? comparison : kind] ?? '查验依据';
+        const oldTexture = evidenceSlip.material.map;
+        evidenceSlip.material.map = makeTexture({ type: 'archive', title, batch: evidence.batch,
+          source: evidence.source || evidence.text?.split('；', 1)[0] || '' }, paperStyles.archive, ownerDocument);
+        if (oldTexture) oldTexture.dispose();
+        else evidenceSlip.material.needsUpdate = true;
+      }
     }
     updateCargo(now, waiting, nextShutter === 1 || frame.phase === 'handoff');
     const slip = frame.outgoingSlip;

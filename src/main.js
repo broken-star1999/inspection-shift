@@ -617,7 +617,8 @@ function setScene() {
     keepVisitor, visitorWaiting: Boolean(waitingNpc),
     phoneHeld, phoneRinging: Boolean(incomingAtWindow()),
     approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
-    presentedEvidence: phase === 'case' && item?.shownFinding === presentedEvidence ? presentedEvidence : null,
+    presentedEvidence: phase === 'case' && presentedEvidence && item?.shownFinding === presentedEvidence
+      ? { ...presentedEvidence, batch: item.batch } : null,
     ...shipment });
 }
 
@@ -761,7 +762,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const batchPapers = panel === 'archive' || panel === 'handoff' ? filedBatchPapers() : [];
   const supportingBasis = correction && filedCorrectionBasis(correction);
   const incomingCall = incomingAtWindow();
-  const work = { ...interaction, incomingCall, returningWeek: run?.sampleSet === 4 };
+  const work = { ...interaction, incomingCall, returningWeek: run?.sampleSet === 4, supplementRequest: run?.supplementRequestDraft };
   let markup = '';
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
   if (panel === 'visit' && !arrival) {
@@ -1431,24 +1432,41 @@ function toggleFinding(finding) {
   return !selected;
 }
 
-function presentFinding(key) {
-  if (panel || !interaction.benchFindingsOpen) return;
+function presentFinding(key, opener) {
+  const fromTool = ['docs', 'sample'].includes(panel) && modalLayer.contains(opener);
+  const fromDesk = !panel && interaction.benchFindingsOpen && desktop.contains(opener);
+  if (run?.phase !== 'case' || glancedPanel || (!fromTool && !fromDesk)) return;
+  const item = windowCase();
   const finding = interaction.findings.find((entry) => entry.key === key);
-  if (!finding || !canShowFinding(windowCase(), finding)) return;
+  if (!finding || !canShowFinding(item, finding)) return;
   const scroll = desktop.querySelector('.bench-draft-body')?.scrollTop ?? 0;
-  if (!update({ type: 'show-finding', finding }, false)) return;
+  if (!update({ type: 'show-finding', finding }, false)) {
+    if (fromTool) {
+      lastToolFocus = opener;
+      toggleWindowGlance();
+    }
+    return;
+  }
   presentedEvidence = run.shownFinding;
+  if (fromTool) {
+    lastToolFocus = opener;
+    glancedPanel = panel;
+  }
   toast('');
   playSound('slide');
   render();
-  desktop.querySelector('.bench-draft-body')?.scrollTo(0, scroll);
-  focusControl(desktop, { act: 'show-finding', key });
+  if (fromTool) setGazeTarget(gaze.targetX, gaze.targetY);
+  else {
+    desktop.querySelector('.bench-draft-body')?.scrollTo(0, scroll);
+    focusControl(desktop, { act: 'show-finding', key });
+  }
   if (root.dataset.modeled !== 'true' && !reducedMotion.matches) {
     const room = roomHost.parentElement;
     room.querySelector('.evidence-transfer')?.remove();
     const slip = document.createElement('span');
     slip.className = 'evidence-transfer';
     slip.setAttribute('aria-hidden', 'true');
+    slip.textContent = item.batch;
     room.append(slip);
     const motion = slip.animate?.([
       { translate: '.8rem .95rem', opacity: .4 },
@@ -2270,7 +2288,7 @@ root.addEventListener('click', (event) => {
       render();
       focusControl(desktop, { act: 'bench-findings' });
       break;
-    case 'show-finding': presentFinding(key); break;
+    case 'show-finding': presentFinding(key, target); break;
     case 'remove-finding': {
       if (run?.phase !== 'case') break;
       const inBenchDraft = Boolean(target.closest('.bench-draft'));
