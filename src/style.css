@@ -991,6 +991,24 @@ button:disabled { opacity: .46; }
 .brief-card.opening-card { display: flex; flex-direction: column; min-block-size: 0; overflow: hidden; }
 .opening-body { min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .opening-card > .button { flex: none; align-self: flex-start; }
+.brief-card.handoff-card { display: flex; flex-direction: column; min-block-size: 0; overflow: hidden; }
+.handoff-card > header, .handoff-card > .brief-actions { flex: none; }
+.handoff-body { min-block-size: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.integrity-trail { margin: .35rem 0 .6rem; padding: 0; border-block-start: 1px solid #aa956e; list-style: none; }
+.integrity-trail li {
+  display: grid;
+  grid-template-columns: minmax(5.7rem, max-content) 1fr;
+  align-items: baseline;
+  gap: .65rem;
+  padding: .34rem .16rem;
+  border-block-end: 1px solid #aa956e;
+  font-size: clamp(.74rem, 1.5cqw, .91rem);
+  line-height: 1.4;
+}
+.integrity-trail b { font-family: var(--mono); }
+.integrity-trail small { display: block; color: #684e33; font: inherit; }
+.integrity-trail [data-early-shipment] b { color: #874130; }
+.handoff-body p { margin: .4rem 0 .65rem; }
 .opening-holds {
   margin-block-end: clamp(.56rem, 2cqh, 1rem);
   padding-block-start: .42rem;

@@ -1,10 +1,12 @@
-import { DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
+import { COMPACT_CASE_OVERRIDES, COMPACT_DAY_COPY, COMPACT_EXTRA_CASES, COMPACT_NIGHT_PHONE, COMPACT_TUTORIAL, DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
 import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
 import { normalizeFindings } from './inspection-findings.js';
 import { sampleFinding } from './samples.js';
+import { COMPACT_FIXED_CASE_IDS, getCompactCaseIds } from './shift-schedule.js';
 
 const DECISIONS = ['pass', 'fail', 'review'];
-const CASES = DAYS.flatMap((day) => day.cases);
+export const COMPACT_SCHEDULE = 3;
+const CASES = [...DAYS.flatMap((day) => day.cases), ...COMPACT_EXTRA_CASES];
 const CASE_BY_ID = new Map(CASES.map((item) => [item.id, item]));
 const ARRIVAL_ORDERS = {
   1: [[5, 6, 7, 8], [5, 8, 7, 6]],
@@ -16,11 +18,20 @@ const REPLAY_VARIANT_CASES = [3, 8, 12, 16, 18].map((id) => CASE_BY_ID.get(id));
 const REWORK_KEY = 'rework:2';
 const TUTORIAL_KEYS = ['label', 'report', 'signature', 'sample', 'stamp'];
 export const TUTORIAL = tutorialContent.map((step, index) => ({ ...step, key: TUTORIAL_KEYS[index] }));
+const compactTutorial = COMPACT_TUTORIAL.map((step, index) => ({ ...step, key: TUTORIAL_KEYS[index] }));
+
+export function getTutorialStep(state) {
+  return (state.schedule === COMPACT_SCHEDULE ? compactTutorial : TUTORIAL)[state.tutorial];
+}
 
 export const EVIDENCE = {
   trace: PHONE['204'].evidence,
   night: PHONE['107'].evidence,
 };
+
+export function runEvidence(state) {
+  return state.schedule === COMPACT_SCHEDULE ? { ...EVIDENCE, night: COMPACT_NIGHT_PHONE.evidence } : EVIDENCE;
+}
 
 export const TRACE_CASE_ID = 7;
 const TRACE_WITHDRAWAL_ID = 14;
@@ -47,11 +58,11 @@ function seededChoice(seed, salt, size) {
   return ((hash ^ (hash >>> 16)) >>> 0) % size;
 }
 
-export function createRun(seed) {
+export function createRun(seed, { schedule = 2 } = {}) {
   const runSeed = makeSeed(seed);
   return {
     version: 1,
-    schedule: 2,
+    schedule,
     sampleSet: 3,
     phase: 'brief',
     day: 0,
@@ -69,8 +80,10 @@ export function createRun(seed) {
     event: null,
     events: [],
     flags: {
-      offerCase: PRESSURE[0].slots[seededChoice(runSeed, 50, PRESSURE[0].slots.length)],
-      warningCase: PRESSURE[1].slots[seededChoice(runSeed, 60, PRESSURE[1].slots.length)],
+      ...(schedule !== COMPACT_SCHEDULE && {
+        offerCase: PRESSURE[0].slots[seededChoice(runSeed, 50, PRESSURE[0].slots.length)],
+        warningCase: PRESSURE[1].slots[seededChoice(runSeed, 60, PRESSURE[1].slots.length)],
+      }),
       rollingPencil: Boolean(seededChoice(runSeed, 80, 2)),
       traceDocument: false,
       traceAttached: false,
@@ -88,14 +101,25 @@ export function createRun(seed) {
   };
 }
 
-export function createFollowingRun(previousRun, seed) {
-  const run = { ...createRun(seed), sampleSet: 4, replayDocuments: true, replayCartons: true, tutorial: TUTORIAL.length };
-  if (!previousRun || REPLAY_VARIANT_CASES.some((item) => variantIndex(previousRun, item) !== variantIndex(run, item))) {
+export function createFollowingRun(previousRun, seed, options) {
+  const run = { ...createRun(seed, options), sampleSet: 4, replayDocuments: true, replayCartons: true, tutorial: TUTORIAL.length };
+  const fixed = COMPACT_FIXED_CASE_IDS.flat();
+  const replayCases = run.schedule === COMPACT_SCHEDULE ? REPLAY_VARIANT_CASES.filter(({ id }) => fixed.includes(id)) : REPLAY_VARIANT_CASES;
+  if (!previousRun || replayCases.some((item) => variantIndex(previousRun, item) !== variantIndex(run, item))) {
     return run;
   }
-  const item = REPLAY_VARIANT_CASES[seededChoice(run.seed, 130, REPLAY_VARIANT_CASES.length)];
+  const item = replayCases[seededChoice(run.seed, 130, replayCases.length)];
   const index = (variantIndex(run, item) + 1) % item.variants.length;
   return { ...run, variantOverride: { caseId: item.id, index } };
+}
+
+export function validRunSave(value) {
+  return value?.version === 1 && Number.isInteger(value.day) && value.day >= 0 && value.day < DAYS.length &&
+    ['brief', 'case', 'receipt', 'summary', 'handoff', 'ending'].includes(value.phase) &&
+    Number.isInteger(value.index) && value.index >= 0 && Boolean(value.flags) &&
+    Array.isArray(value.records) && value.records.every((record) => record && typeof record === 'object') &&
+    Array.isArray(value.seen) && Array.isArray(value.pending) && Array.isArray(value.phoneLog) &&
+    value.index < getDay(value).cases.length;
 }
 
 export function restoreRun(state) {
@@ -116,12 +140,22 @@ export function restoreRun(state) {
 
 export function getDay(state) {
   const day = DAYS[state.day];
+  if (day && state.schedule === COMPACT_SCHEDULE) {
+    const cases = getCompactCaseIds(state.seed, state.day).map((id) => caseDefinition(state, id));
+    return { ...day, ...COMPACT_DAY_COPY[state.day], cases };
+  }
   const options = ARRIVAL_ORDERS[state.day];
   const permitsShuffle = state.schedule === 2 || (state.schedule === 1 && state.day < 4);
   if (!options || !permitsShuffle) return day ?? null;
   const order = options[seededChoice(state.seed, 120 + state.day, options.length)];
   const prioritized = state.day === 2 && getWindowSupplementRequest(state) ? [9, ...order.filter((id) => id !== 9)] : order;
   return { ...day, cases: prioritized.map((id) => CASE_BY_ID.get(id)) };
+}
+
+function caseDefinition(state, id) {
+  const base = CASE_BY_ID.get(id);
+  const override = state.schedule === COMPACT_SCHEDULE ? COMPACT_CASE_OVERRIDES[id] : null;
+  return override ? { ...base, ...override } : base;
 }
 
 function variantIndex(state, item) {
@@ -225,12 +259,15 @@ export function getCase(state) {
   const base = getDay(state)?.cases[state.index];
   if (!base) return null;
   const item = getVariant(state, base);
-  const pressure = item.id === state.flags.offerCase ? 'favor' : item.id === state.flags.warningCase ? 'warning' : null;
-  const script = pressure ? PRESSURE[pressure === 'favor' ? 0 : 1] : null;
+  const compact = state.schedule === COMPACT_SCHEDULE;
+  const pressure = compact ? item.pressure ?? null
+    : item.id === state.flags.offerCase ? 'favor' : item.id === state.flags.warningCase ? 'warning' : null;
+  const script = compact ? { shown: item.shownFindingLines }
+    : pressure ? PRESSURE[pressure === 'favor' ? 0 : 1] : null;
   const saved = state.shownFinding;
   const shownFinding = saved?.caseId === item.id && canShowFinding({ ...item, pressure }, saved) ? saved : null;
   const findingReply = replyToFinding(item, shownFinding, script);
-  return { ...item, line: getDialogue(state, item), pressure, pressureLine: script?.line ?? null, shownFinding, findingReply };
+  return { ...item, day: state.day, line: getDialogue(state, item), pressure, pressureLine: script?.line ?? null, shownFinding, findingReply };
 }
 
 export function getPreviousReceipt(state, item = getCase(state)) {
@@ -245,10 +282,10 @@ export function archive(state, query = '') {
   const waitingForArrival = state.phase === 'case' && activeVisits(state).length
     ? getDay(state)?.cases[state.index]?.id : null;
   return state.seen.map((id) => {
-    const item = getVariant(state, CASE_BY_ID.get(id));
+    const item = getVariant(state, caseDefinition(state, id));
     const record = withPriorShipment(state.records, getRecord(state, id) ?? null);
     const latestReceipt = record ? withPriorShipment(state.records, findEffectiveSuccessor(state.records, record)) : null;
-    return { ...item, record, latestReceipt, previousReceipt: getPreviousReceipt(state, item) };
+    return { ...item, day: record?.day ?? state.day, record, latestReceipt, previousReceipt: getPreviousReceipt(state, item) };
   }).filter((item) => {
     if (item.id === waitingForArrival && !item.record) return false;
     if (!key) return true;
@@ -261,8 +298,7 @@ export function archivedReportSources(state, query) {
   const suffix = /^(?:r-?)?(\d{3})$/i.exec(String(query ?? '').trim())?.[1];
   if (!state || !suffix) return [];
   const reportNumber = `R-${suffix}`;
-  return archive(state).flatMap(({ id, batch, documents }) => {
-    const day = DAYS.findIndex(({ cases }) => cases.some((item) => item.id === id));
+  return archive(state).flatMap(({ id, batch, day, documents }) => {
     return documents.flatMap((document, index) => document.fields.some(([label, value]) =>
       (label === '报告编号' || label === '原报告编号') && value === reportNumber)
       ? [{ id, batch, day, document, index, number: reportNumber }] : []);
@@ -312,6 +348,7 @@ export function nightRegisterForReceipt(state) {
 }
 
 function visitForKey(state, key) {
+  if (key === 'night' && state.schedule === COMPACT_SCHEDULE) return { ...VISITS.night, line: COMPACT_NIGHT_PHONE.delivery };
   if (key !== REWORK_KEY) return VISITS[key];
   if (state.phase !== 'brief' || state.day !== 1) return null;
   const followup = getReworkFollowup(state);
@@ -359,7 +396,7 @@ function startCase(state, index) {
   if (id === 20 && !arrived.exceptionReceipt && !arrived.acceptanceReceipt) {
     const exception = chooseShipmentException(arrived);
     const acceptance = exception ? null : chooseShipmentAcceptance(arrived);
-    const paperwork = exception ? shipmentException(arrived.day, exception) : acceptance && shipmentAcceptance(arrived.day, acceptance);
+    const paperwork = exception ? shipmentException(arrived.day, exception) : acceptance && shipmentAcceptance(arrived, acceptance, arrived.day);
     if (paperwork) {
       const { key, caseId, title, line } = paperwork;
       const visit = { kind: exception ? 'exception' : 'acceptance', key, caseId, npc: 'zhou', title, line };
@@ -374,9 +411,10 @@ function startDay(state) {
   return startCase(deliverVisits(opening), 0);
 }
 
-function ship(records) {
-  return records.map((record) => record.status === 'shipping' && !findEffectiveSuccessor(records, record)
-    ? { ...record, status: 'shipped' } : record);
+function ship(state) {
+  const departure = state.schedule === COMPACT_SCHEDULE ? { shippedDay: state.day } : {};
+  return state.records.map((record) => record.status === 'shipping' && !findEffectiveSuccessor(state.records, record)
+    ? { ...record, status: 'shipped', ...departure } : record);
 }
 
 function updateRecord(records, id, changes) {
@@ -451,10 +489,16 @@ function chooseShipmentAcceptance(state) {
   return state.records.slice().reverse().find(eligible) ?? null;
 }
 
-function shipmentAcceptance(day, record) {
+function shipmentAcceptance(state, record, day) {
+  const original = Number.isInteger(record.priorShipmentId) ? getRecord(state, record.priorShipmentId) : null;
+  const originalShipment = Number.isInteger(original?.shippedDay) ? original : null;
   return {
     key: `acceptance:${record.id}`, caseId: record.id, record, day,
-    title: `${record.batch} ${SHIPMENT_ACCEPTANCE.title}`, line: SHIPMENT_ACCEPTANCE.delivery(record.batch),
+    ...(originalShipment ? { originalShipment } : {}),
+    title: `${record.batch} ${SHIPMENT_ACCEPTANCE.title}`,
+    line: originalShipment
+      ? `收货方签收了 ${record.batch}。他们把出库日和补件日分开记了，这张也夹进去。`
+      : SHIPMENT_ACCEPTANCE.delivery(record.batch),
   };
 }
 
@@ -506,13 +550,13 @@ export function getShipmentAcceptance(state, visit) {
     if (!isFridayShipmentVisit(state, visit, 'acceptance')) return null;
     const record = chooseShipmentAcceptance(state);
     if (!record || visit.caseId !== record.id || visit.key !== `acceptance:${record.id}`) return null;
-    return shipmentAcceptance(state.day, record);
+    return shipmentAcceptance(state, record, state.day);
   }
   const filed = state.acceptanceReceipt;
   if (!filed || filed.day !== closingDay) return null;
   const record = getRecord(state, filed.caseId);
   return record && record.id !== 7 && record.day < filed.day && record.answer === 'pass'
-    ? shipmentAcceptance(filed.day, record) : null;
+    ? shipmentAcceptance(state, record, filed.day) : null;
 }
 
 function confirmFollowup(records, record, atWindow = false) {
@@ -539,7 +583,7 @@ function disposition(records, item, decision) {
 }
 
 function receiptAside(state, record) {
-  const item = CASE_BY_ID.get(record.id);
+  const item = caseDefinition(state, record.id);
   if (!item?.reviewAside) return item?.receiptAside;
   if (record.decision !== 'review') return null;
   if (item.id === 5 && getWindowSupplementRequest(state)) return G205_SUPPLEMENT_REQUEST.receipt;
@@ -561,6 +605,7 @@ export function receiptFeedback(state) {
   if (!record) return null;
   const kind = receiptDisposition(record);
   let line = RECEIPT_HANDLING[record.npc]?.[kind] ?? RECEIPT_HANDLING.default[kind] ?? '';
+  line = caseDefinition(state, record.id)?.receiptLines?.[kind] ?? line;
   if (record.id === state.flags.warningCase && record.decision === 'review') line = '行，我先让他们挪进黄线里。';
   const umbrella = record.id === 17 && state.flags.umbrella ? '你也看见了？老周这两天看见我就催我晾伞。' : null;
   return [line, umbrella, receiptAside(state, record)].filter(Boolean).join(' ');
@@ -875,7 +920,7 @@ function dialLabRequest(state, number, npc, { caseId, request, arrived }) {
 }
 
 function dialNight(state, action, number) {
-  const script = PHONE[number];
+  const script = state.schedule === COMPACT_SCHEDULE ? COMPACT_NIGHT_PHONE : PHONE[number];
   if (state.flags.nightDocument) return callResult(state, number, script.npc, [script.received]);
   let delivery = '下次交接，我到窗口递给你。';
   if (activeVisits(state)[0]?.key === 'night') delivery = '回执已经递到窗口了。';
@@ -934,8 +979,8 @@ function nextCase(state) {
     ? { ...state, shownFinding: null, supplementRequestDraft: null } : state);
   if (state.index + 1 < getDay(state).cases.length) return startCase(next, state.index + 1);
   if (state.day === DAYS.length - 1) return { ...next, phase: 'handoff' };
-  const summary = { ...next, phase: 'summary', records: ship(next.records) };
-  return state.day === 1 ? queueIncomingCall(summary, 'lab-close') : summary;
+  const summary = { ...next, phase: 'summary', records: ship(next) };
+  return state.day === 1 && state.schedule !== COMPACT_SCHEDULE ? queueIncomingCall(summary, 'lab-close') : summary;
 }
 
 export function getTraceHandoffReview(state) {
@@ -947,7 +992,7 @@ export function getTraceHandoffReview(state) {
 function finish(state) {
   const review = state.flags.traceAttached && getTraceHandoffReview(state);
   const reviewed = review ? recheck(state, review) : state;
-  return { ...reviewed, phase: 'ending', records: ship(reviewed.records), event: null, events: [], incomingCalls: [], ringbackArmed: false };
+  return { ...reviewed, phase: 'ending', records: ship(reviewed), event: null, events: [], incomingCalls: [], ringbackArmed: false };
 }
 
 export function dispatch(state, action) {
@@ -957,7 +1002,7 @@ export function dispatch(state, action) {
     case 'start-day':
       return state.phase === 'brief' && !waitingForVisit ? startDay(state) : state;
     case 'tutorial': {
-      const step = TUTORIAL[state.tutorial];
+      const step = getTutorialStep(state);
       const key = action.key ?? action.step ?? action.value;
       if (state.phase !== 'case' || getCase(state)?.id !== 1 || !step || step.key === 'stamp') return state;
       return key === step.key ? { ...state, tutorial: state.tutorial + 1 } : state;
@@ -1007,6 +1052,44 @@ export function shipmentIssueFeedback(record, exceptionCaseId) {
   return { action, reason };
 }
 
+const paperVerdict = { pass: '通过', fail: '退回', review: '审查' };
+const cargoLocation = {
+  shipping: '排车待发', shipped: '已出库', held: '留在黄线内', returned: '已退回',
+  recallPending: '等召回回签', recalled: '已确认召回',
+};
+
+export function getIntegrityTrail(state) {
+  if (state.schedule !== COMPACT_SCHEDULE) return [];
+  const pairs = [[11, 13, '换签单'], [10, 14, '耐冲击报告'], [17, null, '落签箱']];
+  return pairs.flatMap(([firstId, laterId, subject]) => {
+    const first = getRecord(state, firstId);
+    if (!first) return [];
+    const later = getRecord(state, laterId);
+    const handed = decisionAsHanded(first);
+    const firstDate = DAYS[first.day].title;
+    const original = first.original ?? handed;
+    const initial = [`${firstDate}首章${paperVerdict[original]}`];
+    if (handed !== original) initial.push(`出单前改为${paperVerdict[handed]}`);
+    const departed = Number.isInteger(first.shippedDay);
+    if (later && departed) initial.push(`${DAYS[first.shippedDay].title}已出库`);
+
+    const evidence = [];
+    if (later) {
+      const documents = caseDefinition(state, laterId).documents;
+      const signedAt = documents.flatMap(({ fields }) => fields).find(([name]) => name === '签发时间')?.[1];
+      if (signedAt) evidence.push(`${signedAt}签发`);
+    }
+    const latest = findEffectiveSuccessor(state.records, first) ?? first;
+    const location = cargoLocation[latest.status];
+    if (location && (!later || !departed || latest.status !== 'shipped')) evidence.push(`现${location}`);
+    if (firstId === 17) {
+      const observed = normalizeFindings(first.findings).find(({ key }) => key === 'box:17:bottom');
+      evidence.unshift(observed?.text ?? '箱签脱落');
+    }
+    return [{ batch: first.batch, subject, initial: initial.join(' · '), evidence: evidence.join(' · '), early: Boolean(later && departed && first.shippedDay < later.day) }];
+  });
+}
+
 export function getEnding(state) {
   const issues = [];
   const pendingRecalls = [];
@@ -1049,7 +1132,8 @@ export function getEnding(state) {
   const delayed = { count: delayedByBatch.size, batches: [...delayedByBatch.keys()].slice(0, 3) };
   const delayedReceipts = [...delayedByBatch.values()];
   const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已登记追加复检，去向待核。');
-  const shared = { issues, exceptionCaseId, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceFiled, traceDisposition: traceDetail, counts, delayed, delayedReceipts };
+  const integrityTrail = getIntegrityTrail(state);
+  const shared = { issues, exceptionCaseId, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceFiled, traceDisposition: traceDetail, counts, delayed, delayedReceipts, integrityTrail };
   if (issues.length) {
     const detail = issues.map((record) => {
       const { action, reason } = shipmentIssueFeedback(record, exceptionCaseId);
@@ -1069,5 +1153,8 @@ export function getEnding(state) {
   let detail = '本周出货回执已归档。';
   if (heldBatches.length === 1) detail = `${firstBatches} 留在黄线内，由下一班继续查。`;
   if (heldBatches.length > 1) detail = `黄线内有 ${firstBatches}${heldBatches.length > 2 ? ' 等' : ''}，共 ${heldBatches.length} 个待查批号，由下一班接手。`;
-  return { id: 'routine', ...HANDOFF.normal, detail, ...shared };
+  const closing = integrityTrail.some(({ early }) => early)
+    ? { line: '老周把新报告夹进旧回执。「这一笔留给接班的人复核，原来哪天放的货，照实写。」', stamp: '补件已归档 · 提前放行留查' }
+    : {};
+  return { id: 'routine', ...HANDOFF.normal, ...closing, detail, ...shared };
 }

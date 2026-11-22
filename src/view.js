@@ -1,7 +1,7 @@
 import { CHARACTERS, DAYS, EASTER_EGGS, FILM_BENCH_TUTORIAL, FILM_TUTORIAL, PHONE, SHIPMENT_EXCEPTION, documentExtension, documentReportNumber } from './content.js';
 import { cartonFinding, intakeComparison, modelComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { cartonModel } from './carton-inspector.js';
-import { canShowFinding, getCarriedHolds, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
+import { canShowFinding, getCarriedHolds, getDay, getIntegrityTrail, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
 import { readFindings } from './inspection-findings.js';
 import { TRACE_INQUIRY_KEY } from './report-workspace.js';
 import { gaugeArt, gaugeJawStyle } from './gauge-art.js';
@@ -102,9 +102,9 @@ export function completedShifts(entries, endingCount) {
 }
 
 export function wallShift(run) {
-  const day = DAYS[run.day];
+  const day = getDay(run);
   return `<div class="room-status"><span class="room-tag"><i></i> ${run.phase === 'receipt' ? '出单中' : '窗口值班'}</span><strong>${day.title}</strong>
-    <div class="batch-progress" aria-label="当班来件 ${run.index + 1} / 4">${day.cases.map((_, index) => `<span class="${index <= run.index ? 'done' : ''}"></span>`).join('')}</div></div>`;
+    <div class="batch-progress" aria-label="当班来件 ${run.index + 1} / ${day.cases.length}">${day.cases.map((_, index) => `<span class="${index <= run.index ? 'done' : ''}"></span>`).join('')}</div></div>`;
 }
 
 function priorReceipt({ record, sameLot }) {
@@ -135,7 +135,7 @@ export function filmLessonPending(item, { returningWeek, filmChecked } = {}) {
 }
 
 export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCue = false) {
-  const day = DAYS[run.day];
+  const day = getDay(run);
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
   const record = run.phase === 'receipt' ? run.records.at(-1) : null;
   const reply = run.phase === 'case' && !sceneEvent ? item?.findingReply : null;
@@ -292,7 +292,7 @@ function endingView(ending, historyLabel) {
     <ul class="ending-receipts">${held.map((record) => `<li>${endingReceipt(record, delayedIds.has(record.id) ? '留厂隔离 · 已符合放行要求' : '留厂隔离', { section: 'held' })}</li>`).join('')}</ul></details>` : '';
   return `<div class="stage-overlay ending-overlay"><section class="brief-card ending-card ending-${ending.id}${cls('ending-history', historyLabel)}">
     <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · ${historyLabel ? `${esc(historyLabel)} <span class="ending-history-label">只读</span>` : '交班存根'}</div><h2>${esc(ending.title)}</h2></header>
-    <div class="ending-body"><p>${esc(ending.line)}</p><div class="ending-note">${note}</div>
+    <div class="ending-body"><p>${esc(ending.line)}</p>${integrityTrail(ending.integrityTrail)}<div class="ending-note">${note}</div>
       ${ending.id === 'issue' ? heldGroup + traceGroup : traceGroup + heldGroup}
       ${acceptedReceipt ? `<section class="ending-recall ending-acceptance"><h3>到货验收</h3>${endingReceipt(acceptedReceipt, '已签收，验收联已归档', { evidence: `acceptance:${acceptedReceipt.id}` })}</section>` : ''}
       ${endingRecallGroup(pending, 'pending', '待召回回执', pendingText)}
@@ -316,8 +316,14 @@ function openingHolds(run) {
     }).join('')}</ul></section>`;
 }
 
+function integrityTrail(rows) {
+  if (!rows?.length) return '';
+  return `<ul class="integrity-trail" aria-label="本周交接留底">${rows.map(({ batch, subject, initial, evidence, early }) =>
+    `<li${early ? ' data-early-shipment' : ''}><b>${esc(batch)} <small>${esc(subject)}</small></b><span>${esc(initial)}<br>${esc(evidence)}</span></li>`).join('')}</ul>`;
+}
+
 export function overlay(run, ending, historyLabel = '', incomingCall = null) {
-  const day = DAYS[run.day];
+  const day = getDay(run);
   if (run.phase === 'brief') {
     const returning = run.day === 0 && run.sampleSet === 4;
     const subtitle = returning ? '窗口照常开' : day.subtitle;
@@ -343,7 +349,7 @@ export function overlay(run, ending, historyLabel = '', incomingCall = null) {
     const line = needsReview ? `老周「收货方给 ${exception.record.batch} 补来一张复核联。夹在原批旁边了，你看一眼再交班。」`
       : '老周「最后一趟车先等你。核对完这些单，再把板给我。」';
     const open = needsReview ? button('核对到货复核联', 'handoff', 'primary', 'data-key="exception"') : button('打开交接板', 'handoff', 'primary');
-    return `<div class="stage-overlay"><section class="brief-card handoff-card"><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2><p>${esc(line)}</p><div class="brief-actions">${button('核对与更正', 'archive')}${button(incomingCall ? '接电话' : '打电话', 'phone')}${open}</div></section></div>`;
+    return `<div class="stage-overlay"><section class="brief-card handoff-card"><header><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2></header><div class="handoff-body">${integrityTrail(getIntegrityTrail(run))}<p>${esc(line)}</p></div><div class="brief-actions">${button('核对与更正', 'archive')}${button(incomingCall ? '接电话' : '打电话', 'phone')}${open}</div></section></div>`;
   }
   if (run.phase === 'ending') return endingView(ending, historyLabel);
   return '';
@@ -568,7 +574,7 @@ function returnTabs(documents, action, selected, label) {
 }
 
 function returnComparison(item, index, previous, previousIndex, activeSheet) {
-  const day = DAYS.find(({ cases }) => cases.some(({ id }) => id === item.id))?.title;
+  const day = DAYS[item.day]?.title;
   const { record, documents, sameLot } = previous;
   return `<div class="return-comparison">
     <section class="return-current"><div class="return-source"><b>${sameLot ? '本次来件' : '留厂件'}</b><small>${esc(day)}</small></div>
@@ -943,7 +949,7 @@ export function archivePanel(rows, visits, focus, selected, query, editing, hand
     const original = visit.kind === 'trace-inquiry'
       ? button('摊开通话单据', 'report-search', 'secondary', `data-key="${esc(visit.reportNumber)}"`) +
         (visit.originalFiled ? button('查看已收原件', 'archive-evidence', 'secondary', 'data-key="trace"') : '')
-      : attached ? button(batchPaperLabels[visit.kind].original, 'archive-followup', 'secondary', `data-i="${esc(attached.caseId)}"`)
+      : attached ? button(batchPaperLabels[visit.kind].original, 'archive-followup', 'secondary', `data-i="${esc(attached.originalShipment?.id ?? attached.caseId)}"`)
       : visit.kind === 'lab-request' ? button('查看当时的单据', 'archive-followup', 'secondary registration-source', `data-i="${esc(visit.caseId)}"`) : '';
     details = (original ? `<div class="modal-actions archive-actions">${original}</div>` : '') +
       (traceRow ? traceEvidencePair(traceRow, visit, visit.fields.map(([name]) => name)) : sheet(visit));

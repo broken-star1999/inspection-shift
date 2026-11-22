@@ -1,4 +1,4 @@
-import { getEnding } from './engine.js';
+import { getEnding, validRunSave } from './engine.js';
 
 const endingIds = ['routine', 'trace', 'issue'];
 let localWeekSequence = 0;
@@ -20,10 +20,7 @@ function isWeekId(id) {
 }
 
 function isCompletedRun(run) {
-  return run?.version === 1 && run.phase === 'ending' && Number.isInteger(run.day) && run.day >= 0 && run.day < 5 &&
-    Number.isInteger(run.index) && run.index >= 0 && run.index < 4 && run.flags &&
-    Array.isArray(run.records) && run.records.every((record) => record && typeof record === 'object') &&
-    Array.isArray(run.seen) && Array.isArray(run.pending) && Array.isArray(run.phoneLog);
+  return run?.phase === 'ending' && validRunSave(run);
 }
 
 function snapshotRun(run) {

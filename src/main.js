@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, getTraceHandoffReview, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, TUTORIAL, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, validRunSave, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, getTraceHandoffReview, getTutorialStep, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, runEvidence, COMPACT_SCHEDULE, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension, documentReportNumber } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { mountSampleImage, retrySampleImage, updateSampleImage } from './sample-images.js';
@@ -52,13 +52,6 @@ function writeStorage(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Private storage can be unavailable. */ }
 }
 
-function validSave(value) {
-  return value?.version === 1 && Number.isInteger(value.day) && value.day >= 0 && value.day < 5 &&
-    ['brief', 'case', 'receipt', 'summary', 'handoff', 'ending'].includes(value.phase) &&
-    Number.isInteger(value.index) && value.index >= 0 && value.index < 4 && value.flags &&
-    Array.isArray(value.records) && Array.isArray(value.seen) && Array.isArray(value.pending) && Array.isArray(value.phoneLog);
-}
-
 function rememberCompletedShift(finished) {
   const stored = readStorage(COMPLETED_KEY);
   const storedEndings = readStorage(COLLECTION_KEY);
@@ -70,7 +63,7 @@ function rememberCompletedShift(finished) {
 }
 
 let saved = readStorage(SAVE_KEY);
-if (!validSave(saved)) saved = null;
+if (!validRunSave(saved)) saved = null;
 let completedShifts = completedShiftHistory(readStorage(COMPLETED_KEY));
 let endings = collectedEndingIds(readStorage(COLLECTION_KEY), completedShifts);
 if (saved?.phase === 'ending') rememberCompletedShift(saved);
@@ -502,7 +495,7 @@ function beginReceiptPrint(id) {
 }
 
 function tutorialStep() {
-  return run?.phase === 'case' && getCase(run)?.id === 1 ? TUTORIAL[run.tutorial] : null;
+  return run?.phase === 'case' && getCase(run)?.id === 1 ? getTutorialStep(run) : null;
 }
 
 function showPencil(item) {
@@ -538,10 +531,11 @@ function filedRework() {
 function acceptancePaper(state, visit) {
   const acceptance = getShipmentAcceptance(state, visit);
   if (!acceptance) return null;
-  const { record, day, title } = acceptance;
+  const { record, day, title, originalShipment } = acceptance;
   const report = archive(state).find(({ id }) => id === record.id)?.documents.find(({ type }) => type === 'report');
   const reportNumber = report?.fields.find(([label]) => label === '报告编号')?.[1];
-  const fields = [['批号', record.batch], ['对应出货单', `${DAYS[record.day]?.title}开单`],
+  const fields = [['批号', record.batch], ['对应出货单', `${DAYS[originalShipment?.day ?? record.day]?.title}开单`],
+    ...(originalShipment ? [['实际出库', DAYS[originalShipment.shippedDay].title], ['补验入档', DAYS[record.day].title]] : []),
     ...(reportNumber ? [['检验报告编号', reportNumber]] : []),
     ['回签日', DAYS[day]?.title], ['签收单位', SHIPMENT_ACCEPTANCE.receiver], ['验收结论', SHIPMENT_ACCEPTANCE.result]];
   return { ...acceptance, document: { type: 'archive', kind: 'acceptance', title, fields } };
@@ -619,7 +613,7 @@ function filedPhonePapers() {
 function filedSupportingPapers(query, batchPapers = filedBatchPapers()) {
   const term = query.trim().toLowerCase();
   const visits = [
-    ...Object.entries(EVIDENCE).filter(([key]) => run.flags[`${key}Document`] && !batchPapers.some((paper) => paper.key === key)),
+    ...Object.entries(runEvidence(run)).filter(([key]) => run.flags[`${key}Document`] && !batchPapers.some((paper) => paper.key === key)),
     ...batchPapers.map(({ key, document }) => [key, document]),
   ];
   return [...visits, ...filedPhonePapers()].filter(([, doc]) =>
@@ -700,7 +694,7 @@ function visitDocument(visit, state = run) {
   if (visit?.kind === 'rework') return getReworkFollowup(state)?.document;
   if (visit?.kind === 'acceptance') return acceptancePaper(state, visit)?.document;
   if (visit?.kind === 'exception') return exceptionPaper(state, visit)?.document;
-  return visit && EVIDENCE[visit.key];
+  return visit && runEvidence(state)[visit.key];
 }
 
 function scenePaperBatch(doc, item, visit) {
@@ -994,7 +988,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   if (panel === 'handoff' && run?.phase === 'handoff') {
     const rows = archive(run).filter(({ record }) => record);
     const pair = handoffComparison(rows, handoffFocus);
-    markup = view.handoffPanel(run, EVIDENCE, rows, {
+    markup = view.handoffPanel(run, runEvidence(run), rows, {
       focus: handoffFocus, documentIndex: handoffDocument, correctionFindings, batchPapers, supportingBasis,
       canCompare: Boolean(pair), comparison: handoffPairOpen ? pair : null,
       traceReview: run.flags.traceDocument ? getTraceHandoffReview(run) : null,
@@ -1292,7 +1286,8 @@ function enter(restore) {
     visitorWaiting = resumeWaitingTools && arrivalReady === true;
   } else {
     const lastCompleted = saved?.phase === 'ending' ? saved : completedShifts.values().next().value;
-    const newWeek = endings.length ? createFollowingRun(lastCompleted) : createRun();
+    const schedule = { schedule: COMPACT_SCHEDULE };
+    const newWeek = endings.length ? createFollowingRun(lastCompleted, undefined, schedule) : createRun(undefined, schedule);
     run = { ...newWeek, weekId: createWeekId() };
     interaction = freshInteraction();
   }
@@ -1487,7 +1482,7 @@ function needsArrival(next) {
 
 function restoreNewerArrivalSave() {
   const latest = readStorage(SAVE_KEY);
-  if (!validSave(latest) || JSON.stringify(latest) === JSON.stringify(saved)) return false;
+  if (!validRunSave(latest) || JSON.stringify(latest) === JSON.stringify(saved)) return false;
   saved = latest;
   enter(true);
   toast('已接续另一标签页的值班记录');
@@ -2311,8 +2306,7 @@ function archivedPaper(id, index) {
   const row = archive(run).find((item) => item.id === id);
   const document = row?.documents[index];
   if (!document) return null;
-  const day = row.record?.day ?? DAYS.findIndex(({ cases }) => cases.some((item) => item.id === id));
-  return { id, index, batch: row.batch, day, document };
+  return { id, index, batch: row.batch, day: row.day, document };
 }
 
 function openArchivePaper(id, index, opener) {
@@ -2353,6 +2347,7 @@ function openHandoff(opener) {
   } else if (handoffFocus === null) {
     const current = archive(run).filter(({ record, latestReceipt }) => record && !latestReceipt);
     handoffFocus = (current.find(({ record }) => record.status === 'recallPending')
+      ?? (run.schedule === COMPACT_SCHEDULE ? current.find(({ id }) => id === 14) : null)
       ?? current.find(({ record }) => record.status === 'shipping') ?? current[0])?.id ?? null;
   }
   playSound('paper');

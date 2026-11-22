@@ -529,3 +529,189 @@ export const DAYS = [
     ],
   },
 ];
+
+export const COMPACT_TUTORIAL = TUTORIAL.map((step) => step.target === 'pass' ? {
+  ...step, line: '单和样你都看过了，这张由你盖「通过」。留底的一联放你桌上。',
+} : step);
+
+export const COMPACT_NIGHT_PHONE = {
+  ...PHONE['107'],
+  found: '周一夜里唐禾来问过。我看那份登记对不上箱号，就退给他了。',
+  delivery: '给你，周一夜班那份。退回的时间和我的签名都在上面。',
+  evidence: {
+    ...PHONE['107'].evidence,
+    fields: PHONE['107'].evidence.fields.map(([name, value]) => [name, name === '记录时间' ? '周一 22:18' : value]),
+  },
+};
+
+export const COMPACT_DAY_COPY = {
+  0: {
+    intro: '老周把回执摊在桌上。「货谁接，谁签收。这个窗口的章，等你亲手看完再盖。」',
+    outro: '小罗「今天的留底都在这儿，一张没少。」',
+  },
+  1: {
+    subtitle: '上一班留下的单',
+    intro: '老周把桌角的留底往里推了推。「缺报告找实验室，小陈的内线是二零四。夜班的单，上头另有号码。」',
+  },
+  2: {
+    subtitle: '今天的装车单',
+    intro: '装货台把今天的批次抄到了白板上。你的回执还没递出去，箱子先在窗口排着。',
+    outro: '小唐「库管答应明早开库，我去把周二那份原件找出来。」',
+  },
+  3: {
+    outro: '老周「明天改章另开一联。补来的压在后头，原单留着。」',
+  },
+  4: {
+    intro: '交接板已经摊开。老周拿纸垫住昨天的留底，等最后一批办完再一起核对。',
+  },
+};
+
+export const COMPACT_CASE_OVERRIDES = {
+  1: { receiptAside: '留底那联给你，这张我带走。' },
+  10: {
+    line: '装货台要算今天出库。先给个通过，回执上别记缺项。耐冲击那张明早签了，再补进今天这摞。',
+    pressure: 'warning',
+    receiptLines: { held: '我去把装车单上的二四八划掉。车先走，箱留黄线。', shipping: '好，我这就把回执交给装货台，让他们照今天的算。' },
+    reviewAside: {
+      compared: '耐冲击那份签好再过窗。我去把今天的装车数改一下。',
+      called: '实验室记上了。今天这张先留着，签好的来了另外收。',
+    },
+    shownFindingLines: {
+      projects: '外观这栏有字，耐冲击还空着。我去跟装货台说这批还要等。',
+      paper: '你指出的这栏我看到了。回执按现在手上有的材料开。',
+    },
+  },
+  11: {
+    line: '上个班说是抄错了。再退回去，今天又要算我拖单。你能照箱签给我开吗？',
+    receiptLines: { held: '那我拿这联去找库管。登记对不上的地方，总得有人把它对上。' },
+    inspectionReply: {
+      relabel: { register: 2, side: 'current' },
+      line: '箱签是二一一，那一栏确实写二一六。孙姐夜里退过这份，号码在纸上。',
+    },
+  },
+  13: {
+    line: '我去库管那边对过原签。这次是他们今早签的原件。',
+    receiptAside: '周二那张我也留一份。今天签的这张夹在后头。',
+    followUp: {
+      caseId: 11, sameLot: true,
+      lines: {
+        pass: '周二那车已经走了。留样在这儿，库管今早签的原件也带来了。',
+        fail: '周二那箱从退件区取过来了。库管重查了原签，今早出的这张。',
+        review: '周二那箱还在黄线里。我把你那联递进仓库，他们照原签查了，今早出的这张。',
+      },
+    },
+    nightResponse: '孙姐那张退单我也存着。周一夜里谁经手，现在有地方查了。',
+  },
+  14: {
+    line: '二四八补齐了。小陈九点十分签的，作废的那张也夹来了。',
+    receiptAside: '这份算今天补到的。昨天开的那张还放在原来的位置。',
+    documents: [
+      label('G-248', [], '防护面屏'),
+      report('G-248', 'R-084', [...shieldReport, ['签发人', '陈敏'], ['签发时间', '周四 09:10']], '本批复检报告'),
+      archive('作废随货联', [['批号', 'G-248'], ['原报告编号', 'R-071'], ['状态', '已撤回'], ['复检通知', '改用 R-084']], '原随货联仅留档。'),
+    ],
+    followUp: {
+      caseId: 10, sameLot: true,
+      lines: {
+        pass: '昨天那车已经走了。这是留样和今天九点十分才签的报告，后头还夹着作废联。',
+        fail: '退件区的二四八送回来了。今天九点十分签的报告和作废联都在这儿。',
+        review: '黄线里那箱二四八，报告今天九点十分签了。后头那张旧联已经作废。',
+      },
+    },
+  },
+  17: {
+    line: '箱签掉了。库里那排只剩这箱。盘点我已经签了，你也照二一七签一下，交接就能对上账。',
+    pressure: 'warning',
+    shownFindingLines: {
+      paper: '这栏我看到了。板上空着也行，照你能核到的开。',
+    },
+  },
+  20: {
+    line: '最后一箱，你照常核。开完这联，我们再一起看交接板。',
+    receiptAside: '补来的联夹后头。谁什么时候开的原单，下一班还得查得着。',
+  },
+};
+
+export const COMPACT_EXTRA_CASES = [
+  {
+    id: 21, batch: 'G-221', npc: 'xu', title: '贴好封箱条的手套',
+    line: '二二一。封箱前抽一双出来了，你手边那双就是。',
+    answer: 'pass', reason: '批号、手套查验记录和实物相符',
+    documents: [label('G-221', [], '作业防护手套'), report('G-221', 'R-091', gloveReport), order('G-221', [['检验项目', '缝线、掌面覆层']])], sample: glove,
+  },
+  {
+    id: 22, batch: 'G-222', npc: 'tang', title: '出货台送来的单',
+    line: '二二二送检。这两张刚从出货台那摞拿过来，你帮我看一下。',
+    answer: 'review', reason: '随货报告载明 G-722，和箱签、送检联的 G-222 不符',
+    documents: [label('G-222', [], '防护面屏'), report('G-722', 'R-092', shieldReport), order('G-222', [['检验项目', '外观、耐冲击']])], sample: shield,
+  },
+  {
+    id: 23, batch: 'G-223', npc: 'luo', title: '单独装一辆推车',
+    line: '二二三这一箱单独送。报告压在箱签底下，别漏拿。',
+    answer: 'pass', reason: '耳罩完好，检验项目和随货报告相符',
+    documents: [label('G-223', [], '防噪耳罩'), report('G-223', 'R-093', earmuffReport), order('G-223', earmuffChecks)], sample: earmuff,
+  },
+  {
+    id: 24, batch: 'G-224', npc: 'xu', title: '背面的扣件',
+    line: '这副镜片没伤。背面的扣件有点怪，你拿起来看看。',
+    answer: 'fail', reason: '扣件插片缺失，轻拉便脱开',
+    documents: standard('G-224', 'R-094'),
+    sample: {
+      kind: 'broken', appearance: 'classic', front: '正面的镜片平整，扣件被镜框挡住。',
+      back: '扣件内侧少了一截插片。', afterTug: '轻拉时，少了一截的扣件直接弹开。',
+    },
+  },
+  {
+    id: 25, batch: 'G-225', npc: 'xu', title: '分开放好的面屏',
+    line: '二二五，抽出来那块单独放了。别把送检联压在屏上，会滑。',
+    answer: 'pass', reason: '本批外观与耐冲击均有签发记录，面屏完好',
+    documents: [label('G-225', [], '防护面屏'), report('G-225', 'R-095', shieldReport), order('G-225', [['检验项目', '外观、耐冲击']])], sample: shield,
+  },
+  {
+    id: 26, batch: 'G-226', npc: 'luo', title: '实验室送来的抽检纸',
+    line: '实验室刚拿下来的。装车台问这页是留底还是能随货的那联。',
+    answer: 'review', reason: '随货材料要求已签发的本批报告，当前只收到未签发记录',
+    documents: [
+      label('G-226', [], '作业防护手套'),
+      report('G-226', 'R-096', [...gloveReport.slice(0, -1), ['签发', '尚未签发']], '手套抽检记录'),
+      order('G-226', [['检验项目', '缝线、掌面覆层'], ['随货要求', '附已签发的本批检验报告']]),
+    ],
+    sample: glove,
+  },
+  {
+    id: 27, batch: 'G-227', npc: 'tang', title: '分装箱的原始记录',
+    line: '这箱分装过，原箱号和新箱号都写在同一页上。',
+    answer: 'pass', reason: '分装登记把报告所检原箱 G-127 对应至现箱 G-227',
+    documents: [
+      label('G-227', [], '防噪耳罩'), report('G-127', 'R-097', earmuffReport),
+      archive('分装登记', [['原箱批号', 'G-127'], ['现箱批号', 'G-227'], ['缘由', '同批分装'], seal]),
+    ],
+    sample: earmuff,
+  },
+  {
+    id: 28, batch: 'G-228', npc: 'xu', title: '压在箱盖下的手套',
+    line: '二二八，抽样这双在纸袋里。我从箱盖下面拿的。',
+    answer: 'fail', reason: '腕口背侧缝线脱开，形成缺口',
+    documents: [label('G-228', [], '作业防护手套'), report('G-228', 'R-098', gloveReport), order('G-228', [['检验项目', '缝线、掌面覆层']])],
+    sample: {
+      ...glove, kind: 'yellow', cuffSplit: true, front: '纸袋口露出一小截织布腕口。',
+      unwrapped: '取出后，手套的掌面覆层完整。', back: '翻过手套，腕口背侧有一段脱线，织布边缘张开。',
+    },
+  },
+  {
+    id: 29, batch: 'G-229', npc: 'luo', title: '白板上另开的一行',
+    line: '二二九刚加到白板上。写的是它自己的批号，装车的下趟来收。',
+    answer: 'pass', reason: '本批送检联与报告相符，样品无缺陷',
+    documents: standard('G-229', 'R-099'), sample: clear,
+  },
+  {
+    id: 30, batch: 'G-230', npc: 'tang', title: '报告上的型号栏',
+    line: '二三零，箱签是 A，报告也夹着。上车前麻烦你核一下规格。',
+    answer: 'review', reason: '报告型号 B，无法为送检联指定的型号 A 提供本批检验依据',
+    documents: [
+      label('G-230', [['型号', 'A']]), report('G-230', 'R-100', [visual, clasp, ['型号', 'B'], seal]),
+      order('G-230', [['指定型号', 'A'], ['接口要求', 'A 型卡口']]),
+    ],
+    sample: { ...clear, appearance: 'vented', model: 'A', back: '内框刻字：型号 A。' },
+  },
+];
