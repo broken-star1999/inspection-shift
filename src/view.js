@@ -370,9 +370,8 @@ export function dialog(title, body, type = '', footer = '', { closeText = '×', 
   return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close${cls(closeClass, closeClass)}" data-act="close" aria-label="${esc(closeLabel)}">${esc(closeText)}</button></header><div class="modal-body">${body}</div>${footer}</section></div>`;
 }
 
-export function welcome(page, { continueShift = false, finished = false } = {}) {
+export function welcome(page) {
   const play = page === 'play';
-  const start = finished ? '回到首页' : continueShift ? '继续值班' : play ? '开始值班' : '直接开班';
   const body = play ? `<div class="welcome-sheet welcome-play-page" data-welcome-page="play">
     <p class="welcome-lead">先看箱签、送检联和报告，再拿起检样。前两批跟着箭头学怎么查。</p>
     <dl class="welcome-verdicts">
@@ -388,8 +387,7 @@ export function welcome(page, { continueShift = false, finished = false } = {}) 
     <p>在虚构的南渡防护用品厂，你要守五天出货窗口。查过样品、核过单据，才知道这批货该盖什么章。</p>
     <p>有人催你先放行，说缺的报告明天再补。按当时查到的依据开单，下一班才能从回执里看清这批货是怎么处理的。</p>
   </div>`;
-  const actions = play ? button('返回介绍', 'welcome-project') + button(start, 'welcome-start', 'primary')
-    : button(start, 'welcome-start') + button('下一页 · 玩法', 'welcome-play', 'primary');
+  const actions = play ? button('返回介绍', 'welcome-project') : button('下一页 · 玩法', 'welcome-play', 'primary');
   return dialog(play ? '玩法介绍' : '项目介绍', body, 'welcome-modal',
     `<footer class="modal-actions welcome-actions">${actions}</footer>`, { closeLabel: '关闭介绍' });
 }

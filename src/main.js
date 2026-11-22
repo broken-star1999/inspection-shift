@@ -987,10 +987,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const work = { ...interaction, incomingCall, returningWeek: run?.sampleSet === 4, supplementRequest: run?.supplementRequestDraft };
   let markup = '';
   if (isWelcomePanel()) {
-    markup = view.welcome(panel === 'welcome-project' ? 'project' : 'play', {
-      continueShift: Boolean(saved && saved.phase !== 'ending'),
-      finished: saved?.phase === 'ending',
-    });
+    markup = view.welcome(panel === 'welcome-project' ? 'project' : 'play');
   }
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
   if (panel === 'visit' && !arrival) {
@@ -2612,17 +2609,6 @@ root.addEventListener('click', (event) => {
     case 'welcome-project': case 'welcome-play':
       if (!run) openPanel(act, target);
       break;
-    case 'welcome-start': {
-      if (run || !isWelcomePanel()) break;
-      const latest = readStorage(SAVE_KEY);
-      if (validRunSave(latest)) saved = latest;
-      if (saved?.phase === 'ending') closePanel();
-      else {
-        enter(Boolean(saved));
-        if (!panel && document.activeElement === document.body) screenLayer.querySelector('.primary')?.focus({ preventScroll: true });
-      }
-      break;
-    }
     case 'completed-shifts':
       if (!run && completedShifts.size) {
         historyNavigation = null;

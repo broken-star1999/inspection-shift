@@ -1277,15 +1277,14 @@ button:disabled { opacity: .46; }
 .welcome-sheet .welcome-note { color: #5b472f; font-size: .86rem; }
 .welcome-modal .welcome-actions {
   display: flex;
-  justify-content: space-between;
   flex: none;
-  gap: .55rem;
   margin: 0;
   padding: .5rem var(--welcome-margin) .6rem;
   border-block-start: 1px solid var(--welcome-rule);
   background: #d5b47f50;
 }
 .welcome-modal .welcome-actions .button { min-block-size: 2.75rem; padding-inline: .8rem; }
+.welcome-modal .welcome-actions .primary { margin-inline-start: auto; }
 
 @container workstation (max-height: 440px) {
   .welcome-modal .modal-body { padding-block: .58rem; }
