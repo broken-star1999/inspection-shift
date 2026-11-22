@@ -73,7 +73,7 @@ if (saved?.phase === 'ending') rememberCompletedShift(saved);
 let run = null;
 let reviewingHistory = false;
 let historyNavigation = null;
-let panel = null;
+let panel = 'welcome-project';
 let scenery;
 let modeledReady = false;
 let resumeSceneMount = null;
@@ -986,6 +986,12 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const incomingCall = incomingAtWindow();
   const work = { ...interaction, incomingCall, returningWeek: run?.sampleSet === 4, supplementRequest: run?.supplementRequestDraft };
   let markup = '';
+  if (isWelcomePanel()) {
+    markup = view.welcome(panel === 'welcome-project' ? 'project' : 'play', {
+      continueShift: Boolean(saved && saved.phase !== 'ending'),
+      finished: saved?.phase === 'ending',
+    });
+  }
   if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
   if (panel === 'visit' && !arrival) {
     const visit = activeVisit();
@@ -1111,7 +1117,8 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
-  const firstAction = surface?.querySelector('.receipt-surface :is([data-act="next"], [data-act="hold-receipt"]):enabled') || focusables.find((element) => element instanceof HTMLButtonElement &&
+  const firstAction = modalLayer.querySelector('.welcome-modal .primary') ||
+    surface?.querySelector('.receipt-surface :is([data-act="next"], [data-act="hold-receipt"]):enabled') || focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
     !['close', 'toggle-findings', 'remove-finding', 'stamp'].includes(element.dataset.act));
   (glancedPanel ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
@@ -2515,7 +2522,12 @@ function revealArchiveReceipt(revealIndex) {
   modalLayer.querySelector('.archive-surface .desk-surface-content')?.scrollTo(0, activeCorrection() ? correctionDraft.scrollTop : 0);
 }
 
+function isWelcomePanel() {
+  return panel === 'welcome-project' || panel === 'welcome-play';
+}
+
 function closePanel({ receiveWaiting = false } = {}) {
+  const leftWelcome = isWelcomePanel();
   captureCorrectionScroll();
   if (panel === 'carton' && interaction.returnToDocs && windowCase()?.carton) {
     playSound('paper');
@@ -2556,6 +2568,7 @@ function closePanel({ receiveWaiting = false } = {}) {
   }
   const toBoard = previousPanel?.panel === 'handoff';
   render(toBoard ? previousPanel.detailScroll : previousPanel?.scrollTop, 0, toBoard ? previousPanel.scrollTop : undefined);
+  if (leftWelcome && document.activeElement === document.body) screenLayer.querySelector('.primary')?.focus({ preventScroll: true });
   if (!panel && tutorialStep()?.key === 'stamp') focusControl(desktop, { act: 'stamp', key: 'pass' });
   if (panel === 'phone' && previousPanel?.opener?.act === 'report-search' && interaction.phoneNumber === run.phone?.number &&
       modalLayer.querySelector('[data-report-redial]')) {
@@ -2594,7 +2607,22 @@ root.addEventListener('click', (event) => {
         closePanel({ receiveWaiting: true });
       }
       break;
-    case 'how': case 'rules': openPanel(act, target); break;
+    case 'how': openPanel(run ? act : 'welcome-play', target); break;
+    case 'rules': openPanel(act, target); break;
+    case 'welcome-project': case 'welcome-play':
+      if (!run) openPanel(act, target);
+      break;
+    case 'welcome-start': {
+      if (run || !isWelcomePanel()) break;
+      const latest = readStorage(SAVE_KEY);
+      if (validRunSave(latest)) saved = latest;
+      if (saved?.phase === 'ending') closePanel();
+      else {
+        enter(Boolean(saved));
+        if (!panel && document.activeElement === document.body) screenLayer.querySelector('.primary')?.focus({ preventScroll: true });
+      }
+      break;
+    }
     case 'completed-shifts':
       if (!run && completedShifts.size) {
         historyNavigation = null;

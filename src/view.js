@@ -86,7 +86,7 @@ export function home(save, endings, completedCount = 0) {
       <p class="title-description">在出货窗口替五天班。<br>看样，对单，然后签你的名字。</p>
       <div class="home-actions">${actions}</div>
     </div><div class="home-sign" aria-hidden="true"><i></i><span>发货抽检窗口</span><b>01</b></div></div>
-    <footer class="home-footer"><span>出货交接室</span>${history}</footer></section>`;
+    <footer class="home-footer"><div class="home-footer-left"><span>出货交接室</span>${button('项目介绍', 'welcome-project', 'home-project')}</div>${history}</footer></section>`;
 }
 
 export function completedShifts(entries, endingCount) {
@@ -370,6 +370,30 @@ export function dialog(title, body, type = '', footer = '', { closeText = '×', 
   return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close${cls(closeClass, closeClass)}" data-act="close" aria-label="${esc(closeLabel)}">${esc(closeText)}</button></header><div class="modal-body">${body}</div>${footer}</section></div>`;
 }
 
+export function welcome(page, { continueShift = false, finished = false } = {}) {
+  const play = page === 'play';
+  const start = finished ? '回到首页' : continueShift ? '继续值班' : play ? '开始值班' : '直接开班';
+  const body = play ? `<div class="welcome-sheet welcome-play-page" data-welcome-page="play">
+    <p class="welcome-lead">先看箱签、送检联和报告，再拿起检样。前两批跟着箭头学怎么查。</p>
+    <dl class="welcome-verdicts">
+      <div><dt>通过</dt><dd>实物合格，有效报告对应本批，并覆盖送检要求。</dd></div>
+      <div><dt>不通过</dt><dd>实物有明确缺陷，或查明确实不符合订单要求。</dd></div>
+      <div><dt>要求审查</dt><dd>材料没交齐、对不上或没验齐，先留厂待查。</dd></div>
+    </dl>
+    <p class="welcome-note">开单后回执会自动递出。想细看或更正，点「留看回执」。</p>
+  </div>` : `<div class="welcome-sheet welcome-project-page" data-welcome-page="project">
+    <p class="welcome-kicker">2026年工学院廉洁文化节 · 智造清风·廉铸匠心</p>
+    <h3 class="welcome-heading">质检员的一天</h3>
+    <p class="welcome-track">活动一「智造廉品」 · 代码方向</p>
+    <p>在虚构的南渡防护用品厂，你要守五天出货窗口。查过样品、核过单据，才知道这批货该盖什么章。</p>
+    <p>有人催你先放行，说缺的报告明天再补。按当时查到的依据开单，下一班才能从回执里看清这批货是怎么处理的。</p>
+  </div>`;
+  const actions = play ? button('返回介绍', 'welcome-project') + button(start, 'welcome-start', 'primary')
+    : button(start, 'welcome-start') + button('下一页 · 玩法', 'welcome-play', 'primary');
+  return dialog(play ? '玩法介绍' : '项目介绍', body, 'welcome-modal',
+    `<footer class="modal-actions welcome-actions">${actions}</footer>`, { closeLabel: '关闭介绍' });
+}
+
 function deskSurface(title, body, type, closeText, page, { headerActions = '', footer = '', closeLabel = '关闭面板', closeClass = '' } = {}) {
   const close = closeText ? `<button class="modal-close surface-close${cls(closeClass, closeClass)}" data-act="close" aria-label="${esc(closeLabel)}">${closeText}</button>` : '';
   return `<section class="desk-surface ${type}" data-desk-surface="${type}"${page === undefined ? '' : ` data-surface-page="${esc(page)}"`} role="region" aria-labelledby="panel-title">
@@ -382,7 +406,7 @@ export function instructions(how) {
     <ol><li><b>通过</b>　样品合格，有效报告能对应这批，并覆盖送检要求。</li><li><b>不通过</b>　实物确有裂纹、划伤、扣件问题或已查明的错型、超差。</li><li><b>要求审查</b>　报告没交、对不上或没验齐，先隔离，等对方补证或安排复检。</li></ol>
     <p>缺报告带送检联找实验室小陈（204）。单据上另写了「经手窗口」，就带那张单按上面的内线拨出。</p>
     <p>有换签时对照登记上的旧号和新号。保护膜可以揭角。测插片时先放入量规，再合上量爪。核对过的旧单会留在交接簿。</p>
-    ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。拿着单据或检样时可以抬头看窗口，再接着查验。两指可在系统支持时缩放视图。查完就能在开单机上选章，再把回执递出去。电脑也可用 1、2、3 开单。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
+    ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。拿着单据或检样时可以抬头看窗口，再接着查验。两指可在系统支持时缩放视图。查完在开单机上选章，回执会自动递出。想细看或更正，点「留看回执」。电脑也可用 1、2、3 开单。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
 function moldSketch() {
