@@ -142,16 +142,17 @@ export const TUTORIAL = [
     target: 'order', title: '核对签发和项目', line: '看报告有没有签发，检验项目齐不齐。',
   },
   {
-    target: 'sample', title: '看样品', line: '看过单据后，可以拿起检样继续查。',
+    target: 'sample', title: '看样品', line: '拿起检样，先看镜片，再查背面的扣件。',
     frontLine: '看看镜片有没有裂痕，然后翻面。',
-    claspLine: '按合背面的扣件。',
-    tugLine: '轻拉一下，看看扣件会不会松。',
+    claspLine: '按合并轻拉扣件，看它会不会松。',
   },
   { target: 'pass', title: '把单交出去', line: '这箱的单据和样品都齐，可以盖「通过」。', sampleLine: '镜片没有裂痕，扣件也没松。' },
 ];
 
-export const FILM_BENCH_TUTORIAL = '先拿起检样，看看白痕在什么地方。';
-export const FILM_TUTORIAL = '点一下膜角，或往右上拉，看看白痕跟着哪一层。';
+export const DOCUMENT_TUTORIAL = '先对箱签和报告的批号，再看签发和检验项目。看完拿起检样。';
+export const FILM_BENCH_TUTORIAL = '拿起检样，看看白痕在膜上，还是在镜片上。';
+export const FILM_TUTORIAL = '点一下膜角或往右上拉，看白痕会不会跟着膜起来。';
+export const FILM_STAMP_TUTORIAL = '白痕跟着膜起来了。单据也对得上，就盖通过。';
 
 export const G205_SUPPLEMENT_REQUEST = {
   shown: '就这两张，报告没夹进来。你开审查，我拿补件联去趟实验室。',

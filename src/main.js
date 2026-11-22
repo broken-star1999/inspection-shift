@@ -42,6 +42,9 @@ const PAPER_TOUCH_DRAG_PX = 8;
 const CARTON_TURN_TRAVEL = 28;
 const TOOL_DRAG_PX = 9;
 const RECEIPT_LIFT_MS = 235;
+const RECEIPT_REVIEW_MS = 1250;
+const TUTORIAL_FIELD_MS = 1000;
+const TUTORIAL_FIELDS = ['batch', 'signature', 'projects'];
 const cargoRoutes = new Set(['shipping', 'returned', 'held']);
 
 function readStorage(key) {
@@ -101,6 +104,8 @@ let phoneReturn = null;
 let issuedReceiptId = null;
 let pendingReceiptPrint = false;
 let receiptPrintTimer = 0;
+let receiptHandoverTimer = 0;
+let receiptHeld = false;
 let presentedEvidence = null;
 let interaction = freshInteraction();
 
@@ -139,6 +144,8 @@ let fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
 let fixtureLayout = {};
 let tutorialPointerFrame = 0;
 let tutorialPointerMotion = 0;
+let tutorialDocsOpenedAt = null;
+let guidedTarget = null;
 
 bindViewport(root, ({ fullscreen, immersive, rotated }) => {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
@@ -362,65 +369,82 @@ function stageBounds(element) {
   return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), w: Math.abs(end.x - start.x), h: Math.abs(end.y - start.y) };
 }
 
+function visibleGuideTarget(target) {
+  if (!target?.getClientRects().length || target.closest('[inert]') || getComputedStyle(target).visibility === 'hidden') return false;
+  const clip = target.closest('.desk-surface-content');
+  if (!clip) return true;
+  const element = target.getBoundingClientRect();
+  const bounds = clip.getBoundingClientRect();
+  const x = element.left + element.width / 2;
+  const y = element.top + element.height / 2;
+  return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+}
+
 function tutorialPointerTarget() {
-  if (!run || run.day !== 0 || arrival || glancedPanel) return null;
-  if (run.phase === 'receipt' && !panel && run.records.at(-1)?.id === 1 && run.sampleSet !== 4) {
-    return modalLayer.querySelector('.receipt-surface [data-act="next"]');
-  }
-  if (!tutorialStep()) {
-    if (!view.filmLessonPending(windowCase(), { returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked })) return null;
-    if (!panel) return desktop.querySelector('.sample-preview.instructed:enabled');
-    return panel === 'sample' ? modalLayer.querySelector('.film-handle.instructed:enabled, .sample-flip-control.instructed:enabled') : null;
-  }
-  if (!panel) return desktop.querySelector('[data-fixture].instructed:enabled');
+  if (run?.phase !== 'case' || run.day !== 0 || run.sampleSet === 4 || glancedPanel) return null;
+  const item = windowCase();
+  if (!item || (item.id !== 2 && !tutorialStep())) return null;
+  if (!panel) return desktop.querySelector('[data-guide-target]:enabled');
   if (panel === 'docs') {
-    return modalLayer.querySelector('[data-tutorial-batch]');
+    const stamp = modalLayer.querySelector('[data-guide-target="stamp-pass"]:enabled');
+    if (stamp) return stamp;
+    const field = tutorialDocsOpenedAt === null ? null : TUTORIAL_FIELDS[Math.floor((performance.now() - tutorialDocsOpenedAt) / TUTORIAL_FIELD_MS)];
+    const detail = field && [...modalLayer.querySelectorAll(`[data-guide-detail="${field}"]`)].find(visibleGuideTarget);
+    return detail || modalLayer.querySelector('[data-guide-target="docs-sample"]:enabled');
   }
-  if (panel === 'sample') return modalLayer.querySelector('.tutorial-next:enabled, .sample-hotspot.instructed:enabled, .work-stamp-machine .stamp.instructed:enabled');
-  return null;
+  return panel === 'sample' ? modalLayer.querySelector('[data-guide-target]:enabled') : null;
 }
 
 function positionTutorialPointer() {
   const target = tutorialPointerTarget();
+  if (guidedTarget !== target) {
+    guidedTarget?.classList.remove('guide-current');
+    guidedTarget = target;
+    guidedTarget?.classList.add('guide-current');
+  }
   tutorialPointer.hidden = true;
-  if (!target?.getClientRects().length || target.closest('[inert]') || getComputedStyle(target).visibility === 'hidden') return;
+  if (!visibleGuideTarget(target)) return;
   const { x, y, w, h } = stageBounds(target);
   const middleX = x + w / 2;
   const middleY = y + h / 2;
-  const clip = target.closest('.desk-surface-content');
-  if (clip) {
-    const bounds = stageBounds(clip);
-    if (middleY < bounds.y || middleY > bounds.y + bounds.h || middleX < bounds.x || middleX > bounds.x + bounds.w) return;
-  }
   const view = stageBounds(playfield);
   const screen = root.getBoundingClientRect();
-  const left = { x: x - 15, y: middleY, angle: 0 };
-  const above = { x: middleX, y: y - 15, angle: 90 };
-  const right = { x: x + w + 15, y: middleY, angle: 180 };
-  const below = { x: middleX, y: y + h + 15, angle: 270 };
+  const left = { x: x - 19, y: middleY, angle: 0 };
+  const above = { x: middleX, y: y - 19, angle: 90 };
+  const right = { x: x + w + 19, y: middleY, angle: 180 };
+  const below = { x: middleX, y: y + h + 19, angle: 270 };
   const directions = target.matches('.guided-paper-value') ? [right, left, above, below]
-    : panel || run.phase === 'receipt' ? [above, left, right, below] : [left, above, right, below];
+    : panel ? [above, left, right, below] : [left, above, right, below];
   const guidance = [...playfield.querySelectorAll('.modal-guide, .room-hud .training, .desk-dialogue')].map(stageBounds);
-  const choices = directions.filter(({ x, y }) => x > view.x + 11 && x < view.x + view.w - 11 &&
-    y > view.y + 11 && y < view.y + view.h - 11 && !guidance.some((bounds) =>
-      x + 11 > bounds.x && x - 11 < bounds.x + bounds.w && y + 11 > bounds.y && y - 11 < bounds.y + bounds.h));
+  const inStage = directions.filter(({ x, y, angle }) => {
+    const horizontal = angle % 180 === 0;
+    const marginX = horizontal ? 17 : 13;
+    const marginY = horizontal ? 13 : 17;
+    return x > view.x + marginX && x < view.x + view.w - marginX && y > view.y + marginY && y < view.y + view.h - marginY;
+  });
+  const choices = inStage.filter(({ x, y }) => !guidance.some((bounds) =>
+    x + 14 > bounds.x && x - 14 < bounds.x + bounds.w && y + 14 > bounds.y && y - 14 < bounds.y + bounds.h));
   const clear = ({ x, y }) => {
     const hit = root.dataset.rotated === 'true'
       ? document.elementFromPoint(screen.right - y, screen.top + x)
       : document.elementFromPoint(screen.left + x, screen.top + y);
     return !hit?.closest('button:enabled, input, a');
   };
-  const anchor = choices.find(clear) ?? choices[0];
+  const anchor = choices.find(clear) ?? choices[0] ?? inStage.find(clear) ?? inStage[0];
   if (!anchor) return;
   tutorialPointer.style.insetInlineStart = `${(anchor.x - view.x).toFixed(1)}px`;
   tutorialPointer.style.insetBlockStart = `${(anchor.y - view.y).toFixed(1)}px`;
   tutorialPointer.style.setProperty('--pointer-angle', `${anchor.angle}deg`);
+  tutorialPointer.dataset.guideFor = target.dataset.guideTarget ?? target.dataset.guideDetail;
   tutorialPointer.hidden = false;
 }
 
 function scheduleTutorialPointer(duration = 0) {
+  if (panel === 'docs' && !glancedPanel && modalLayer.querySelector('[data-guide-detail]')) tutorialDocsOpenedAt ??= performance.now();
+  else tutorialDocsOpenedAt = null;
   if (tutorialPointer.hidden && !tutorialPointerTarget()) return;
-  tutorialPointerMotion = Math.max(tutorialPointerMotion, performance.now() + duration);
+  const endOfReading = tutorialDocsOpenedAt === null ? 0 : tutorialDocsOpenedAt + TUTORIAL_FIELDS.length * TUTORIAL_FIELD_MS;
+  tutorialPointerMotion = Math.max(tutorialPointerMotion, performance.now() + duration, endOfReading);
   if (tutorialPointerFrame) return;
   const updatePointer = (now) => {
     tutorialPointerFrame = 0;
@@ -484,14 +508,37 @@ function animatePrintedReceipt(paper) {
 function beginReceiptPrint(id) {
   issuedReceiptId = id;
   pendingReceiptPrint = true;
-  if (reducedMotion.matches) return;
   clearTimeout(receiptPrintTimer);
+  receiptPrintTimer = 0;
+  if (reducedMotion.matches) return;
   receiptPrintTimer = setTimeout(() => {
     receiptPrintTimer = 0;
     const surface = modalLayer.querySelector('.receipt-surface');
     surface?.querySelectorAll('button').forEach((control) => { control.disabled = false; });
-    if (surface && document.activeElement === document.body) focusControl(surface, { act: 'next' });
+    if (surface && document.activeElement === document.body) focusControl(surface, { act: receiptHeld ? 'next' : 'hold-receipt' });
   }, RECEIPT_FEED_MS + RECEIPT_LIFT_MS);
+}
+
+function canAutomaticallyHandReceipt() {
+  return run?.phase === 'receipt' && !panel && !arrival && !receiptHeld && !activeVisit() && !document.hidden;
+}
+
+function cancelReceiptHandover() {
+  clearTimeout(receiptHandoverTimer);
+  receiptHandoverTimer = 0;
+}
+
+function syncReceiptHandover() {
+  if (!canAutomaticallyHandReceipt()) {
+    cancelReceiptHandover();
+    return;
+  }
+  if (receiptHandoverTimer) return;
+  const delay = RECEIPT_REVIEW_MS + (receiptPrintTimer ? RECEIPT_FEED_MS + RECEIPT_LIFT_MS : 0);
+  receiptHandoverTimer = setTimeout(() => {
+    receiptHandoverTimer = 0;
+    if (canAutomaticallyHandReceipt() && !restoreNewerArrivalSave()) handReceipt(true);
+  }, delay);
 }
 
 function tutorialStep() {
@@ -795,13 +842,14 @@ function render(resumeScroll, resumeScrollLeft = 0, resumeBoardScroll) {
   soundToggle.setAttribute('aria-label', isMuted() ? '开启音效' : '关闭音效');
   const item = windowCase();
   const step = item ? tutorialStep() : null;
-  const filmCue = !panel && run?.phase === 'case' &&
-    view.filmLessonPending(item, { returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked });
+  const filmPhase = !panel && run?.phase === 'case' &&
+    view.filmGuidePhase(item, { returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked });
+  const filmCue = filmPhase === 'inspect';
   const deskGuide = step;
   const visit = arrival ? null : activeVisit();
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   hud.innerHTML = run && !arrival && !closingShot && (run.phase !== 'summary' || visit)
-    ? view.room(run, item, deskGuide, item?.pressureLine, visit, previous, filmCue)
+    ? view.room(run, item, deskGuide, item?.pressureLine, visit, previous, filmCue, filmPhase === 'stamp')
     : '';
   const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
   const previewVisit = preview ? activeVisit(preview) : null;
@@ -836,6 +884,7 @@ function render(resumeScroll, resumeScrollLeft = 0, resumeBoardScroll) {
   if (resumeScroll !== undefined) workspaceBody()?.scrollTo(resumeScrollLeft, resumeScroll);
   if (resumeBoardScroll !== undefined) modalLayer.querySelector('.handoff-board')?.scrollTo(0, resumeBoardScroll);
   persistRun();
+  syncReceiptHandover();
 }
 
 function renderArrivalStatus() {
@@ -1014,6 +1063,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     markup = view.receipt(record, previous, activeVisit(next) ? null : next?.phase, {
       supplementKey: supplement?.caseId === record.id ? supplement.key : null,
       canCorrect: canRecheckReceipt(run, record.id),
+      autoHandover: !receiptHeld,
     });
   }
 
@@ -1040,7 +1090,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   mountSampleImage(surface?.querySelector('[data-sample-art]') ??
     desktop.querySelector('.sample-preview:not([data-lifted]) [data-sample-art]'));
   if (receiptPrintTimer && surface?.matches('.receipt-surface')) {
-    surface.querySelectorAll('button').forEach((control) => { control.disabled = true; });
+    surface.querySelectorAll('button:not([data-act="hold-receipt"])').forEach((control) => { control.disabled = true; });
   }
   const archiveSearch = searchDraft && surface?.querySelector('#archive-query');
   if (archiveSearch && archiveSearch.defaultValue === searchDraft.query) {
@@ -1061,7 +1111,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   }
   const focusables = [...modalLayer.querySelectorAll('button:not([disabled]), input')];
   const restored = focusedData?.act && focusables.find((element) => Object.entries(focusedData).every(([key, value]) => element.dataset[key] === value));
-  const firstAction = surface?.querySelector('.receipt-surface [data-act="next"]:enabled') || focusables.find((element) => element instanceof HTMLButtonElement &&
+  const firstAction = surface?.querySelector('.receipt-surface :is([data-act="next"], [data-act="hold-receipt"]):enabled') || focusables.find((element) => element instanceof HTMLButtonElement &&
     element.dataset.act && !element.classList.contains('reference-control') &&
     !['close', 'toggle-findings', 'remove-finding', 'stamp'].includes(element.dataset.act));
   (glancedPanel ? windowGlance : restored || firstAction || focusables[0])?.focus({ preventScroll: true });
@@ -1163,6 +1213,7 @@ function persistRun() {
   } : undefined;
   saved = {
     ...run,
+    ...(receiptHeld && run.phase === 'receipt' && !arrival ? { receiptHeld: true } : {}),
     ...(arrival ? { arrivalAction: arrival.action } : {}),
     ...(arrival?.stage === 'approach' ? { arrivalStage: arrival.stage } : {}),
     ...(betweenBatches && arrival.ready ? { arrivalReady: true } : {}),
@@ -1205,6 +1256,7 @@ modalLayer.addEventListener('focusin', (event) => {
 window.addEventListener('pagehide', persistWorkspaceScroll);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) persistWorkspaceScroll();
+  syncReceiptHandover();
 });
 
 function update(action, redraw = true) {
@@ -1259,6 +1311,8 @@ function enter(restore) {
   pendingReceiptPrint = false;
   clearTimeout(receiptPrintTimer);
   receiptPrintTimer = 0;
+  cancelReceiptHandover();
+  receiptHeld = false;
   presentedEvidence = null;
   let workspace;
   let arrivalAction;
@@ -1270,8 +1324,9 @@ function enter(restore) {
   let visitorWaiting = false;
   if (restore && saved) {
     const { inspectionProgress, arrivalAction: savedArrival, arrivalStage: savedStage, arrivalReady, correctionDraft: draft,
-      handoffWorkspace: board, handoffPair: pair, reportWorkspace: savedLookup, ...savedRun } = saved;
+      handoffWorkspace: board, handoffPair: pair, reportWorkspace: savedLookup, receiptHeld: held, ...savedRun } = saved;
     arrivalAction = savedArrival;
+    receiptHeld = savedRun.phase === 'receipt' && held === true && !arrivalAction;
     resumeApproach = savedStage === 'approach';
     savedCorrection = draft;
     run = restoreRun(savedRun);
@@ -1314,6 +1369,7 @@ function enter(restore) {
   handoffDocument = null;
   handoffPairOpen = false;
   correctionDraft = restoreCorrectionDraft(savedCorrection);
+  if (correctionDraft && run.phase === 'receipt') receiptHeld = true;
   const next = windowAdvance(arrivalAction);
   const visit = activeVisit();
   const recallId = visit?.kind === 'recall' ? visit.caseId : windowAction(arrivalAction)?.id;
@@ -1474,6 +1530,17 @@ function windowAdvance(value) {
   if (!run || !action) return null;
   const next = dispatch(run, action);
   return next !== run ? next : null;
+}
+
+function handReceipt(restoreFocus) {
+  if (panel || arrival || run?.phase !== 'receipt') return;
+  const next = windowAdvance('next');
+  if (!next) return;
+  cancelReceiptHandover();
+  archiveReturn = null;
+  playSound(reducedMotion.matches ? 'paper' : 'handover');
+  if (needsArrival(next) || !reducedMotion.matches) pauseBeforeArrival('next', next, restoreFocus);
+  else finishWindowAdvance('next', restoreFocus);
 }
 
 function needsArrival(next) {
@@ -2046,6 +2113,13 @@ function checkSample(act) {
       sample.clasp = true;
       sound = 'clasp';
       break;
+    case 'sample-clasp-test':
+      if (step?.key !== 'sample' || !sample.back || sample.tug || !sampleAppearance(spec).clasp) return;
+      sample.clasp = true;
+      sample.tug = true;
+      sound = 'tug';
+      advanceTutorial();
+      break;
     case 'sample-tug':
       if (waitingForClasp || !sample.back || !sample.clasp || sample.tug || !sampleAppearance(spec).clasp) return;
       sample.tug = true;
@@ -2116,9 +2190,11 @@ function checkSample(act) {
   if (act === 'sample-measure' && sample.gaugeLoaded) focusControl(modalLayer, { act: 'sample-gauge-clamp' });
   if (act === 'sample-gauge-clamp' && !sample.measured) focusControl(modalLayer, { act: 'sample-measure' });
   if (step?.key === 'sample') {
-    if (act === 'sample-flip' && sample.back) focusControl(modalLayer, { act: sample.clasp ? 'sample-tug' : 'sample-clasp' });
-    if (act === 'sample-clasp') focusControl(modalLayer, { act: 'sample-tug' });
-    if (act === 'sample-tug') focusControl(modalLayer, { act: 'close' });
+    if (act === 'sample-flip' && sample.back) focusControl(modalLayer, { act: 'sample-clasp-test' });
+    if (act === 'sample-clasp-test') focusControl(modalLayer, { act: 'stamp', key: 'pass' });
+  }
+  if (act === 'sample-film' && item.id === 2 && run.sampleSet !== 4 && interaction.filmChecked) {
+    focusControl(modalLayer, { act: 'stamp', key: 'pass' });
   }
   if (act === 'sample-flip' && !sample.back && view.filmLessonPending(item, {
     returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked,
@@ -2142,6 +2218,8 @@ function checkSample(act) {
   } else if (act === 'sample-film' && previousFold) {
     const film = modalLayer.querySelector('.sample-film-sheet');
     if (film) animateOnDesk(film, [{ transform: previousFold }, { transform: getComputedStyle(film).transform }], 225);
+  } else if (act === 'sample-clasp-test') {
+    animateOnDesk(graphic, [{ translate: '0 0' }, { translate: '.18rem 0' }, { translate: '0 0' }], 210);
   } else if (act === 'sample-unpack') {
     animateOnDesk(graphic, [{ translate: '0 .38rem', opacity: .7 }, { translate: '0 0', opacity: 1 }], 210);
   }
@@ -2165,6 +2243,7 @@ function stamp(value) {
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
     panel = null;
     modalOpener = null;
+    receiptHeld = false;
     beginReceiptPrint(run.records.at(-1).id);
     clearTimeout(toastTimer);
     toastBox.textContent = '';
@@ -2504,6 +2583,7 @@ root.addEventListener('click', (event) => {
   if (target === toolClickTarget && pointerClick) return;
   const { act, key } = target.dataset;
   const index = Number(target.dataset.i);
+  if (target.closest('.receipt-surface') && act !== 'next') receiptHeld = true;
   if (act.startsWith('sample-')) { checkSample(act); return; }
   switch (act) {
     case 'carton': case 'carton-turn': case 'carton-note': checkCarton(act, target); break;
@@ -2555,7 +2635,9 @@ root.addEventListener('click', (event) => {
       break;
     }
     case 'advance-day': playSound('paper'); update({ type: 'advance-day' }); break;
+    case 'hold-receipt': render(); break;
     case 'receipt-basis': {
+      render();
       const facts = modalLayer.querySelector('.receipt-surface .receipt-findings');
       if (!facts || !target.closest('.receipt-surface')) break;
       facts.tabIndex = -1;
@@ -2570,11 +2652,11 @@ root.addEventListener('click', (event) => {
         openPanel('visit', target);
       }
       break;
-    case 'next':
+    case 'next': handReceipt(event.detail === 0); break;
     case 'event-next':
     case 'receive-recall': {
       if (act === 'event-next' && (panel !== 'visit' || key !== activeVisit()?.key)) break;
-      const action = act === 'receive-recall' ? { type: act, id: index } : act === 'next' ? 'next' : 'ack-visit';
+      const action = act === 'receive-recall' ? { type: act, id: index } : 'ack-visit';
       const next = !arrival && windowAdvance(action);
       if (!next) break;
       if (act === 'receive-recall') {
@@ -2584,8 +2666,8 @@ root.addEventListener('click', (event) => {
       captureCorrectionScroll();
       panel = null;
       archiveReturn = null;
-      playSound(act === 'next' && !reducedMotion.matches ? 'handover' : 'paper');
-      if (needsArrival(next) || (act === 'next' && !reducedMotion.matches)) pauseBeforeArrival(action, next, event.detail === 0);
+      playSound('paper');
+      if (needsArrival(next)) pauseBeforeArrival(action, next, event.detail === 0);
       else finishWindowAdvance(action, event.detail === 0);
       break;
     }
@@ -2924,7 +3006,7 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.repeat && event.key === 'Enter' && target instanceof HTMLButtonElement &&
-      target.matches('[data-act="stamp"], [data-act="next"], [data-act="receive-waiting"], [data-act="visit-paper"], [data-act="event-next"], .sample-hotspot[data-drag], .gauge-clamp')) {
+      target.matches('[data-act="stamp"], [data-act="next"], [data-act="hold-receipt"], [data-act="receive-waiting"], [data-act="visit-paper"], [data-act="event-next"], .sample-hotspot[data-drag], .gauge-clamp')) {
     event.preventDefault();
     return;
   }
