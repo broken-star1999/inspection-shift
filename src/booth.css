@@ -778,6 +778,7 @@
     linear-gradient(125deg, #594936, #42362a);
   box-shadow: 2px 4px 3px #332819be, inset 0 1px #b4a06f88, inset 0 -3px #3a2c22;
 }
+.booth-layout .stamp-rail .stamp-buttons[data-binary-verdicts] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .booth-print-slot {
   position: absolute;
   z-index: 1;

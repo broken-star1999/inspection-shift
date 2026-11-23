@@ -314,7 +314,6 @@
 
 #game[data-modeled='true'] .booth-layout .stamp.pass { --stamp-plaque: #304637; --stamp-plaque-ink: #e5e9c4; }
 #game[data-modeled='true'] .booth-layout .stamp.fail { --stamp-label-characters: 3; --stamp-plaque: #513930; --stamp-plaque-ink: #f2d6bb; }
-#game[data-modeled='true'] .booth-layout .stamp.review { --stamp-label-characters: 4; --stamp-plaque: #54432a; --stamp-plaque-ink: #f2dfab; }
 
 #game[data-modeled='true'] .booth-layout .stamp[data-fixture] b {
   inset: calc(100% - 1.05rem) auto auto 50%;

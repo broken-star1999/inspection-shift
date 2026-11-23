@@ -638,6 +638,54 @@ export const COMPACT_CASE_OVERRIDES = {
   },
 };
 
+export const BINARY_DAY_COPY = {
+  1: { intro: '老周把桌角的留底往里推了推。「昨天的单都夹在左边。今天补来的，搁在对应原单后头。」' },
+  3: { outro: '老周「原先那张留底放在前面。今天几点补齐的，后面那张写着。」' },
+  4: {
+    intro: '老周把这几天的留底摆齐。「最后一箱照常看。等这联收齐，下一班就能接手。」',
+    outro: '老周把最后一联接过来，和前几天的单按日期夹好。',
+  },
+};
+
+export const BINARY_CASE_OVERRIDES = {
+  5: {
+    line: '二零五，装货台还等着回单。报告还没送来，手上只有这两张。',
+    documents: [label('G-205', [], '防噪耳罩'), order('G-205', earmuffChecks)],
+  },
+  7: {
+    title: '二四一的随货联',
+    line: '二四一。随货联夹在箱签下面，我等你开单。',
+    documents: [
+      label('G-241', [], '防护面屏'), report('G-241', 'R-073', shieldReport, '随货核验联'),
+      order('G-241', [['发货区', '二号装货台'], ['检验项目', '外观、耐冲击']]),
+    ],
+    receiptAside: '',
+  },
+  10: { documents: COMPACT_CASE_OVERRIDES[10].documents },
+  11: {
+    documents: COMPACT_CASE_OVERRIDES[11].documents,
+    inspectionReply: COMPACT_CASE_OVERRIDES[11].inspectionReply,
+  },
+  14: {
+    title: '当天签好的复检联',
+    line: '二四八的耐冲击结果补齐了。小陈今天九点十分签的，签发时间在下面。',
+    documents: COMPACT_CASE_OVERRIDES[14].documents.slice(0, 2),
+    receiptAside: '这份算今天补到的。昨天开的那张还在原来的位置。',
+    followUp: {
+      caseId: 10, sameLot: true,
+      lines: {
+        pass: '昨天那车已经走了。这是留样，还有今天九点十分才签好的报告。',
+        fail: '退件区的二四八送回来了。这张报告是今天九点十分签的。',
+        review: '二四八还在黄线里。耐冲击结果今天九点十分签好了。',
+      },
+    },
+  },
+  20: {
+    line: '最后一箱，你照常核。开完把回执给我，剩下的我来收。',
+    receiptAside: '这联我接了。补来的附在原来的后面，两张各留自己的日期。',
+  },
+};
+
 export const COMPACT_EXTRA_CASES = [
   {
     id: 21, batch: 'G-221', npc: 'xu', title: '贴好封箱条的手套',

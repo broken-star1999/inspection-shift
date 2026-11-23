@@ -1524,6 +1524,12 @@
   cursor: pointer;
 }
 .receipt-batch:is(:hover, :focus-visible) { background: #fff0cc; }
+.binary-receipt-surface .receipt-batch {
+  margin-block-start: 0;
+  background: transparent;
+  text-decoration: none;
+  cursor: default;
+}
 .receipt-surface .receipt-disposition {
   margin: .46rem 0 0;
   padding: .26rem .44rem;

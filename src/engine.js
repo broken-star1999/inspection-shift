@@ -1,4 +1,4 @@
-import { COMPACT_CASE_OVERRIDES, COMPACT_DAY_COPY, COMPACT_EXTRA_CASES, COMPACT_NIGHT_RECORD, COMPACT_TUTORIAL, DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
+import { BINARY_CASE_OVERRIDES, BINARY_DAY_COPY, COMPACT_CASE_OVERRIDES, COMPACT_DAY_COPY, COMPACT_EXTRA_CASES, COMPACT_NIGHT_RECORD, COMPACT_TUTORIAL, DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
 import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
 import { normalizeFindings } from './inspection-findings.js';
 import { sampleFinding } from './samples.js';
@@ -58,11 +58,12 @@ function seededChoice(seed, salt, size) {
   return ((hash ^ (hash >>> 16)) >>> 0) % size;
 }
 
-export function createRun(seed, { schedule = 2 } = {}) {
+export function createRun(seed, { schedule = 2, binaryVerdicts = false } = {}) {
   const runSeed = makeSeed(seed);
   return {
     version: 1,
     schedule,
+    ...(binaryVerdicts === true && { binaryVerdicts: true }),
     sampleSet: 3,
     phase: 'brief',
     day: 0,
@@ -135,31 +136,35 @@ export function restoreRun(state) {
       records = updateRecord(records, supplement.id, { status: 'shipped' });
     }
   }
-  const restored = records === state.records ? state : { ...state, records };
-  if (state.schedule === COMPACT_SCHEDULE && (state.phone || state.incomingCalls?.length || state.ringbackArmed)) {
-    return { ...restored, phone: null, incomingCalls: [], ringbackArmed: false };
+  let restored = records === state.records ? state : { ...state, records };
+  if (!legacyPhoneAvailable(state) && (state.phone || state.incomingCalls?.length || state.ringbackArmed)) {
+    restored = { ...restored, phone: null, incomingCalls: [], ringbackArmed: false };
   }
-  return restored;
+  return state.binaryVerdicts && state.phase !== 'ending' ? restoreBinaryVisits(restored) : restored;
 }
 
 export function getDay(state) {
   const day = DAYS[state.day];
+  const copy = state.binaryVerdicts ? BINARY_DAY_COPY[state.day] : null;
   if (day && state.schedule === COMPACT_SCHEDULE) {
     const cases = getCompactCaseIds(state.seed, state.day).map((id) => caseDefinition(state, id));
-    return { ...day, ...COMPACT_DAY_COPY[state.day], cases };
+    return { ...day, ...COMPACT_DAY_COPY[state.day], ...copy, cases };
   }
   const options = ARRIVAL_ORDERS[state.day];
   const permitsShuffle = state.schedule === 2 || (state.schedule === 1 && state.day < 4);
-  if (!options || !permitsShuffle) return day ?? null;
+  if (!options || !permitsShuffle) {
+    return day && state.binaryVerdicts ? { ...day, ...copy, cases: day.cases.map(({ id }) => caseDefinition(state, id)) } : day ?? null;
+  }
   const order = options[seededChoice(state.seed, 120 + state.day, options.length)];
   const prioritized = state.day === 2 && getWindowSupplementRequest(state) ? [9, ...order.filter((id) => id !== 9)] : order;
-  return { ...day, cases: prioritized.map((id) => CASE_BY_ID.get(id)) };
+  return { ...day, ...copy, cases: prioritized.map((id) => caseDefinition(state, id)) };
 }
 
-function caseDefinition(state, id) {
+function caseDefinition(state, id, binary = state.binaryVerdicts) {
   const base = CASE_BY_ID.get(id);
   const override = state.schedule === COMPACT_SCHEDULE ? COMPACT_CASE_OVERRIDES[id] : null;
-  return override ? { ...base, ...override } : base;
+  const binaryOverride = binary ? BINARY_CASE_OVERRIDES[id] : null;
+  return override || binaryOverride ? { ...base, ...override, ...binaryOverride } : base;
 }
 
 function variantIndex(state, item) {
@@ -286,8 +291,9 @@ export function archive(state, query = '') {
   const waitingForArrival = state.phase === 'case' && activeVisits(state).length
     ? getDay(state)?.cases[state.index]?.id : null;
   return state.seen.map((id) => {
-    const item = getVariant(state, caseDefinition(state, id));
     const record = withPriorShipment(state.records, getRecord(state, id) ?? null);
+    const binary = record ? record.binaryVerdicts === true : state.binaryVerdicts;
+    const item = getVariant(state, caseDefinition(state, id, binary));
     const latestReceipt = record ? withPriorShipment(state.records, findEffectiveSuccessor(state.records, record)) : null;
     return { ...item, day: record?.day ?? state.day, record, latestReceipt, previousReceipt: getPreviousReceipt(state, item) };
   }).filter((item) => {
@@ -337,7 +343,7 @@ function isVisitQueued(state, key) {
 }
 
 export function nightRegisterForReceipt(state) {
-  if (state?.phase !== 'receipt' || state.schedule === COMPACT_SCHEDULE) return null;
+  if (state?.phase !== 'receipt' || !legacyPhoneAvailable(state)) return null;
   const record = state.records.at(-1);
   const item = getCase(state);
   if (record?.id !== 11 || item?.id !== record.id) return null;
@@ -392,26 +398,44 @@ function acknowledgeVisit(state) {
   return !events.length && accepted.phase === 'case' ? startCase(accepted, accepted.index) : accepted;
 }
 
+function restoreBinaryVisits(state) {
+  const active = activeVisits(state);
+  let restored = state;
+  if (active.length || state.pending.length) {
+    const events = active.filter(({ kind }) => ['rework', 'acceptance', 'exception'].includes(kind));
+    restored = { ...state, event: events[0] ?? null, events, pending: [] };
+    while (activeVisits(restored).length) restored = acknowledgeVisit(restored);
+  }
+  const caseId = restored.phase === 'case' ? getDay(restored)?.cases[restored.index]?.id : null;
+  return caseId && !restored.seen.includes(caseId) ? startCase(restored, restored.index) : restored;
+}
+
 function startCase(state, index) {
   const id = getDay(state)?.cases[index]?.id;
   if (!id) return state;
-  const arrived = { ...state, phase: 'case', index };
+  let arrived = { ...state, phase: 'case', index };
   if (activeVisits(arrived).length || arrived.seen.includes(id)) return arrived;
   if (id === 20 && !arrived.exceptionReceipt && !arrived.acceptanceReceipt) {
     const exception = chooseShipmentException(arrived);
     const acceptance = exception ? null : chooseShipmentAcceptance(arrived);
     const paperwork = exception ? shipmentException(arrived.day, exception) : acceptance && shipmentAcceptance(arrived, acceptance, arrived.day);
     if (paperwork) {
-      const { key, caseId, title, line } = paperwork;
-      const visit = { kind: exception ? 'exception' : 'acceptance', key, caseId, npc: 'zhou', title, line };
-      return { ...arrived, event: visit, events: [visit] };
+      const kind = exception ? 'exception' : 'acceptance';
+      const { key, caseId, day, title, line } = paperwork;
+      if (arrived.binaryVerdicts) arrived = { ...arrived, [`${kind}Receipt`]: { caseId, day } };
+      else {
+        const visit = { kind, key, caseId, npc: 'zhou', title, line };
+        return { ...arrived, event: visit, events: [visit] };
+      }
     }
   }
   return { ...arrived, seen: [...arrived.seen, id] };
 }
 
 function startDay(state) {
-  const opening = state.day === 1 && getReworkFollowup(state) ? queueVisit(state, REWORK_KEY) : state;
+  const rework = state.day === 1 && getReworkFollowup(state);
+  let opening = state;
+  if (rework) opening = state.binaryVerdicts ? setFlags(state, { [`${rework.key}Document`]: true }) : queueVisit(state, REWORK_KEY);
   return startCase(deliverVisits(opening), 0);
 }
 
@@ -634,13 +658,14 @@ function currentSupplementProof(state, item, decision) {
 
 function stamp(state, action) {
   const item = getCase(state);
-  const { value } = action;
-  if (!item || !DECISIONS.includes(value)) return state;
+  if (!item || !DECISIONS.includes(action.value) || (state.binaryVerdicts && action.value === 'review')) return state;
+  const value = state.binaryVerdicts && action.value === 'fail' && item.answer === 'review' ? 'review' : action.value;
   const findings = normalizeFindings(action.findings);
   const previous = previousSameLot(state.records, item);
   const supplementRequest = currentSupplementProof(state, item, value);
   const record = {
     id: item.id,
+    ...(state.binaryVerdicts && { binaryVerdicts: true }),
     batch: item.batch,
     day: state.day,
     npc: item.npc,
@@ -668,7 +693,7 @@ function amendedDisposition(records, record, decision) {
 }
 
 export function canRecheckReceipt(state, id) {
-  if (state?.phase !== 'receipt' || !Number.isInteger(id) || activeVisits(state).length) return false;
+  if (state?.phase !== 'receipt' || state.binaryVerdicts || !Number.isInteger(id) || activeVisits(state).length) return false;
   const record = state.records.at(-1);
   return record?.id === id && record.day === state.day && getDay(state)?.cases[state.index]?.id === id;
 }
@@ -736,7 +761,7 @@ function isIncomingKey(key) {
 }
 
 function labRequest(state, caseId) {
-  if (state.schedule === COMPACT_SCHEDULE) return null;
+  if (!legacyPhoneAvailable(state)) return null;
   return state.phoneLog.find((call) => call?.kind === 'lab-request' && call.caseId === caseId);
 }
 
@@ -769,8 +794,12 @@ function incomingQueue(state) {
   return Array.isArray(state?.incomingCalls) ? state.incomingCalls : [];
 }
 
+function legacyPhoneAvailable(state) {
+  return state && state.schedule !== COMPACT_SCHEDULE && !state.binaryVerdicts;
+}
+
 export function getIncomingCall(state) {
-  if (state?.phase === 'ending' || state?.schedule === COMPACT_SCHEDULE) return null;
+  if (state?.phase === 'ending' || !legacyPhoneAvailable(state)) return null;
   return incomingQueue(state).find(isIncomingKey) ?? null;
 }
 
@@ -852,7 +881,7 @@ function traceInquirySources(state) {
 }
 
 export function canFileTraceOriginal(state) {
-  return ['case', 'receipt', 'summary', 'handoff'].includes(state?.phase) && !state.flags.traceDocument &&
+  return ['case', 'receipt', 'summary', 'handoff'].includes(state?.phase) && !state.binaryVerdicts && !state.flags.traceDocument &&
     !isVisitQueued(state, 'trace') && traceInquirySources(state).length === 2;
 }
 
@@ -963,7 +992,7 @@ function dial(state, action) {
 
 function explore(state, key) {
   const item = getCase(state);
-  if (state.schedule !== COMPACT_SCHEDULE) {
+  if (legacyPhoneAvailable(state)) {
     if (key === 'r071-241' && state.seen.includes(7)) return setFlags(state, { source241: true });
     if (key === 'r071-248' && state.seen.includes(14)) return setFlags(state, { source248: true });
     if (key === 'g211' && state.seen.includes(11)) return setFlags(state, { source211: true });
@@ -990,12 +1019,13 @@ function nextCase(state) {
   const next = deliverVisits(state.shownFinding || state.supplementRequestDraft
     ? { ...state, shownFinding: null, supplementRequestDraft: null } : state);
   if (state.index + 1 < getDay(state).cases.length) return startCase(next, state.index + 1);
-  if (state.day === DAYS.length - 1) return { ...next, phase: 'handoff' };
+  if (state.day === DAYS.length - 1) return state.binaryVerdicts ? finish(next) : { ...next, phase: 'handoff' };
   const summary = { ...next, phase: 'summary', records: ship(next) };
-  return state.day === 1 && state.schedule !== COMPACT_SCHEDULE ? queueIncomingCall(summary, 'lab-close') : summary;
+  return state.day === 1 && legacyPhoneAvailable(state) ? queueIncomingCall(summary, 'lab-close') : summary;
 }
 
 export function getTraceHandoffReview(state) {
+  if (state.binaryVerdicts) return null;
   const record = getRecord(state, TRACE_CASE_ID);
   if (!record || !['shipping', 'shipped'].includes(record.status) || record.decision === 'review' || findVerifiedReceipt(state.records, record)) return null;
   return { id: record.id, value: 'review', findings: [TRACE_FINDING], status: amendedDisposition(state.records, record, 'review') };
@@ -1034,9 +1064,9 @@ export function dispatch(state, action) {
     case 'file-trace-original':
       return canFileTraceOriginal(state) ? setFlags(state, { traceDocument: true }) : state;
     case 'dial':
-      return state.schedule === COMPACT_SCHEDULE ? state : dial(state, action);
+      return legacyPhoneAvailable(state) ? dial(state, action) : state;
     case 'hang-up':
-      return state.schedule === COMPACT_SCHEDULE ? state : hangUp(state);
+      return legacyPhoneAvailable(state) ? hangUp(state) : state;
     case 'answer-call':
       return answerCall(state);
     case 'explore':
@@ -1044,11 +1074,11 @@ export function dispatch(state, action) {
     case 'recheck-receipt':
       return canRecheckReceipt(state, action.id) ? recheck(state, action, true) : state;
     case 'recheck':
-      return state.phase === 'handoff' ? recheck(state, action) : state;
+      return state.phase === 'handoff' && !state.binaryVerdicts ? recheck(state, action) : state;
     case 'receive-recall':
-      return receiveRecall(state, action);
+      return state.binaryVerdicts ? state : receiveRecall(state, action);
     case 'attach':
-      return state.phase === 'handoff' ? attach(state, action) : state;
+      return state.phase === 'handoff' && !state.binaryVerdicts ? attach(state, action) : state;
     case 'finish':
       return state.phase === 'handoff' && !waitingForVisit ? finish(state) : state;
     default:
@@ -1074,6 +1104,7 @@ const cargoLocation = {
 
 export function getIntegrityTrail(state) {
   if (state.schedule !== COMPACT_SCHEDULE) return [];
+  const verdicts = state.binaryVerdicts ? { pass: '通过', fail: '不通过', review: '不通过' } : paperVerdict;
   const pairs = [[11, 13, '换签单'], [10, 14, '耐冲击报告'], [17, null, '落签箱']];
   return pairs.flatMap(([firstId, laterId, subject]) => {
     const first = getRecord(state, firstId);
@@ -1082,8 +1113,8 @@ export function getIntegrityTrail(state) {
     const handed = decisionAsHanded(first);
     const firstDate = DAYS[first.day].title;
     const original = first.original ?? handed;
-    const initial = [`${firstDate}首章${paperVerdict[original]}`];
-    if (handed !== original) initial.push(`出单前改为${paperVerdict[handed]}`);
+    const initial = [`${firstDate}首章${verdicts[original]}`];
+    if (handed !== original) initial.push(`出单前改为${verdicts[handed]}`);
     const departed = Number.isInteger(first.shippedDay);
     if (later && departed) initial.push(`${DAYS[first.shippedDay].title}已出库`);
 
@@ -1126,18 +1157,18 @@ export function getEnding(state) {
     held: 'G-241 已留厂隔离，安排补检。',
     returned: 'G-241 已退回，退件记录随本次交接留存。',
   };
-  const counts = { pass: 0, fail: 0, review: 0 };
+  const counts = state.binaryVerdicts ? { pass: 0, fail: 0 } : { pass: 0, fail: 0, review: 0 };
   const delayedByBatch = new Map();
   for (const record of state.records) {
     const receipt = withPriorShipment(state.records, record);
     const { id, batch, decision, answer, status } = receipt;
-    counts[decision] += 1;
+    counts[state.binaryVerdicts && decision === 'review' ? 'fail' : decision] += 1;
     const latestReceipt = findEffectiveSuccessor(state.records, receipt);
     if (latestReceipt) continue;
     if (receiptDisposition(receipt) === 'held') heldReceipts.push(receipt);
     if ((decision === 'pass' || status === 'recallPending') && answer !== 'pass') issues.push(receipt);
     if (status === 'recallPending') pendingRecalls.push(receipt);
-    if (status === 'recalled' && receipt.recallReceipt && id !== traceReceipt?.id) confirmedRecalls.push(receipt);
+    if (status === 'recalled' && receipt.recallReceipt && (state.binaryVerdicts || id !== traceReceipt?.id)) confirmedRecalls.push(receipt);
     const stillWithheld = status === 'held' || status === 'returned' || status === 'recalled';
     const justifiedTraceHold = id === traceReceipt?.id;
     const original = isSupplementOnly(receipt) ? getRecord(state, receipt.priorShipmentId) : null;
@@ -1159,7 +1190,7 @@ export function getEnding(state) {
       ? HANDOFF.escaped.stamp : '出货待查';
     return { id: 'issue', ...HANDOFF.escaped, line, stamp, detail, ...shared };
   }
-  if (state.flags.traceAttached) {
+  if (state.flags.traceAttached && !state.binaryVerdicts) {
     return { id: 'trace', ...HANDOFF.investigation, detail: traceDetail, ...shared };
   }
   const heldBatches = [...new Set(heldReceipts.map(({ batch }) => batch))];

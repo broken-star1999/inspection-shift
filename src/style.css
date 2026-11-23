@@ -544,6 +544,7 @@ button:disabled { opacity: .46; }
   min-block-size: 0;
   gap: clamp(.22rem, .65cqh, .58rem);
 }
+.stamp-buttons[data-binary-verdicts] { grid-template-rows: repeat(2, minmax(0, 1fr)); }
 
 .stamp {
   --stamp-bg: #e4c485;
@@ -919,7 +920,6 @@ button:disabled { opacity: .46; }
 
 .modal.completed-shifts-modal { inline-size: min(31rem, 92%); }
 .completed-shifts-modal .modal-body { padding: .66rem .82rem .8rem; }
-.history-collection { margin: 0 0 .52rem; color: #d9c69d; font: 680 .79rem / 1.35 var(--mono); }
 .completed-shifts { display: grid; gap: .42rem; margin: 0; padding: 0; list-style: none; }
 .completed-shift {
   display: flex;

@@ -1,4 +1,4 @@
-import { createRun, createFollowingRun, restoreRun, validRunSave, dispatch, getCase, getDay, getEnding, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getTraceHandoffReview, getTutorialStep, archive, archivedReportSources, canFileTraceOriginal, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, runEvidence, COMPACT_SCHEDULE, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { createRun, createFollowingRun, restoreRun, validRunSave, dispatch, getCase, getDay, getEnding, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getTraceHandoffReview, getTutorialStep, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, runEvidence, COMPACT_SCHEDULE, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
 import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { mountSampleImage, retrySampleImage, updateSampleImage } from './sample-images.js';
@@ -161,9 +161,7 @@ function placeFixtures() {
   const sampleBottom = sample ? `${(sample.y + sample.h).toFixed(1)}px` : '';
   const stampControls = fixtureLayout.stampControls;
   root.toggleAttribute('data-compact-stamps', Boolean(stampControls));
-  const stampRadius = stampControls && Math.min(24, Math.max(1, (Math.min(
-    stampControls.fail.x - stampControls.pass.x, stampControls.review.x - stampControls.fail.x,
-  ) - 1) / 2));
+  const stampRadius = stampControls && Math.min(24, Math.max(1, (Math.abs(stampControls.fail.x - stampControls.pass.x) - 1) / 2));
   for (const element of fixtureElements) {
     const fixture = element.dataset.fixture;
     const rect = fixture === 'findings' ? fixtureLayout.findings ?? fixtureLayout.pass : fixtureLayout[fixture];
@@ -557,7 +555,7 @@ function toolsAvailableBetweenBatches() {
 function waitingRegister() {
   if (arrival?.action !== 'next' || !arrival.hasVisitor || arrival.stage !== 'waiting') return null;
   const paper = nightRegisterForReceipt(run);
-  if (!paper?.available) return null;
+  if (!paper?.available || run.binaryVerdicts) return null;
   const held = panel === 'archive' && archivePaper?.id === paper.id && archivePaper.index === paper.index;
   return { ...paper, held };
 }
@@ -610,7 +608,7 @@ function filedWindowSupplement() {
 }
 
 function filedBatchPapers() {
-  const trace = run.flags.traceDocument
+  const trace = !run.binaryVerdicts && run.flags.traceDocument
     ? { caseId: TRACE_CASE_ID, key: 'trace', document: { ...EVIDENCE.trace, kind: 'trace' } } : null;
   const recalls = run.records.filter((record) => record.recallReceipt).map((record) => ({
     caseId: record.id, key: `recall:${record.id}`, document: recallPaper(record, record.recallReceipt.day),
@@ -656,11 +654,13 @@ function legacyCallPapers() {
 
 function filedSupportingPapers(query, batchPapers = filedBatchPapers()) {
   const term = query.trim().toLowerCase();
+  const historicalPapers = run.binaryVerdicts ? [] : Object.entries(runEvidence(run)).filter(([key]) =>
+    run.flags[`${key}Document`] && !batchPapers.some((paper) => paper.key === key));
   const visits = [
-    ...Object.entries(runEvidence(run)).filter(([key]) => run.flags[`${key}Document`] && !batchPapers.some((paper) => paper.key === key)),
+    ...historicalPapers,
     ...batchPapers.map(({ key, document }) => [key, document]),
   ];
-  return [...visits, ...legacyCallPapers()].filter(([, doc]) =>
+  return (run.binaryVerdicts ? visits : [...visits, ...legacyCallPapers()]).filter(([, doc]) =>
     !term || [doc.title, ...doc.fields.flat(), doc.note].some((text) => text?.toLowerCase().includes(term)));
 }
 
@@ -873,7 +873,7 @@ function renderArrivalStatus() {
     : someoneWaiting ? '窗口有人等候'
     : arrival?.stage === 'approach' ? '窗口递件…'
     : arrival?.action?.type === 'receive-recall' ? '等收货方回执…'
-    : arrival?.action === 'next' && !arrival.hasVisitor ? (arrival.nextPhase === 'handoff' ? '去交班…' : '本班收工…')
+    : arrival?.action === 'next' && !arrival.hasVisitor ? (['handoff', 'ending'].includes(arrival.nextPhase) ? '去交班…' : '本班收工…')
     : firstBreak ? '等下一批 · 可翻交接簿'
     : arrival ? '等下一批…' : '';
   root.toggleAttribute('data-receipt-handover', handingReceipt);
@@ -956,16 +956,17 @@ function showDeskDialogue(surface) {
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const { compare, inspection, archiveFocus, archiveQuery, egg } = interaction;
+  const binaryVerdicts = run?.binaryVerdicts ?? true;
   const correction = activeCorrection();
   const correctionFindings = correction ? selectedCorrectionFindings(correction, correctionDraft.keys) : null;
   const batchPapers = panel === 'archive' || panel === 'handoff' ? filedBatchPapers() : [];
   const supportingBasis = correction && filedCorrectionBasis(correction);
-  const work = { ...interaction, returningWeek: run?.sampleSet === 4, supplementRequest: run?.supplementRequestDraft };
+  const work = { ...interaction, binaryVerdicts, returningWeek: run?.sampleSet === 4, supplementRequest: run?.supplementRequestDraft };
   let markup = '';
   if (isWelcomePanel()) {
-    markup = view.welcome(panel === 'welcome-project' ? 'project' : 'play');
+    markup = view.welcome(panel === 'welcome-project' ? 'project' : 'play', { binaryVerdicts });
   }
-  if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how');
+  if (panel === 'how' || panel === 'rules') markup = view.instructions(panel === 'how', { binaryVerdicts });
   if (panel === 'visit' && !arrival) {
     const visit = activeVisit();
     const doc = visitDocument(visit);
@@ -987,12 +988,11 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     })
       : reportIndex && sources.length
       ? view.archiveReportPanel(reportIndex, sources, {
-        returnTo, historyLabel, fromInquiry: archiveFocus === TRACE_INQUIRY_KEY,
-        canFileTrace: reportIndex === 'R-071' && canFileTraceOriginal(run),
+        returnTo, historyLabel, binaryVerdicts, fromInquiry: archiveFocus === TRACE_INQUIRY_KEY,
       })
       : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
-        returnTo, historyLabel,
+        returnTo, historyLabel, binaryVerdicts,
         unresolvedIssue: finished && getEnding(run).issues.some(({ id }) => id === archiveFocus),
         windowCorrection: !arrival && canRecheckReceipt(run, archiveFocus),
         reportSuggestion: !correction && sources.length > 1 ? sources[0].number : null,
@@ -1018,6 +1018,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       const { title, counts } = getEnding(completed);
       return {
         id, title, counts, completedAt: completed.completedAt,
+        binaryVerdicts: completed.binaryVerdicts,
         label: weekLabel(completedShifts.size - index), lastOpened: id === historyNavigation?.lastOpened,
       };
     });
@@ -1032,6 +1033,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
       supplementKey: supplement?.caseId === record.id ? supplement.key : null,
       canCorrect: canRecheckReceipt(run, record.id),
       autoHandover: !receiptHeld,
+      binaryVerdicts,
     });
   }
 
@@ -1266,40 +1268,36 @@ function enter(restore) {
   receiptPrintTimer = 0;
   cancelReceiptHandover();
   receiptHeld = false;
+  correctionDraft = null;
   presentedEvidence = null;
   let workspace;
   let arrivalAction;
   let resumeApproach = false;
-  let savedCorrection;
-  let savedBoard;
   let lookup;
   let resumeWaitingTools = false;
   let visitorWaiting = false;
   if (restore && saved) {
-    const { inspectionProgress, arrivalAction: savedArrival, arrivalStage: savedStage, arrivalReady, correctionDraft: draft,
-      handoffWorkspace: board, handoffPair: pair, reportWorkspace: savedLookup, receiptHeld: held, ...savedRun } = saved;
+    const { inspectionProgress, arrivalAction: savedArrival, arrivalStage: savedStage, arrivalReady,
+      correctionDraft: _correctionDraft, handoffWorkspace: _handoffWorkspace, handoffPair: _handoffPair,
+      reportWorkspace: savedLookup, receiptHeld: _receiptHeld, ...savedRun } = saved;
     arrivalAction = savedArrival;
-    receiptHeld = savedRun.phase === 'receipt' && held === true && !arrivalAction;
     resumeApproach = savedStage === 'approach';
-    savedCorrection = draft;
-    run = restoreRun(savedRun);
-    const boardState = board ?? (pair ? { ...pair, comparing: true } : null);
-    if (boardState && run.phase === 'handoff') savedBoard = handoffWorkspace(run, boardState, filedBatchPapers());
+    run = restoreRun(savedRun.phase === 'ending' ? savedRun : { ...savedRun, binaryVerdicts: true });
+    if (run.phase === 'handoff') update({ type: 'finish' }, false);
     const storedWorkspace = inspectionProgress?.workspace;
     const restoredWorkspace = storedWorkspace?.panel === 'phone' ? storedWorkspace.returnTo : storedWorkspace;
     const restored = restoreInspectionProgress({ ...inspectionProgress, workspace: restoredWorkspace }, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
     const betweenBatches = savedArrival === 'next' && run.phase === 'receipt' && Boolean(needsArrival(windowAdvance(savedArrival)));
-    const handoffArchive = Boolean(savedBoard && savedLookup?.archiveReturn?.panel === 'handoff');
     const savedArchive = savedLookup?.panel === 'phone' ? savedLookup.phoneReturn : savedLookup;
     if (savedArchive?.panel === 'archive') {
-      lookup = reportWorkspace(run, { ...savedArchive, caseId: savedLookup.caseId }, reportWorkspaceContext(betweenBatches, handoffArchive));
+      lookup = reportWorkspace(run, { ...savedArchive, caseId: savedLookup.caseId }, reportWorkspaceContext(betweenBatches));
     }
     resumeWaitingTools = betweenBatches && Boolean(lookup);
     visitorWaiting = resumeWaitingTools && arrivalReady === true;
   } else {
     const lastCompleted = saved?.phase === 'ending' ? saved : completedShifts.values().next().value;
-    const schedule = { schedule: COMPACT_SCHEDULE };
+    const schedule = { schedule: COMPACT_SCHEDULE, binaryVerdicts: true };
     const newWeek = endings.length ? createFollowingRun(lastCompleted, undefined, schedule) : createRun(undefined, schedule);
     run = { ...newWeek, weekId: createWeekId() };
     interaction = freshInteraction();
@@ -1323,12 +1321,7 @@ function enter(restore) {
   handoffFocus = null;
   handoffDocument = null;
   handoffPairOpen = false;
-  correctionDraft = restoreCorrectionDraft(savedCorrection);
-  if (correctionDraft && run.phase === 'receipt') receiptHeld = true;
   const next = windowAdvance(arrivalAction);
-  const visit = activeVisit();
-  const recallId = visit?.kind === 'recall' ? visit.caseId : windowAction(arrivalAction)?.id;
-  if (Number.isInteger(recallId)) recallPairReturn = pairForRecall(savedBoard, recallId);
   if (needsArrival(next)) {
     if (!resumeWaitingTools) panel = null;
     pauseBeforeArrival(arrivalAction, next, true, {
@@ -1341,30 +1334,6 @@ function enter(restore) {
   if (arrivalAction === 'next' && next) {
     panel = null;
     finishWindowAdvance(arrivalAction, true);
-    return;
-  }
-  if (restoreHandoffWorkspace(savedBoard, lookup?.archiveReturn?.panel === 'handoff' ? lookup : null)) return;
-  if (correctionDraft && !activeVisit()) {
-    panel = correctionDraft.fromBoard ? 'handoff' : 'archive';
-    modalOpener = { act: panel };
-    if (correctionDraft.fromBoard) {
-      handoffFocus = correctionDraft.id;
-      handoffDocument = correctionDraft.documentIndex;
-    } else {
-      focusArchiveRow(correctionDraft.id);
-      if (run.phase === 'receipt') {
-        archiveReturn = {
-          panel: 'receipt', opener: { act: 'edit-receipt', i: String(correctionDraft.id) },
-          scrollTop: correctionDraft.receiptScrollTop,
-        };
-      }
-    }
-    playSound('paper');
-    render(correctionDraft.scrollTop);
-    if (panel === 'handoff') {
-      revealHandoffSelection();
-      focusHandoffCitation();
-    }
     return;
   }
   const resumeSound = { docs: 'paper', sample: 'slide', carton: 'slide' }[panel];
@@ -1514,7 +1483,7 @@ function finishWindowAdvance(value, restoreFocus) {
   const action = windowAction(value);
   const visit = action?.type === 'ack-visit' ? activeVisit() : null;
   if (!action || !update(action, false)) return;
-  if (action.type === 'next' && ['summary', 'handoff'].includes(run.phase)) playSound('bell');
+  if (action.type === 'next' && ['summary', 'handoff', 'ending'].includes(run.phase)) playSound('bell');
   if (visit) {
     interaction.archiveFocus = visit.key;
     interaction.archiveQuery = '';
@@ -1786,24 +1755,6 @@ function selectedCorrectionFindings(row, keys = []) {
   if (supporting) available.push(supporting.finding);
   const byKey = new Map(available.map((finding) => [finding.key, finding]));
   return [...new Set(keys)].flatMap((key) => byKey.has(key) ? [byKey.get(key)] : []);
-}
-
-function restoreCorrectionDraft(draft) {
-  const row = correctableRow(draft?.id);
-  if (!row) return null;
-  const keys = selectedCorrectionFindings(row, Array.isArray(draft.keys) ? draft.keys : []).map(({ key }) => key);
-  const fromBoard = draft.fromBoard === true;
-  const legacyBoardDraft = fromBoard && draft.documentIndex === undefined;
-  const lastPaper = keys.findLast((key) => key.startsWith('doc:'));
-  const documentIndex = legacyBoardDraft ? Number(lastPaper?.split(':')[1] ?? 0) : draft.documentIndex;
-  return {
-    id: row.id,
-    keys,
-    fromBoard,
-    documentIndex: fromBoard && hasHandoffDocument(row, documentIndex, filedBatchPapers()) ? documentIndex : null,
-    scrollTop: !legacyBoardDraft && Number.isFinite(draft.scrollTop) ? Math.max(0, draft.scrollTop) : 0,
-    ...(run.phase === 'receipt' && Number.isFinite(draft.receiptScrollTop) ? { receiptScrollTop: Math.max(0, draft.receiptScrollTop) } : {}),
-  };
 }
 
 function captureCorrectionScroll() {
@@ -2428,7 +2379,7 @@ root.addEventListener('click', (event) => {
   if (target === toolClickTarget && pointerClick) return;
   const { act, key } = target.dataset;
   const index = Number(target.dataset.i);
-  if (target.closest('.receipt-surface') && act !== 'next') receiptHeld = true;
+  if (!run?.binaryVerdicts && target.closest('.receipt-surface') && act !== 'next') receiptHeld = true;
   if (act.startsWith('sample-')) { checkSample(act); return; }
   switch (act) {
     case 'carton': case 'carton-turn': case 'carton-note': checkCarton(act, target); break;
@@ -2583,17 +2534,6 @@ root.addEventListener('click', (event) => {
     case 'archive': if (run) openArchive(target); break;
     case 'report-search': openReportIndex(key, target); break;
     case 'report-index-paper': openArchivePaper(index, Number(target.dataset.doc)); break;
-    case 'file-trace-original':
-      if (panel === 'archive' && !archivePaper && reportIndex === key && key === 'R-071' &&
-          update({ type: 'file-trace-original' }, false)) {
-        focusArchiveRow('trace');
-        interaction.archiveQuery = '';
-        playSound('paper');
-        toast('实验室原件已收入交接簿');
-        render(0);
-        revealArchiveReceipt(true);
-      }
-      break;
     case 'report-index-back':
       if (panel === 'archive' && reportIndex) {
         const fromInquiry = interaction.archiveFocus === TRACE_INQUIRY_KEY;
@@ -2834,7 +2774,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && panel) { event.preventDefault(); closePanel(); }
   const editable = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'));
   if (!run || editable || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (!event.repeat && ['1', '2', '3'].includes(event.key)) stamp(['pass', 'fail', 'review'][Number(event.key) - 1]);
+  if (!event.repeat && ['1', '2'].includes(event.key)) stamp(event.key === '1' ? 'pass' : 'fail');
 });
 
 modalLayer.addEventListener('pointerdown', (event) => {

@@ -8,6 +8,7 @@ export const BOOTH_METRICS = {
 
 const halfPi = Math.PI / 2;
 const deskY = BOOTH_METRICS.deskTop;
+const stampKeys = ['pass', 'fail'];
 
 function finishTexture(kind) {
   const size = 128;
@@ -56,8 +57,8 @@ function workshopMaterials() {
     binder: mat('#623630', .93, 0, paint), binderLight: mat('#865141', .94, 0, grain),
     work: mat('#73806b', .86, .15), tray: mat('#3d4a3c', .89), trayFelt: mat('#69715b', .99, 0, felt),
     machine: mat('#3d4e43', .69, .27), machineEdge: mat('#697b66', .68, .18),
-    pass: mat('#718d57', .64, .09), fail: mat('#9c5948', .65, .09), review: mat('#b68a45', .66, .11),
-    verdictEnamel: { pass: mat('#304637', .72, .04), fail: mat('#513930', .72, .04), review: mat('#54432a', .72, .04) },
+    pass: mat('#718d57', .64, .09), fail: mat('#9c5948', .65, .09), holdInk: mat('#b68a45', .66, .11),
+    verdictEnamel: { pass: mat('#304637', .72, .04), fail: mat('#513930', .72, .04) },
     stampMark: mat('#efe0ae', .77), graphite: mat('#3a322c', .89),
     pencil: mat('#dba939', .75), eraser: mat('#bb745e', .93),
     cargoTop: mat('#b38753', .97, 0, paint), cargoSide: mat('#94663b', .96, 0, paint),
@@ -401,41 +402,38 @@ function stampMark(parent, m, key, y) {
   if (key === 'pass') {
     markStroke(parent, m.stampMark, -.103, -.006, -.034, .069, .032, y);
     markStroke(parent, m.stampMark, -.037, .068, .109, -.087, .031, y);
-  } else if (key === 'fail') {
+  } else {
     markStroke(parent, m.stampMark, -.079, -.079, .079, .079, .031, y);
     markStroke(parent, m.stampMark, .079, -.079, -.079, .079, .031, y);
-  } else {
-    markStroke(parent, m.stampMark, -.082, -.052, .082, -.052, .027, y);
-    markStroke(parent, m.stampMark, -.082, .051, .082, .051, .027, y);
   }
 }
 
 function makeCompactStampDeck(machine, m) {
   const deck = place(machine, new THREE.Group(), .76, 0, 0);
-  rounded(deck, [m.seam, m.rail], 1.72, .245, .795, .78, .144, .015, .076, .027);
-  rounded(deck, [m.machine, m.rail], 3.24, .394, .742, 0, .406, -.04, .101, .034);
+  rounded(deck, [m.seam, m.rail], 1.56, .245, .795, .56, .144, .015, .076, .027);
+  rounded(deck, [m.machine, m.rail], 2.64, .394, .742, 0, .406, -.04, .101, .034);
   const face = place(deck, new THREE.Group(), 0, .894, .14);
   face.rotation.x = -.22;
-  rounded(face, [m.machine, m.machineEdge], 3.34, .664, .487, 0, -.127, -.237, .083, .034);
-  rounded(face, m.rail, 3.251, .575, .039, 0, -.127, .016, .064, .017);
-  rounded(face, m.bronze, 3.14, .023, .032, 0, .161, .044, .010, .004);
-  for (const x of [-1.589, 1.589]) fastener(face, m.screw, x, -.334, .056, .029);
+  rounded(face, [m.machine, m.machineEdge], 2.74, .664, .487, 0, -.127, -.237, .083, .034);
+  rounded(face, m.rail, 2.651, .575, .039, 0, -.127, .016, .064, .017);
+  rounded(face, m.bronze, 2.54, .023, .032, 0, .161, .044, .010, .004);
+  for (const x of [-1.289, 1.289]) fastener(face, m.screw, x, -.334, .056, .029);
 
   const controls = {};
   const caps = {};
-  for (const [index, key] of ['pass', 'fail', 'review'].entries()) {
-    const station = place(face, new THREE.Group(), (index - 1) * 1.18, 0, 0);
-    rounded(station, [m.black, m.machineEdge], .721, .292, .062, 0, .026, .052, .058, .012);
+  for (const [index, key] of stampKeys.entries()) {
+    const station = place(face, new THREE.Group(), (index - .5) * 1.34, 0, 0);
+    rounded(station, [m.black, m.machineEdge], .835, .292, .062, 0, .026, .052, .058, .012);
     const cap = place(station, new THREE.Group(), 0, .033, .094);
     caps[key] = cap;
-    rounded(cap, [m[key], m.seam], .621, .212, .096, 0, 0, 0, .047, .017);
-    rounded(cap, m[key], .546, .161, .018, 0, .008, .058, .039, .007);
+    rounded(cap, [m[key], m.seam], .735, .212, .096, 0, 0, 0, .047, .017);
+    rounded(cap, m[key], .66, .161, .018, 0, .008, .058, .039, .007);
     const glyph = place(cap, new THREE.Group(), 0, .008, .073);
     glyph.rotation.x = halfPi;
     stampMark(glyph, m, key, .007);
 
-    rounded(station, [m.machine, m.machineEdge], .977, .256, .039, 0, -.225, .051, .024, .009);
-    rounded(station, m.verdictEnamel[key], .937, .214, .013, 0, -.225, .075, .020, .004);
+    rounded(station, [m.machine, m.machineEdge], 1.089, .256, .039, 0, -.225, .051, .024, .009);
+    rounded(station, m.verdictEnamel[key], 1.049, .214, .013, 0, -.225, .075, .020, .004);
     controls[key] = {
       station,
       center: place(station, new THREE.Group(), 0, 0, .075),
@@ -462,14 +460,14 @@ function makeStampMachine(parent, m, anchors, caps) {
     fastener(machine, m.screw, x, .127, .508, .041);
   }
 
-  for (const [index, key] of ['pass', 'fail', 'review'].entries()) {
-    const anchor = place(desktopDeck, new THREE.Group(), (index - 1) * .597, 0, .004);
+  for (const [index, key] of stampKeys.entries()) {
+    const anchor = place(desktopDeck, new THREE.Group(), (index - .5) * .96, 0, .004);
     anchors[key] = anchor;
-    flat(anchor, [m.black, m.screw], .487, .488, .07, 0, .300, 0, .067, .018);
+    flat(anchor, [m.black, m.screw], .621, .488, .07, 0, .300, 0, .067, .018);
     const cap = place(anchor, new THREE.Group(), 0, .367, 0);
     caps[key] = cap;
-    flat(cap, [m[key], m.rail], .401, .399, .102, 0, 0, 0, .066, .021);
-    flat(cap, m[key], .332, .315, .022, 0, .066, -.007, .054, .011);
+    flat(cap, [m[key], m.rail], .535, .399, .102, 0, 0, 0, .066, .021);
+    flat(cap, m[key], .466, .315, .022, 0, .066, -.007, .054, .011);
     stampMark(cap, m, key, .092);
   }
 
@@ -484,7 +482,7 @@ function makeStampMachine(parent, m, anchors, caps) {
   imprint.rotateZ(.13);
   paper.visible = false;
   return {
-    outgoingSlip: { paper, pickup, imprint, inks: { pass: m.pass, fail: m.fail, review: m.review } },
+    outgoingSlip: { paper, pickup, imprint, inks: { pass: m.pass, fail: m.fail, held: m.holdInk } },
     stampDecks: { desktop: desktopDeck, compact },
   };
 }

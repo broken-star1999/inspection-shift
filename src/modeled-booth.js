@@ -23,7 +23,7 @@ const cargoDestinations = {
   returned: { x: -3.96, z: -.060, angle: -.042 },
   held: { x: -2.11, z: -.015, angle: -.034 },
 };
-const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'review', supplementHeld: 'review', review: 'review' };
+const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'held', supplementHeld: 'held', review: 'held' };
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
 const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, handedReceipt: null, presentedEvidence: null };
 
@@ -713,9 +713,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
   const cat = makeFactoryCat(shadowTexture);
   scene.add(cat.root);
   const stampBounds = new THREE.Box3();
-  for (const key of ['pass', 'fail', 'review']) {
-    if (staticBounds[key]) stampBounds.union(staticBounds[key]);
-  }
+  for (const key of Object.keys(models.caps)) stampBounds.union(staticBounds[key]);
   function addFixtureShadow(bounds) {
     const size = bounds.getSize(new THREE.Vector3());
     const center = bounds.getCenter(new THREE.Vector3());

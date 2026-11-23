@@ -33,6 +33,19 @@ function dispositionLabel(record) {
   return statuses[receiptDisposition(record)] ?? '待登记';
 }
 
+function verdictLabel(decision, binary) {
+  return labels[binary && decision === 'review' ? 'fail' : decision];
+}
+
+function printedVerdict(record, binary) {
+  const verdict = verdictLabel(record.decision, binary);
+  return binary && ['held', 'supplementHeld'].includes(receiptDisposition(record)) ? `${verdict} · 留厂待查` : verdict;
+}
+
+function verdictCounts(counts, binary) {
+  return binary ? { pass: counts.pass, fail: counts.fail + (counts.review ?? 0) } : counts;
+}
+
 export function button(text, action, variant = 'secondary', attributes = '') {
   return `<button class="button ${variant}" data-act="${action}" ${attributes}>${text}</button>`;
 }
@@ -78,7 +91,7 @@ export function home(save, endings, completedCount = 0) {
   else if (save) actions = button(`继续值班 <small>${DAYS[save.day].title}</small>`, 'resume', 'primary') + button('重新接班', 'new');
   const history = completedCount > 0
     ? button(`<b>交班记录</b><span>${completedCount} 份</span>`, 'completed-shifts', 'home-history')
-    : endings.length ? `<span>已见结局 ${endings.length}／3</span>` : '<span>五个工作日</span>';
+    : endings.length && !save?.binaryVerdicts ? `<span>已见结局 ${endings.length}／3</span>` : '<span>五个工作日</span>';
   return `<section class="home-screen"><div class="home-art" aria-hidden="true"></div><div class="home-body">
     <div class="title-paper"><div class="eyebrow">南渡防护用品厂 · 代班通知</div><h1>质检员<br><em>的一天</em></h1>
       <p class="title-description">在出货窗口替五天班。<br>看样，对单，然后签你的名字。</p>
@@ -87,16 +100,16 @@ export function home(save, endings, completedCount = 0) {
     <footer class="home-footer"><div class="home-footer-left"><span>出货交接室</span>${button('项目介绍', 'welcome-project', 'home-project')}</div>${history}</footer></section>`;
 }
 
-export function completedShifts(entries, endingCount) {
-  const rows = entries.map(({ id, title, label, counts, completedAt, lastOpened }) => {
+export function completedShifts(entries) {
+  const rows = entries.map(({ id, title, label, counts, completedAt, lastOpened, binaryVerdicts }) => {
     const time = new Date(completedAt);
     const filed = Number.isFinite(time.getTime()) ? `<time datetime="${time.toISOString()}">${esc(completedDate.format(time))}</time>` : '';
-    const result = Object.entries(counts).map(([stamp, count]) => `${labels[stamp]} ${count}`).join(' · ');
+    const result = Object.entries(verdictCounts(counts, binaryVerdicts)).map(([stamp, count]) => `${labels[stamp]} ${count}`).join(' · ');
     return `<li><button type="button" class="completed-shift" data-act="review-shift" data-key="${esc(id)}"${lastOpened ? ' data-last-opened' : ''}>
       <span><b>${esc(title)}</b><small>${esc(label)}${filed ? ` · ${filed}` : ''}</small></span>
       <span class="completed-shift-results">${esc(result)}</span><span class="completed-shift-arrow" aria-hidden="true">›</span></button></li>`;
   });
-  return `<p class="history-collection">已见结局 ${endingCount}／3</p><ul class="completed-shifts">${rows.join('')}</ul>`;
+  return `<ul class="completed-shifts">${rows.join('')}</ul>`;
 }
 
 export function wallShift(run) {
@@ -105,11 +118,11 @@ export function wallShift(run) {
     <div class="batch-progress" aria-label="当班来件 ${run.index + 1} / ${day.cases.length}">${day.cases.map((_, index) => `<span class="${index <= run.index ? 'done' : ''}"></span>`).join('')}</div></div>`;
 }
 
-function priorReceipt({ record, sameLot }) {
+function priorReceipt({ record, sameLot }, binaryVerdicts) {
   const day = DAYS[record.day];
   const title = sameLot ? '查看上次回执' : '查看原批回执';
   return `<button type="button" class="prior-receipt" data-act="archive-receipt" data-i="${esc(record.id)}">
-    <b>${title}</b><span>${esc(day?.title)} · ${esc(labels[record.decision])} · ${esc(dispositionLabel(record))}</span>${sameLot ? '' : '<small>留厂返工件单独核对</small>'}
+    <b>${title}</b><span>${esc(day?.title)} · ${esc(verdictLabel(record.decision, binaryVerdicts))} · ${esc(dispositionLabel(record))}</span>${sameLot ? '' : '<small>留厂返工件单独核对</small>'}
   </button>`;
 }
 
@@ -144,7 +157,7 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCu
   const reply = run.phase === 'case' && !sceneEvent ? item?.findingReply : null;
   const exchange = pressure && !sceneEvent && !record;
   const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? reply ?? item?.line ?? day.intro;
-  const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous) : '';
+  const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous, run.binaryVerdicts) : '';
   const training = tutorial && !sceneEvent
     ? `<div class="training" aria-live="polite"><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>`
     : (filmCue || filmStampCue) && !sceneEvent ? `<div class="training" id="film-bench-cue" aria-live="polite"><small>老周</small><p>${esc(filmStampCue ? FILM_STAMP_TUTORIAL : FILM_BENCH_TUTORIAL)}</p></div>` : '';
@@ -179,15 +192,16 @@ export function visitSlip(doc, visit, lifted = false) {
     <h3>${label}</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
 }
 
-function stampButtons(instructed, disabled = false, action = 'stamp', currentVerdict = null, projected = action === 'stamp') {
-  return Object.entries(labels).map(([key, value]) => {
+function stampButtons(instructed, disabled = false, action = 'stamp', currentVerdict = null, projected = action === 'stamp', binary = false) {
+  const decisions = binary ? ['pass', 'fail'] : Object.keys(labels);
+  return decisions.map((key) => {
     const guide = instructed && key === 'pass';
-    return `<button class="stamp ${key}${cls('instructed', guide)}" data-act="${action}" data-key="${key}"${guide ? ' data-guide-target="stamp-pass"' : ''}${projected ? ` data-fixture="${key}"` : ''}${disabled || key === currentVerdict ? ' disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${value}</b></button>`;
+    return `<button class="stamp ${key}${cls('instructed', guide)}" data-act="${action}" data-key="${key}"${guide ? ' data-guide-target="stamp-pass"' : ''}${projected ? ` data-fixture="${key}"` : ''}${disabled || key === currentVerdict ? ' disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${labels[key]}</b></button>`;
   }).join('');
 }
 
-function workStampMachine(instructed = false) {
-  return `<div class="work-stamp-machine" role="group" aria-label="开单机"><span aria-hidden="true">开单机</span>${stampButtons(instructed, false, 'stamp', null, false)}</div>`;
+function workStampMachine(instructed = false, binary = false) {
+  return `<div class="work-stamp-machine" role="group" aria-label="开单机"><span aria-hidden="true">开单机</span>${stampButtons(instructed, false, 'stamp', null, false, binary)}</div>`;
 }
 
 const sampleRatios = { vented: 508 / 318, compact: 508 / 284, shield: 357 / 363, clip: 496 / 218, glove: 282 / 363, earmuff: 396 / 363 };
@@ -229,13 +243,14 @@ function sampleHotspot(action, className, text, label, pressed = null, guideTarg
 export function desk(run, item, tutorial, interaction) {
   if (!item) return '';
   const { note, positions, pencil, inspection, heldDocuments = [], sampleHeld, stampBlocked, benchFindingsOpen, filmCue, filmChecked } = interaction;
+  const binary = run.binaryVerdicts === true;
   const appearance = sampleAppearance(item.sample);
   const sampleBack = inspection.back && (item.sample.kind !== 'yellow' || inspection.unpacked);
   const issued = run.phase === 'receipt';
   const target = tutorial?.target;
   const sampleGuide = target === 'sample' || filmCue;
   const stampGuide = tutorial?.key === 'stamp' || filmGuidePhase(item, { returningWeek: run.sampleSet === 4, filmChecked }) === 'stamp';
-  const findings = readFindings(interaction);
+  const findings = binary ? [] : readFindings(interaction);
   const viewer = findings.some((finding) => canShowFinding(item, finding)) ? item : null;
   const shown = item.shownFinding;
   const supplement = item.id === 5 ? run.supplementRequestDraft : null;
@@ -247,10 +262,10 @@ export function desk(run, item, tutorial, interaction) {
     ? '<button type="button" class="carton-fixture" data-act="carton" data-fixture="carton" aria-label="拿近外箱"><span>看外箱</span></button>' : '';
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, target, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${carton}
-      ${pencil ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
+      ${pencil && !binary ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
     <section class="sample-work"><button class="sample-preview${cls('instructed', sampleGuide)}" data-act="sample" data-fixture="sample"${sampleGuide ? ' data-guide-target="desk-sample"' : ''}${sampleHeld ? ' data-lifted' : ''} aria-label="拿起检样，${appearance.name}"${filmCue ? ' aria-describedby="film-bench-cue"' : ''}${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
-    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${item.carton ? '申报 ' : ''}${esc(item.batch)}</span></div><div class="stamp-buttons">${stampButtons(stampGuide, stampBlocked || run.phase !== 'case')}<span class="booth-print-slot" aria-hidden="true"><i></i></span></div>
-      ${benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
+    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${item.carton ? '申报 ' : ''}${esc(item.batch)}</span></div><div class="stamp-buttons"${binary ? ' data-binary-verdicts' : ''}>${stampButtons(stampGuide, stampBlocked || run.phase !== 'case', 'stamp', null, true, binary)}<span class="booth-print-slot" aria-hidden="true"><i></i></span></div>
+      ${binary || benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
 
 function endingReceipt(record, detail, { section = '', evidence } = {}) {
@@ -268,11 +283,11 @@ function endingRecallGroup(records, kind, title, detail) {
     ${records.map((record) => `<li>${endingReceipt(record, detail, { evidence: kind === 'confirmed' ? `recall:${record.id}` : null })}</li>`).join('')}</ul></section>`;
 }
 
-function endingView(ending, historyLabel) {
+function endingView(ending, historyLabel, binary = false) {
   const { delayedReceipts = [], heldReceipts = [], traceReceipt, traceFiled, traceDisposition, pendingRecalls = [], confirmedRecalls = [], acceptedReceipt } = ending;
   const pendingText = '已申请召回 · 尚未回签';
   const pendingIds = new Set(pendingRecalls.map(({ id }) => id));
-  const traceBatch = traceReceipt ?? traceFiled?.record;
+  const traceBatch = binary ? null : traceReceipt ?? traceFiled?.record;
   const inIssueOrTrace = new Set([...ending.issues.map(({ id }) => id), traceBatch?.id]);
   const pending = pendingRecalls.filter(({ id }) => !inIssueOrTrace.has(id));
   const confirmed = confirmedRecalls.filter(({ id }) => !inIssueOrTrace.has(id) && !pendingIds.has(id));
@@ -290,7 +305,7 @@ function endingView(ending, historyLabel) {
       return `<li>${endingReceipt(record, `${action} · ${reason}`, { evidence })}</li>`;
     }).join('')}</ul>`;
   }
-  const traceText = traceReceipt ? traceDisposition.replace(`${traceReceipt.batch} `, '')
+  const traceText = binary ? '' : traceReceipt ? traceDisposition.replace(`${traceReceipt.batch} `, '')
     : traceBatch ? `${traceFiled.cited ? '已引用实验室原件' : '实验室原件已归档'} · ${dispositionLabel(traceBatch)}` : traceDisposition;
   const trace = traceBatch ? `<div class="ending-trace">${endingReceipt(traceBatch, traceText, {
     evidence: traceBatch.status === 'recalled' && traceBatch.recallReceipt ? `recall:${traceBatch.id}` : null,
@@ -308,7 +323,7 @@ function endingView(ending, historyLabel) {
       ${endingRecallGroup(confirmed, 'confirmed', '召回确认', '已收下收货方回执')}
       ${delayed.length ? `<details class="ending-delay"><summary><b>仍未放行</b> ${delayed.length} 批来件已符合放行要求</summary>
         <ul class="ending-receipts">${delayed.map((record) => `<li>${endingReceipt(record, dispositionLabel(record), { section: 'delayed' })}</li>`).join('')}</ul></details>` : ''}
-      <div class="ending-counts">${Object.entries(ending.counts).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
+      <div class="ending-counts">${Object.entries(verdictCounts(ending.counts, binary)).map(([key, count]) => `<span><b>${count}</b>${labels[key]}</span>`).join('')}</div><div class="ending-stamp">${esc(ending.stamp ?? '交班已存档')}</div>
     </div>
     <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(historyLabel ? '返回首页' : '返回窗口', 'home')}${historyLabel ? button('返回交班记录', 'history-index', 'primary') : button('再接一周', 'new', 'primary')}</footer>
   </section></div>`;
@@ -345,7 +360,7 @@ export function overlay(run, ending, historyLabel = '') {
       <header class="summary-head"><h2 id="shift-close-title">收班单</h2><small>${day.title} · 质检窗口</small></header>
       <div class="summary-body"><ul class="summary-list">${records.map((record) => {
         const batch = esc(record.batch);
-        const decision = esc(labels[record.decision]);
+        const decision = esc(verdictLabel(record.decision, run.binaryVerdicts));
         const destination = esc(dispositionLabel(record));
         return `<li><button type="button" class="summary-record" data-act="archive-receipt" data-i="${esc(record.id)}" aria-label="查看 ${batch} 回执，${decision}，${destination}"><b>${batch}</b><span>${decision} · ${destination}</span></button></li>`;
       }).join('')}</ul>${day.outro ? `<p class="shift-close-note">${esc(day.outro)}</p>` : ''}</div>
@@ -358,9 +373,9 @@ export function overlay(run, ending, historyLabel = '') {
     const line = needsReview ? `老周「收货方给 ${exception.record.batch} 补来一张复核联。夹在原批旁边了，你看一眼再交班。」`
       : '老周「最后一趟车先等你。核对完这些单，再把板给我。」';
     const open = needsReview ? button('核对到货复核联', 'handoff', 'primary', 'data-key="exception"') : button('打开交接板', 'handoff', 'primary');
-    return `<div class="stage-overlay"><section class="brief-card handoff-card"><header><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2></header><div class="handoff-body">${integrityTrail(getIntegrityTrail(run))}<p>${esc(line)}</p></div><div class="brief-actions">${button('核对与更正', 'archive')}${open}</div></section></div>`;
+    return `<div class="stage-overlay"><section class="brief-card handoff-card"><header><div class="eyebrow">周五 · 交接板</div><h2>最后一张单</h2></header><div class="handoff-body">${integrityTrail(getIntegrityTrail(run))}<p>${esc(line)}</p></div><div class="brief-actions">${button(run.binaryVerdicts ? '翻交接簿' : '核对与更正', 'archive')}${open}</div></section></div>`;
   }
-  if (run.phase === 'ending') return endingView(ending, historyLabel);
+  if (run.phase === 'ending') return endingView(ending, historyLabel, run.binaryVerdicts);
   return '';
 }
 
@@ -368,16 +383,16 @@ export function dialog(title, body, type = '', footer = '', { closeText = '×', 
   return `<div class="modal-shade" data-act="shade"><section class="modal ${type}" role="dialog" aria-modal="true" aria-labelledby="panel-title"><header class="modal-head"><h2 id="panel-title">${esc(title)}</h2><button class="modal-close${cls(closeClass, closeClass)}" data-act="close" aria-label="${esc(closeLabel)}">${esc(closeText)}</button></header><div class="modal-body">${body}</div>${footer}</section></div>`;
 }
 
-export function welcome(page) {
+export function welcome(page, { binaryVerdicts = true } = {}) {
   const play = page === 'play';
   const body = play ? `<div class="welcome-sheet welcome-play-page" data-welcome-page="play">
     <p class="welcome-lead">先看箱签、送检联和报告，再拿起检样。前两批跟着箭头学怎么查。</p>
     <dl class="welcome-verdicts">
       <div><dt>通过</dt><dd>实物合格，有效报告对应本批，并覆盖送检要求。</dd></div>
-      <div><dt>不通过</dt><dd>实物有明确缺陷，或查明确实不符合订单要求。</dd></div>
-      <div><dt>要求审查</dt><dd>材料没交齐、对不上或没验齐，先留厂待查。</dd></div>
+      ${binaryVerdicts ? '<div><dt>不通过</dt><dd>实物不合格，或者材料缺失、对不上或没验齐。材料待核的货留厂待查。</dd></div>'
+        : '<div><dt>不通过</dt><dd>实物有明确缺陷，或查明确实不符合订单要求。</dd></div><div><dt>要求审查</dt><dd>材料没交齐、对不上或没验齐，先留厂待查。</dd></div>'}
     </dl>
-    <p class="welcome-note">开单后回执会自动递出。想细看或更正，点「留看回执」。</p>
+    <p class="welcome-note">开单后回执会自动递出。${binaryVerdicts ? '' : '想细看或更正，点「留看回执」。'}</p>
   </div>` : `<div class="welcome-sheet welcome-project-page" data-welcome-page="project">
     <p class="welcome-kicker">2026年工学院廉洁文化节 · 智造清风·廉铸匠心</p>
     <h3 class="welcome-heading">质检员的一天</h3>
@@ -397,7 +412,11 @@ function deskSurface(title, body, type, closeText, page, { headerActions = '', f
     <div class="desk-surface-content">${body}</div>${footer ? `<div class="desk-surface-footer">${footer}</div>` : ''}</section>`;
 }
 
-export function instructions(how) {
+export function instructions(how, { binaryVerdicts = false } = {}) {
+  if (binaryVerdicts) return dialog(how ? '接班说明' : '桌边查验卡', `<div class="rule-sheet">
+    <p>核对箱签、报告和送检联，再拿起检样。</p>
+    <ol><li><b>通过</b>　样品合格，报告有效、对应本批，并覆盖送检要求。</li><li><b>不通过</b>　实物不合格或材料待核。实物问题退回，材料待核留在黄线内。</li></ol>
+    ${how ? '<p>开单后回执会自动递出。电脑也可按 1 通过、2 不通过。</p>' : ''}</div>`, 'rules-modal');
   return dialog(how ? '接班说明' : '桌边查验卡', `<div class="rule-sheet"><p>先认箱签，按送检联核对收到的报告。看批号、签发和检验项目，再按实际品类查镜片、罩壳、手套接缝或插片。</p>
     <ol><li><b>通过</b>　样品合格，有效报告能对应这批，并覆盖送检要求。</li><li><b>不通过</b>　实物确有裂纹、划伤、扣件问题或已查明的错型、超差。</li><li><b>要求审查</b>　报告没交、对不上或没验齐，先隔离，等对方补证或安排复检。</li></ol>
     <p>缺报告时看清送检联上的随货要求。需要核对旧件时，可在交接簿查批号或报告号。</p>
@@ -600,22 +619,23 @@ function returnTabs(documents, action, selected, label) {
     button(esc(title), action, 'tab', `data-i="${index}"${active(index === selected)}`)).join('')}</nav>`;
 }
 
-function returnComparison(item, index, previous, previousIndex, activeSheet) {
+function returnComparison(item, index, previous, previousIndex, activeSheet, binary) {
   const day = DAYS[item.day]?.title;
   const { record, documents, sameLot } = previous;
   return `<div class="return-comparison">
     <section class="return-current"><div class="return-source"><b>${sameLot ? '本次来件' : '留厂件'}</b><small>${esc(day)}</small></div>
       ${returnTabs(item.documents, 'doc', index, '切换本次单据')}${activeSheet(item.documents[index], index)}</section>
     <section class="return-previous" data-previous-doc="${previousIndex}"><div class="return-source"><b>${sameLot ? '前次留底' : '原批留底'}</b><small>${esc(DAYS[record.day]?.title)}</small>
-      <span class="return-disposition">${esc(labels[record.decision])} · ${esc(dispositionLabel(record))}</span></div>
-      ${returnTabs(documents, 'previous-doc', previousIndex, '切换留底单据')}${sheet(documents[previousIndex], previousIndex, null, { reportLookup: true })}</section>
+      <span class="return-disposition">${esc(verdictLabel(record.decision, binary))} · ${esc(dispositionLabel(record))}</span></div>
+      ${returnTabs(documents, 'previous-doc', previousIndex, '切换留底单据')}${sheet(documents[previousIndex], previousIndex, null, { reportLookup: !binary })}</section>
   </div>`;
 }
 
 export function documents(item, index, compare, tutorial, progress, previous) {
+  const binary = progress.binaryVerdicts === true;
   const filmPhase = filmGuidePhase(item, progress);
   const stampGuide = tutorial?.key === 'stamp' || filmPhase === 'stamp';
-  const footer = workStampMachine(stampGuide);
+  const footer = workStampMachine(stampGuide, binary);
   if (tutorial || filmPhase === 'inspect') {
     const guide = tutorialGuide(stampGuide ? tutorial.line : DOCUMENT_TUTORIAL);
     const inspection = { guided: true, batch: true, signature: true, projects: true, selected: new Set() };
@@ -627,14 +647,14 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   }
   const doc = item.documents[index];
   if (!doc) return '';
-  const clipboardIndex = EASTER_EGGS.cat.documents[item.id];
+  const clipboardIndex = binary ? undefined : EASTER_EGGS.cat.documents[item.id];
   if (clipboardIndex !== undefined && progress.clipboardBack) {
     return deskSurface('工艺夹板背面', clipboardBack(item.id), 'documents-surface', '放回台面', 'clipboard-back', { footer });
   }
-  const extras = item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
+  const extras = !binary && item.id === 16 ? button('翻登记本后页', 'egg', 'secondary', 'data-key="umbrella"') : '';
   const other = item.documents[compare];
-  const findings = readFindings(progress);
-  const inspection = { selected: new Set(findings.map(({ key }) => key)) };
+  const findings = binary ? [] : readFindings(progress);
+  const inspection = binary ? null : { selected: new Set(findings.map(({ key }) => key)) };
   const draft = findingsDraft(findings, progress.showFindings, item, progress.supplementRequest);
   const sampleAction = button('拿起检样', 'sample', 'reference-control', filmPhase ? 'data-guide-target="docs-sample"' : '');
   const canCompare = previous?.documents?.length;
@@ -647,7 +667,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const spreading = !comparing && progress.spreadAll === true;
   const spreadAction = canSpread && !spreading ? button('摊开全部', 'compare-all', 'reference-control') : '';
   const visible = spreading ? item.documents.map((_, position) => position) : [index, compare];
-  const relabel = !comparing && relabelComparison(item, progress.relabelCheck);
+  const relabel = !binary && !comparing && relabelComparison(item, progress.relabelCheck);
   const headerActions = draft.header + previousAction + spreadAction + sampleAction;
   const canMeasure = !comparing && item.sample.reading;
   const thickness = canMeasure && thicknessComparison(item, progress.inspection, findings);
@@ -655,8 +675,8 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     let fieldActions;
     let valueActions;
     if (!comparing) {
-      if (page.type === 'order') ({ fieldActions, valueActions } = orderFieldActions(item, position, visible, inspection.selected));
-      const register = relabelComparison(item, position);
+      if (!binary && page.type === 'order') ({ fieldActions, valueActions } = orderFieldActions(item, position, visible, inspection.selected));
+      const register = !binary && relabelComparison(item, position);
       if (register) ({ fieldActions, valueActions } = relabelFieldActions(item, register, visible, inspection.selected));
       if (item.carton && ['label', 'order'].includes(page.type)) {
         const codeField = page.fields.find(([field]) => field === '箱底喷码')?.[0];
@@ -672,10 +692,10 @@ export function documents(item, index, compare, tutorial, progress, previous) {
         `data-key="thickness" data-i="${position}"`));
     }
     return sheet(page, position, inspection, { clipboardFront: position === clipboardIndex,
-      reportLookup: true, lookupBelow: spreading, fieldActions, valueActions, canFocus: Boolean(!comparing && (spreading || other)) });
+      reportLookup: !binary, lookupBelow: spreading, fieldActions, valueActions, canFocus: Boolean(!comparing && (spreading || other)) });
   };
   const intakeIndex = progress.deliveryCheck;
-  const intake = intakeComparison(item, intakeIndex);
+  const intake = !binary && intakeComparison(item, intakeIndex);
   if (intake) {
     const closeIntake = button('收起点收条', 'delivery-check', 'secondary intake-close', `data-i="${intakeIndex}"${active(true)}`);
     return deskSurface('桌面单据', `${draft.list}<div class="doc-grid pair intake-comparison">${sheet(item.documents[intakeIndex], intakeIndex, inspection)}
@@ -689,7 +709,7 @@ export function documents(item, index, compare, tutorial, progress, previous) {
       <div class="relabel-register">${sheet(register, relabel.registerIndex, inspection)}${extras ? `<div class="modal-actions">${extras}</div>` : ''}</div></div>`,
     'documents-surface', '放回台面', `relabel:${relabel.registerIndex}`, { headerActions: collapse + draft.header, footer });
   }
-  if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, activeSheet)}`,
+  if (comparing) return deskSurface('桌面单据', `${draft.list}${returnComparison(item, index, previous, previousIndex, activeSheet, binary)}`,
     'documents-surface', '放回台面', `${index}:previous:${previousIndex}`, { headerActions, footer });
   if (spreading) return deskSurface('桌面单据', `${draft.list}<div class="doc-grid spread${cls('pair', item.documents.length === 2)}">${item.documents.map(activeSheet).join('')}</div>${extras ? `<div class="modal-actions">${extras}</div>` : ''}`,
     'documents-surface', '放回台面', 'spread', { headerActions, footer });
@@ -705,28 +725,29 @@ export function documents(item, index, compare, tutorial, progress, previous) {
     ${extras ? `<div class="modal-actions">${extras}</div>` : ''}`, 'documents-surface', '放回台面', `${index}:${compare ?? ''}`, { headerActions, footer });
 }
 
-function thicknessSlip(comparison, recorded, measured, readingRecorded) {
+function thicknessSlip(comparison, recorded, measured, readingRecorded, canRecord) {
   const fields = comparison.rows.map(({ title, field, value }, index) => {
-    const reading = index === 0 && measured && !recorded;
+    const reading = canRecord && index === 0 && measured && !recorded;
     const result = reading ? button(esc(value), 'sample-basis', 'thickness-reading',
       `aria-label="只记下实测 ${esc(value)}"${active(readingRecorded)}`) : esc(value);
     return `<div class="sample-comparison-field thickness-field"><dt>${esc(title)} <small>${index === 0 && !measured ? '实测记录' : esc(field)}</small></dt><dd>${result}</dd></div>`;
   }).join('');
   return `<section id="thickness-comparison" class="sample-comparison thickness-comparison" aria-label="厚度对照"><dl>${fields}</dl>
-    ${button(recorded ? '取回对照' : '记下三项对照', 'sample-thickness-basis', 'secondary thickness-basis', active(recorded))}</section>`;
+    ${canRecord ? button(recorded ? '取回对照' : '记下三项对照', 'sample-thickness-basis', 'secondary thickness-basis', active(recorded)) : ''}</section>`;
 }
 
-function modelSlip(comparison, findings) {
+function modelSlip(comparison, findings, canRecord) {
   const [engraving, order] = comparison.rows;
   const recorded = findings.some(({ key }) => key === comparison.finding.key);
   return `<section class="sample-comparison model-comparison" aria-label="型号对照"><dl>
     <div class="sample-comparison-field"><dt>${esc(engraving.field)}</dt><dd>${esc(engraving.value)}</dd></div>
     <div class="sample-comparison-field"><dt>${esc(order.field)} <small>${esc(order.title)}</small></dt><dd>${esc(order.value)}</dd></div>
-    </dl>${button(recorded ? '取回对照' : '记下对照', 'sample-model-basis', 'secondary',
-      `${active(recorded)} aria-label="${recorded ? '取回' : '记下'}型号对照"`)}</section>`;
+    </dl>${canRecord ? button(recorded ? '取回对照' : '记下对照', 'sample-model-basis', 'secondary',
+      `${active(recorded)} aria-label="${recorded ? '取回' : '记下'}型号对照"`) : ''}</section>`;
 }
 
 export function sample(item, inspection, tutorial, progress) {
+  const binary = progress?.binaryVerdicts === true;
   const { film, clasp, tug, measured, unpacked } = inspection;
   const spec = item.sample;
   const kind = spec.kind;
@@ -748,7 +769,7 @@ export function sample(item, inspection, tutorial, progress) {
   else if (filmHint) guide = FILM_TUTORIAL;
   else if (filmPhase === 'stamp') guide = FILM_STAMP_TUTORIAL;
   const visual = sampleObservation(spec, { ...inspection, back });
-  const findings = readFindings(progress);
+  const findings = binary ? [] : readFindings(progress);
   const comparison = !tutorial && thicknessComparison(item, inspection, findings);
   const model = !tutorial && modelComparison(item, inspection);
   const thicknessOpen = Boolean(comparison && progress?.thicknessOpen);
@@ -759,11 +780,11 @@ export function sample(item, inspection, tutorial, progress) {
   const referenceIndex = progress?.referenceDoc;
   const reference = !tutorial && !thicknessOpen && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
   const leadField = spec.reading && gaugeFields[reference?.type];
-  const modelCard = model ? modelSlip(model, findings) : '';
+  const modelCard = model ? modelSlip(model, findings, !binary) : '';
   const referencePicker = reference ? `<aside class="sample-reference" data-reference-doc="${referenceIndex}">${modelCard}<nav class="doc-tabs reference-tabs" aria-label="对照单据">
     ${item.documents.map(({ title }, index) => button(esc(title), 'reference-doc', 'tab', `data-i="${index}"${active(index === referenceIndex)}`)).join('')}
-    </nav>${sheet(reference, referenceIndex, { selected: new Set(findings.map(({ key }) => key)) },
-      { reportLookup: true, leadField })}</aside>` : '';
+    </nav>${sheet(reference, referenceIndex, binary ? null : { selected: new Set(findings.map(({ key }) => key)) },
+      { reportLookup: !binary, leadField })}</aside>` : '';
   const canCompare = !tutorial && item.documents.length > 0;
   const hasMoldSketch = item.documents.some(({ kind }) => kind === 'mold-sketch');
   const compareLabel = hasMoldSketch ? '对照工艺图' : '对照单据';
@@ -785,7 +806,7 @@ export function sample(item, inspection, tutorial, progress) {
   const observation = sampleFinding(spec, inspection);
   const recorded = findings.some(({ key }) => key === observation.key);
   const result = inGauge ? (measured ? spec.reading : '—') : visual;
-  const canRecord = !tutorial && (!inGauge || measured) && !(measured && thicknessRecorded);
+  const canRecord = !binary && !tutorial && (!inGauge || measured) && !(measured && thicknessRecorded);
   const resultText = inGauge ? `<strong>${esc(result)}</strong>` : `<span>${esc(result)}</span>`;
   const observationLine = canRecord
     ? button(`${resultText}<small>${recorded ? '已记' : '记下'}</small>`, 'sample-basis', 'sample-basis-control',
@@ -805,22 +826,23 @@ export function sample(item, inspection, tutorial, progress) {
   const imageNotice = packaged || inGauge ? '' : `<div class="sample-image-notice" hidden><span role="status"></span>${button('重试加载', 'sample-image-retry', 'secondary', 'hidden disabled')}</div>`;
   const title = item.carton ? `${appearance.name} · 箱号待核` : `${item.batch} · ${appearance.name}`;
   const putDown = '放下检样';
-  const observed = thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured, recorded)
+  const observed = thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured, recorded, !binary)
     : model ? (reference ? '' : modelCard) : observationCard;
   return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}"${gaugeStyle}>
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${gaugeCue}${thicknessAction}</div>
     ${observed}</div>
     ${sampleActions ? `<div class="modal-actions">${sampleActions}</div>` : ''}</div>${referencePicker}</div>`, 'sample-surface', putDown, undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions,
-    closeLabel: putDown, footer: (besideStamps ? flipAction : '') + workStampMachine(stampReady || filmPhase === 'stamp'),
+    closeLabel: putDown, footer: (besideStamps ? flipAction : '') + workStampMachine(stampReady || filmPhase === 'stamp', binary),
   });
 }
 
 export function carton(item, progress) {
+  const binary = progress.binaryVerdicts === true;
   const bottom = progress.cartonBottom === true;
   const order = item.documents.find(({ type }) => type === 'order');
   const reference = order ? sheet({ ...order, fields: order.fields.filter(([field]) => ['批号', '箱底喷码'].includes(field)) }) : '';
-  const finding = cartonFinding(item, bottom);
+  const finding = !binary && cartonFinding(item, bottom);
   const selected = finding && readFindings(progress).some(({ key }) => key === finding.key);
   const turn = button(bottom ? '翻回正面' : '翻看箱底', 'carton-turn', 'secondary carton-turn');
   const registered = order?.fields.some(([field]) => field === '箱底喷码');
@@ -829,7 +851,7 @@ export function carton(item, progress) {
   const empty = bottom && !item.carton.code ? '<p class="carton-no-ink">箱底没有可辨喷码。</p>' : '';
   const body = `<div class="carton-workbench"><div class="carton-inspect-object">${cartonModel(bottom ? item.carton.code : null, bottom)}${empty}</div>${reference}</div>`;
   const close = progress.returnToDocs ? '回到单据' : '放下外箱';
-  return deskSurface('外箱查验', body, 'carton-surface', close, bottom ? 'bottom' : 'front', { footer: turn + note + workStampMachine(), closeLabel: close });
+  return deskSurface('外箱查验', body, 'carton-surface', close, bottom ? 'bottom' : 'front', { footer: turn + note + workStampMachine(false, binary), closeLabel: close });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {
@@ -864,7 +886,7 @@ function amendmentDisposition(record, count, decision, status) {
   return dispositionLabel({ ...record, status, decision, amendments: record.amendments.slice(0, count) });
 }
 
-function archivedReceipt(record, latestReceipt, previousReceipt, { receivedException, unresolvedIssue } = {}) {
+function archivedReceipt(record, latestReceipt, previousReceipt, { receivedException, unresolvedIssue, binaryVerdicts } = {}) {
   if (!record) return '';
   const changed = record.amendments?.length > 0;
   const latestAmendment = latestReceipt?.amendments?.at(-1);
@@ -873,18 +895,18 @@ function archivedReceipt(record, latestReceipt, previousReceipt, { receivedExcep
     ? `<dl class="receipt-facts receiving-facts" aria-label="到货复核联摘录"><div><dt>收货处置</dt><dd>${esc(SHIPMENT_EXCEPTION.result)}</dd></div><div><dt>复核记录</dt><dd>${esc(record.reason)}</dd></div></dl>`
     : unresolvedIssue ? `<dl class="receipt-facts receiving-facts"><div><dt>交班待查</dt><dd>${esc(record.reason)}</dd></div></dl>` : '';
   return `<article class="archive-receipt receipt-${record.decision}" aria-label="出票留底">
-    <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(labels[record.original])}` : ''}</small></div>
-      <span class="receipt-result">${esc(labels[record.decision])}</span></div>
-    ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', true, changed ? '原开单依据' : '开单依据')}
+    <div class="archive-receipt-head"><div><strong>出票留底</strong><small>${esc(DAYS[record.day]?.title ?? '')}开单${changed ? ` · ${esc(verdictLabel(record.original, binaryVerdicts))}` : ''}</small></div>
+      <span class="receipt-result">${esc(printedVerdict(record, binaryVerdicts))}</span></div>
+    ${receiptFacts(record, latestReceipt ? '前次去向' : '现去向', !binaryVerdicts, changed ? '原开单依据' : '开单依据')}
     ${followup}
     ${latestReceipt ? `<p class="archive-current-disposition">${esc(DAYS[latestAmendment?.day ?? latestReceipt.day]?.title)}${latestAmendment ? '更正' : '复核'}后，现去向为<strong>${esc(dispositionLabel(latestReceipt))}</strong>。</p>` : ''}
     ${previousReceipt && previousReceipt.record.id === record.priorShipmentId ? `<p class="archive-current-disposition">补验时原批已出库，原出货单开于<strong>${esc(DAYS[previousReceipt.record.day]?.title)}</strong>。</p>` : ''}
     ${record.supplementRequest && windowAmendment && windowAmendment.to !== 'review' ? '<p class="archive-current-disposition">补件登记随当场更正撤回。</p>' : ''}
     ${changed ? `<ol class="receipt-amendments" aria-label="更正记录">${record.amendments.map((entry, index) => `<li><b>${esc(DAYS[entry.day]?.title ?? '')}${entry.atWindow ? '当场更正' : '更正'}</b>
-      <span>${esc(labels[entry.from])} → ${esc(labels[entry.to])}</span><small>${esc(amendmentDisposition(record, index, entry.from, entry.previousStatus))} → ${esc(amendmentDisposition(record, index + 1, entry.to, entry.status))}</small>${amendmentFindings(entry)}${recallConfirmation(record.recallReceipt, index)}</li>`).join('')}</ol>` : ''}</article>`;
+      <span>${esc(verdictLabel(entry.from, binaryVerdicts))} → ${esc(verdictLabel(entry.to, binaryVerdicts))}</span><small>${esc(amendmentDisposition(record, index, entry.from, entry.previousStatus))} → ${esc(amendmentDisposition(record, index + 1, entry.to, entry.status))}</small>${amendmentFindings(entry)}${recallConfirmation(record.recallReceipt, index)}</li>`).join('')}</ol>` : ''}</article>`;
 }
 
-export function receipt(record, previous, nextPhase, { supplementKey, canCorrect, autoHandover } = {}) {
+export function receipt(record, previous, nextPhase, { supplementKey, canCorrect, autoHandover, binaryVerdicts = false } = {}) {
   const disposition = {
     shipping: '这批货等装车，回执交装货台。',
     shipped: '这批货已经出库，补签回执归入原批留底。',
@@ -895,6 +917,11 @@ export function receipt(record, previous, nextPhase, { supplementKey, canCorrect
     recallPending: '已发出召回申请，等收货方回签。',
     recalled: '已确认召回，下一班按留底复检。',
   }[receiptDisposition(record)];
+  const batch = record.id === 17 ? `申报 ${esc(record.batch)}` : esc(record.batch);
+  if (binaryVerdicts) {
+    const body = `<div class="receipt-slip receipt-${record.decision}"><b class="receipt-batch">${batch}</b><span class="receipt-result">${esc(printedVerdict(record, true))}</span>${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}</div>`;
+    return deskSurface('出货回执', body, 'receipt-surface binary-receipt-surface');
+  }
   const original = previous && previous.id === record.priorShipmentId
     ? button('原出货回执', 'archive-receipt', 'receipt-origin', `data-i="${esc(previous.id)}" aria-label="查看原出货回执 · ${esc(DAYS[previous.day]?.title)}"`)
     : '';
@@ -912,7 +939,6 @@ export function receipt(record, previous, nextPhase, { supplementKey, canCorrect
   const shownSeparately = currentSlip.shownFinding && !findings.some((finding) => sameFinding(finding, currentSlip.shownFinding));
   const findingCount = findings.length + (shownSeparately ? 1 : 0);
   const basis = findingCount ? button(`查看依据 <b>${findingCount} 条</b> <span aria-hidden="true">↓</span>`, 'receipt-basis', 'receipt-basis-link') : '';
-  const batch = record.id === 17 ? `申报 ${esc(record.batch)}` : esc(record.batch);
   const copy = `<button type="button" class="receipt-batch" data-act="archive-receipt" data-i="${esc(record.id)}" aria-label="查看 ${batch} 留底">${batch}</button>`;
   const autoStatus = autoHandover ? '<small class="receipt-auto-status" role="status">回执将自动递出</small>' : '';
   const body = `<div class="receipt-slip receipt-${record.decision}"><div class="eyebrow">成品抽检窗口 · 出票留底</div>${copy}<span class="receipt-result">${labels[record.decision]}</span>${change}${basis}${disposition ? `<p class="receipt-disposition">${disposition}</p>` : ''}${autoStatus}${receiptFacts(currentSlip, '去向', correctedHere || record.decision === 'review', correctedHere ? '更正依据' : '开单依据')}</div>`;
@@ -949,7 +975,7 @@ export function windowCorrection(row, findings, supportingBasis) {
   return deskSurface('当场更正', body, 'archive-surface window-correction-surface', '取消更正', String(row.id), { footer: correctionStamps(row) });
 }
 
-export function archivePanel(rows, visits, focus, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel, windowCorrection, unresolvedIssue } = {}) {
+export function archivePanel(rows, visits, focus, query, editing, handoff, finished = false, { returnTo, canComparePrevious, correctionFindings = [], batchPapers = [], supportingBasis, reportSuggestion, historyLabel, windowCorrection, unresolvedIssue, binaryVerdicts = false } = {}) {
   const row = rows.find(({ id }) => id === focus);
   const visit = visits.find(([key]) => key === focus)?.[1];
   const evidenceIndex = visits.length ? `<h3 class="archive-group-title">回访留底</h3>${visits.map(([key, doc]) =>
@@ -976,7 +1002,7 @@ export function archivePanel(rows, visits, focus, query, editing, handoff, finis
     const { latestReceipt, previousReceipt } = row;
     const papers = batchPapers.filter(({ caseId }) => caseId === row.id);
     const receivedException = papers.some(({ document }) => document.kind === 'exception');
-    const canAmend = !finished && (handoff || windowCorrection) && row.record && !latestReceipt;
+    const canAmend = !binaryVerdicts && !finished && (handoff || windowCorrection) && row.record && !latestReceipt;
     const correcting = Boolean(editing && canAmend);
     const findings = correcting ? readFindings({ findings: correctionFindings }) : [];
     const correction = correcting ? { action: 'correction-basis', selected: new Set(findings.map(({ key }) => key)) } : null;
@@ -993,11 +1019,11 @@ export function archivePanel(rows, visits, focus, query, editing, handoff, finis
     ].filter(Boolean).join('');
     details = `${actions ? `<div class="modal-actions archive-actions">${actions}</div>` : ''}
       ${correction ? correctionPanel(row.record, findings, correction.selected, supportingBasis) : ''}
-      ${archivedReceipt(row.record, latestReceipt, previousReceipt, { receivedException, unresolvedIssue })}<div class="doc-grid">${row.documents.map((doc, index) =>
-        sheet(doc, index, correction, { reportLookup: !editing })).join('')}</div>`;
+      ${archivedReceipt(row.record, latestReceipt, previousReceipt, { receivedException, unresolvedIssue, binaryVerdicts })}<div class="doc-grid">${row.documents.map((doc, index) =>
+        sheet(doc, index, correction, { reportLookup: !editing && !binaryVerdicts })).join('')}</div>`;
   }
   const navigation = { handoff: '回到交接板', receipt: '回到回执', ending: '回到交班存根' }[returnTo];
-  const suggestion = reportSuggestion && !editing ? button(`并排核对 ${esc(reportSuggestion)}`, 'report-search', 'secondary report-index-suggestion', `data-key="${esc(reportSuggestion)}"`) : '';
+  const suggestion = reportSuggestion && !editing && !binaryVerdicts ? button(`并排核对 ${esc(reportSuggestion)}`, 'report-search', 'secondary report-index-suggestion', `data-key="${esc(reportSuggestion)}"`) : '';
   const heading = historyLabel ? `交接簿 · ${historyLabel}` : '交接簿';
   return deskSurface(heading, `<div class="archive-layout"><div><form class="archive-search" data-form="archive"><label for="archive-query">查找批号或报告号</label><div><input id="archive-query" name="query" value="${esc(query)}" placeholder="输入编号"><button class="button secondary">查找</button></div></form>
     ${suggestion}<div class="drawer-list" aria-label="留档单据">${index || '<p>没有找到匹配的单据。</p>'}</div></div>
@@ -1005,10 +1031,10 @@ export function archivePanel(rows, visits, focus, query, editing, handoff, finis
     { footer, closeLabel: navigation || '关闭面板' });
 }
 
-export function archiveReportPanel(number, sources, { returnTo, historyLabel, fromInquiry, canFileTrace = false } = {}) {
+export function archiveReportPanel(number, sources, { returnTo, historyLabel, fromInquiry, canFileTrace = false, binaryVerdicts = false } = {}) {
   const closeText = { docs: '回到单据', sample: '回到检样', handoff: '回到交接板', receipt: '回到回执', ending: '回到交班存根' }[returnTo] ?? '合上簿子';
   const back = button(fromInquiry ? '回到查验记录' : '返回交接簿', 'report-index-back', 'secondary report-index-back');
-  const fileTrace = canFileTrace ? button('收下实验室原件', 'file-trace-original', 'primary report-index-trace', `data-key="${esc(number)}"`) : '';
+  const fileTrace = canFileTrace && !binaryVerdicts ? button('收下实验室原件', 'file-trace-original', 'primary report-index-trace', `data-key="${esc(number)}"`) : '';
   const papers = sources.map(({ id, batch, day, document, index }) => {
     const original = button('查看原单', 'report-index-paper', 'secondary', `data-i="${esc(id)}" data-doc="${esc(index)}" aria-label="查看 ${esc(batch)} ${esc(document.title)} 原单"`);
     return `<section class="report-index-paper" aria-label="${esc(batch)} ${esc(document.title)}"><div class="report-index-source"><b>${esc(batch)}</b><small>${esc(DAYS[day]?.title)}</small></div>
@@ -1025,7 +1051,7 @@ export function archiveSourcePaper({ id, index, batch, day, document }, { return
   return deskSurface(heading, sheet(document, index), 'archive-surface archive-source-surface', closeText, `${id}:${index}`, { closeLabel: closeText });
 }
 
-function handoffPairSide(row, source, original) {
+function handoffPairSide(row, source, original, binaryVerdicts) {
   const { id, batch, record, documents, latestReceipt, previousReceipt } = row;
   const day = DAYS[record.day]?.title;
   const papers = documents.map(({ title, fields }) => {
@@ -1038,13 +1064,13 @@ function handoffPairSide(row, source, original) {
     `<li><span>${esc(title)}</span>${numbers.length ? `<small>${esc(numbers.join(' · '))}</small>` : ''}</li>`).join('');
   return `<section class="handoff-pair-side"><header class="handoff-pair-head">
     <div class="handoff-pair-source"><small>${source}</small><h4>${esc(day)} <small class="handoff-pair-batch">${esc(batch)}</small></h4></div>
-    <span class="handoff-pair-stamp">${esc(labels[record.decision])}</span>
+    <span class="handoff-pair-stamp">${esc(verdictLabel(record.decision, binaryVerdicts))}</span>
     <p class="handoff-pair-disposition"><small>${latestReceipt ? '前次去向' : '现去向'}</small> <b>${esc(dispositionLabel(record))}</b></p></header>
     <div class="handoff-pair-actions">${button(`核对${esc(day)}这笔`, 'handoff-focus', 'secondary handoff-pair-open', `data-i="${esc(id)}" aria-label="核对${esc(day)}这笔 ${source} ${esc(batch)}"`)}
       <div class="handoff-pair-reference">${reference}</div></div>
     ${paperList ? `<ul class="handoff-pair-papers" aria-label="该次来件其余原单">${paperList}</ul>` : ''}
     ${original && original.record.id === record.priorShipmentId ? '<p class="handoff-pair-note">补验时原批已出库。</p>' : ''}
-    <details class="handoff-pair-receipt"><summary>展开回执</summary>${archivedReceipt(record, latestReceipt, previousReceipt)}</details>
+    <details class="handoff-pair-receipt"><summary>展开回执</summary>${archivedReceipt(record, latestReceipt, previousReceipt, { binaryVerdicts })}</details>
   </section>`;
 }
 
@@ -1087,6 +1113,7 @@ function traceEvidencePair(row, original, originalFields = ['样品来源', '检
 }
 
 export function handoffPanel(run, evidence, rows, { focus, documentIndex, correctionFindings = null, batchPapers = [], supportingBasis, comparison = null, canCompare = false, traceReview = null } = {}) {
+  const binary = run.binaryVerdicts === true;
   const following = new Map(rows.filter(({ previousReceipt }) => previousReceipt).map((row) => [row.previousReceipt.record.id, row]));
   const batchPaperNotes = new Map(batchPapers.map(({ caseId, document }) => [caseId, ` · 有${batchPaperLabels[document.kind].tab}`]));
   const provenance = (row) => {
@@ -1100,18 +1127,18 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
   const groups = Object.entries(dispositions).map(([status, title]) => {
     const group = currentRows.filter(({ record }) => receiptDisposition(record) === status);
     if (!group.length) return '';
-    const pending = status === 'recallPending';
+    const pending = !binary && status === 'recallPending';
     const documentOnly = status === 'supplementHeld' || status === 'supplementReturned';
     return `<section class="handoff-group" data-disposition="${status}"><h3>${title}<small>${group.length} ${documentOnly ? '张' : '批'}</small></h3><ul class="handoff-slips">
       ${group.map((row) => `<li${pending ? ' class="handoff-recall-chip"' : ''}><button type="button" class="handoff-slip" data-act="handoff-focus" data-i="${esc(row.id)}"${active(focus === row.id)}><b>${esc(row.batch)}</b><small>${esc(provenance(row))}${esc(batchPaperNotes.get(row.id))}</small></button>${pending ? receiveRecallAction(row.record, 'handoff-recall-action', '取回执') : ''}</li>`).join('')}</ul></section>`;
   }).join('');
-  const attachmentKeys = ['trace', 'night'].filter((key) => run.flags[`${key}Document`]);
+  const attachmentKeys = binary ? [] : ['trace', 'night'].filter((key) => run.flags[`${key}Document`]);
   const attachmentIndex = attachmentKeys.length ? button('交接附件', 'handoff-attachments', 'secondary handoff-attachments-entry', active(focus === 'attachments')) : '';
   const row = rows.find(({ id }) => id === focus);
   const comparing = row && comparison;
   let header = '<h3>出货回执</h3>';
   let detail = '<p class="handoff-empty">从板上选一张回执核对。</p>';
-  const finishNote = run.flags.traceAttached && { recallPending: '登记 G-241 召回', held: '留厂复检 G-241' }[traceReview?.status];
+  const finishNote = !binary && run.flags.traceAttached && { recallPending: '登记 G-241 召回', held: '留厂复检 G-241' }[traceReview?.status];
   const finish = button(finishNote ? `<span>拉铃交班</span><small>${finishNote}</small>` : '拉铃交班', 'finish',
     finishNote ? 'primary trace-handoff-finish' : 'primary');
   let actions = button('回看全周出货', 'archive') + finish;
@@ -1138,18 +1165,18 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const closeComparison = button('收起并排', 'handoff-compare', 'secondary handoff-detail-compare', active(true));
     header = `<div class="handoff-detail-heading handoff-pair-heading"><div class="handoff-detail-name"><h3>${esc(row.batch)}</h3><small>${firstSource} · ${lastSource}</small></div>
       <div class="handoff-detail-tools">${closeComparison}</div></div>`;
-    detail = `<div class="handoff-pair" aria-label="同号来件回执对照">${handoffPairSide(earlier, firstSource)}${handoffPairSide(later, lastSource, sameLot ? earlier : null)}</div>`;
+    detail = `<div class="handoff-pair" aria-label="同号来件回执对照">${handoffPairSide(earlier, firstSource, null, binary)}${handoffPairSide(later, lastSource, sameLot ? earlier : null, binary)}</div>`;
   } else if (row) {
     const { record, latestReceipt, previousReceipt, documents } = row;
     const next = following.get(row.id);
-    const editing = !latestReceipt && correctionFindings !== null;
+    const editing = !binary && !latestReceipt && correctionFindings !== null;
     const findings = editing ? readFindings({ findings: correctionFindings }) : [];
     const correction = editing ? { action: 'correction-basis', selected: new Set(findings.map(({ key }) => key)) } : null;
     const attachedPapers = batchPapers.filter(({ caseId }) => caseId === row.id);
     const receivedException = attachedPapers.some(({ document }) => document.kind === 'exception');
     const attached = attachedPapers.find(({ document }) => document.kind === documentIndex);
     const doc = attached?.document ?? documents[documentIndex];
-    const traceDocument = attachedPapers.find(({ document }) => document.kind === 'trace')?.document;
+    const traceDocument = binary ? null : attachedPapers.find(({ document }) => document.kind === 'trace')?.document;
     const tracePaper = Boolean(traceDocument && doc === traceDocument);
     const tabs = `<nav class="doc-tabs handoff-detail-tabs" aria-label="本批归档单据">
       ${button(receivedException ? '原批回执' : '回执', 'handoff-doc', 'tab', `data-key="receipt"${active(!doc)}`)}${documents.map(({ title, type }, index) =>
@@ -1160,11 +1187,11 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     const citeException = attached?.document.kind === 'exception' && record.status === 'shipped';
     const editLabel = citeTrace ? '用原件更正' : citeException ? '引用并更正' : '更正开单';
     const editSource = citeTrace ? ' data-key="trace"' : citeException ? ' data-key="exception" aria-label="引用到货复核联并更正"' : '';
-    const editAction = !latestReceipt && !editing
+    const editAction = !binary && !latestReceipt && !editing
       ? button(editLabel, 'edit-record', 'secondary handoff-detail-edit', `data-i="${esc(row.id)}"${editSource}`) : '';
     const compareAction = canCompare && !editing ? button('并排核对', 'handoff-compare', 'secondary handoff-detail-compare', active(false)) : '';
     const tools = compareAction ? `<div class="handoff-detail-tools">${compareAction}${editAction}</div>` : editAction;
-    const status = !latestReceipt && !editing && record.status === 'recallPending'
+    const status = !binary && !latestReceipt && !editing && record.status === 'recallPending'
       ? receiveRecallAction(record, 'handoff-detail-status handoff-detail-recall')
       : `<span class="handoff-detail-status">${esc(dispositionLabel(latestReceipt ?? record))}</span>`;
     header = `<div class="handoff-detail-heading"><div class="handoff-detail-name"><h3>${esc(row.batch)}</h3><small>${esc(provenance(row))}</small></div>${status}
@@ -1175,7 +1202,7 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     ].filter(Boolean).join('');
     const draft = correction ? correctionPanel(record, findings, correction.selected, supportingBasis) : '';
     const paper = tracePaper ? traceEvidencePair(row, doc)
-      : doc ? sheet(doc, documentIndex, attached ? null : correction) : archivedReceipt(record, latestReceipt, previousReceipt, { receivedException });
+      : doc ? sheet(doc, documentIndex, attached ? null : correction) : archivedReceipt(record, latestReceipt, previousReceipt, { receivedException, binaryVerdicts: binary });
     const quotingActivePaper = attached && attached.document.kind === supportingBasis?.kind;
     detail = `${quotingActivePaper ? draft + paper : paper + draft}
       ${related && !editing ? `<div class="modal-actions handoff-related">${related}</div>` : ''}`;
@@ -1191,7 +1218,7 @@ export function handoffPanel(run, evidence, rows, { focus, documentIndex, correc
     }
   }
 
-  return dialog('周五交接', `<div class="handoff-paper handoff-sheet"><p class="handoff-instruction">点批号核对原单，改章另开更正联。</p>
+  return dialog('周五交接', `<div class="handoff-paper handoff-sheet"><p class="handoff-instruction">${binary ? '点批号可查看回执和原单。' : '点批号核对原单，改章另开更正联。'}</p>
     <div class="handoff-workspace"><nav class="handoff-board" aria-label="批次与附件">${attachmentIndex}${groups || '<p>没有可查的回执。</p>'}</nav>
     <section class="handoff-detail${cls('handoff-comparing', comparing)}" aria-label="${comparing ? '两次来件的交接单' : '选中的交接单'}"><header class="handoff-detail-head">${header}</header><div class="handoff-detail-scroll">${detail}</div></section></div></div>`, 'handoff-modal',
   `<footer class="modal-actions handoff-actions">${notice}${actions}</footer>`);
