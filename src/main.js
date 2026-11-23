@@ -1,9 +1,9 @@
-import { createRun, createFollowingRun, restoreRun, validRunSave, dispatch, getCase, getDay, getEnding, getIncomingCall, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getPhoneReportLookup, getTraceHandoffReview, getTutorialStep, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, runEvidence, COMPACT_SCHEDULE, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
-import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, documentExtension, documentReportNumber } from './content.js';
+import { createRun, createFollowingRun, restoreRun, validRunSave, dispatch, getCase, getDay, getEnding, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getTraceHandoffReview, getTutorialStep, archive, archivedReportSources, canFileTraceOriginal, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, runEvidence, COMPACT_SCHEDULE, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
+import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { mountSampleImage, retrySampleImage, updateSampleImage } from './sample-images.js';
 import { bindViewport, toggleFullscreen, stagePoint } from './devices.js';
-import { bindAudio, playSound, isMuted, setMuted, setPhoneRinging } from './audio.js';
+import { bindAudio, playSound, isMuted, setMuted } from './audio.js';
 import { captureDeskProjection } from './desk-projection.js';
 import { ARRIVAL_APPROACH_MS, CARGO_DEPARTURE_MS, RECEIPT_FEED_MS, RECEIPT_HANDOVER_MS } from './booth-motion.js';
 import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
@@ -100,7 +100,6 @@ let handoffFocus = null;
 let handoffDocument = null;
 let handoffPairOpen = false;
 let recallPairReturn = null;
-let phoneReturn = null;
 let issuedReceiptId = null;
 let pendingReceiptPrint = false;
 let receiptPrintTimer = 0;
@@ -136,8 +135,6 @@ root.style.setProperty('--receipt-handover-time', `${RECEIPT_HANDOVER_MS}ms`);
 const homeShortcut = root.querySelector('.home-shortcut');
 const soundToggle = root.querySelector('[data-act="sound"]');
 const fullscreenToggle = root.querySelector('[data-act="fullscreen"]');
-const phoneFixture = booth.querySelector('.wall-phone');
-const phoneFixtureLabel = phoneFixture.querySelector('b');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const gaze = { x: 0, y: 0, targetX: 0, targetY: 0, frame: 0, time: 0 };
 let fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
@@ -561,8 +558,7 @@ function waitingRegister() {
   if (arrival?.action !== 'next' || !arrival.hasVisitor || arrival.stage !== 'waiting') return null;
   const paper = nightRegisterForReceipt(run);
   if (!paper?.available) return null;
-  const isRegister = (entry) => entry?.id === paper.id && entry.index === paper.index;
-  const held = (panel === 'archive' && isRegister(archivePaper)) || (panel === 'phone' && interaction.pinned.some(isRegister));
+  const held = panel === 'archive' && archivePaper?.id === paper.id && archivePaper.index === paper.index;
   return { ...paper, held };
 }
 
@@ -626,11 +622,12 @@ function labRegistrationKey(caseId) {
   return `call:lab-request:${caseId}`;
 }
 
-function filedPhonePapers() {
-  const hasRegistration = run.phoneLog.some((call) => call?.kind === 'lab-request');
+function legacyCallPapers() {
+  const log = run.phoneLog ?? [];
+  const hasRegistration = log.some((call) => call?.kind === 'lab-request');
   const filed = hasRegistration ? archive(run) : [];
   const inquiry = getTraceInquiry(run);
-  return run.phoneLog.flatMap((call) => {
+  return log.flatMap((call) => {
     if (call?.kind === 'incoming') {
       return [[`call:${call.incomingKey}`, {
         type: 'archive', title: call.incomingKey === 'ringback' ? '回铃录音' : '实验室收班来电',
@@ -643,7 +640,7 @@ function filedPhonePapers() {
       return [[TRACE_INQUIRY_KEY, {
         type: 'archive', kind: 'trace-inquiry', title: `实验室通话登记 · ${reportNumber}`, reportNumber,
         originalFiled: Boolean(run.flags.traceDocument),
-        fields: [['通话单据', sources.join(' / ')], ['实验室原件', run.flags.traceDocument ? '已收进交接簿' : '待到窗口领取'],
+        fields: [['通话单据', sources.join(' / ')], ['实验室原件', run.flags.traceDocument ? '已收进交接簿' : '可从报告编号查收'],
           ['内线', `${inquiry.number} · 小陈`], ...(inquiry.day === null ? [] : [['登记日', DAYS[inquiry.day]?.title ?? '值班周内']])],
       }]];
     }
@@ -663,24 +660,8 @@ function filedSupportingPapers(query, batchPapers = filedBatchPapers()) {
     ...Object.entries(runEvidence(run)).filter(([key]) => run.flags[`${key}Document`] && !batchPapers.some((paper) => paper.key === key)),
     ...batchPapers.map(({ key, document }) => [key, document]),
   ];
-  return [...visits, ...filedPhonePapers()].filter(([, doc]) =>
+  return [...visits, ...legacyCallPapers()].filter(([, doc]) =>
     !term || [doc.title, ...doc.fields.flat(), doc.note].some((text) => text?.toLowerCase().includes(term)));
-}
-
-function incomingAtWindow() {
-  return run && (!arrival || arrival.action === 'next') && !activeVisit() && ['case', 'receipt', 'summary', 'handoff'].includes(run.phase)
-    ? getIncomingCall(run) : null;
-}
-
-function showRinging(call) {
-  if (call) root.dataset.ringing = 'true';
-  else delete root.dataset.ringing;
-  const label = call ? '接电话' : '内线电话';
-  if (phoneFixtureLabel.textContent !== label) {
-    phoneFixtureLabel.textContent = label;
-    phoneFixture.setAttribute('aria-label', label);
-  }
-  setPhoneRinging(call);
 }
 
 function previousInspection(item = windowCase()) {
@@ -808,7 +789,6 @@ function setScene() {
   const documents = paperCase?.documents ?? (delivered ? [delivered] : []);
   const forecast = !arrival && (visit || run?.phase === 'receipt') ? windowAdvance(visit ? 'ack-visit' : 'next') : null;
   const shipment = !visit && !closingShot ? sceneShipment(sceneRun, item, waiting) : {};
-  const phoneHeld = panel === 'phone' || (panel === 'archive' && archiveReturn?.panel === 'phone');
   view.setRoomCargo(cargoHost, shipment.cargo);
   scenery?.setFrame({ day: sceneRun?.day ?? 0, phase, npc: npc || null, visit: Boolean(visit), shutterClosed, catPassing,
     documents: documents.map((doc) => ({ type: doc.type, title: doc.title, batch: scenePaperBatch(doc, paperCase, visit) })),
@@ -816,7 +796,6 @@ function setScene() {
     positions: approaching ? {} : interaction.positions, pencil: !arrival && showPencil(item), ...heldObjects(item),
     keepVisitor, visitorWaiting: Boolean(waitingNpc),
     retainedPaper,
-    phoneHeld, phoneRinging: Boolean(incomingAtWindow()),
     approach: arrival?.approach ?? (needsArrival(forecast) ? arrivalApproach(forecast) : undefined),
     presentedEvidence: phase === 'case' && presentedEvidence && item?.shownFinding === presentedEvidence
       ? { ...presentedEvidence, batch: item.batch } : null,
@@ -832,8 +811,6 @@ function render(resumeScroll, resumeScrollLeft = 0, resumeBoardScroll) {
   root.dataset.phase = arrival ? 'waiting' : (run?.phase ?? 'home');
   if (arrival) root.dataset.arrivalStage = arrival.stage;
   else delete root.dataset.arrivalStage;
-  const incomingCall = incomingAtWindow();
-  showRinging(incomingCall);
   renderArrivalStatus();
   status.innerHTML = run ? `<span>${getDay(run).title}</span><span>第 ${run.day + 1} 天 / 5</span>` : '<span>质检员的一天</span>';
   wallShift.innerHTML = run ? view.wallShift(run) : '';
@@ -868,7 +845,7 @@ function render(resumeScroll, resumeScrollLeft = 0, resumeBoardScroll) {
   const openEndingDetails = [...screenLayer.querySelectorAll('.ending-card details')].map(({ open }) => open);
   const historyLabel = reviewedWeekLabel();
   screenLayer.innerHTML = run
-    ? (arrival || visit || closingShot ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, historyLabel, incomingCall))
+    ? (arrival || visit || closingShot ? '' : view.overlay(run, run.phase === 'ending' ? getEnding(run) : null, historyLabel))
     : view.home(saved, endings, completedShifts.size);
   if (closingShot === 'cat') screenLayer.innerHTML = '<span class="visually-hidden" role="status">窗外，厂猫走过了装货台。</span>';
   if (settingDownCloseSheet) {
@@ -897,7 +874,7 @@ function renderArrivalStatus() {
     : arrival?.stage === 'approach' ? '窗口递件…'
     : arrival?.action?.type === 'receive-recall' ? '等收货方回执…'
     : arrival?.action === 'next' && !arrival.hasVisitor ? (arrival.nextPhase === 'handoff' ? '去交班…' : '本班收工…')
-    : firstBreak ? '等下一批 · 可翻交接簿或打电话'
+    : firstBreak ? '等下一批 · 可翻交接簿'
     : arrival ? '等下一批…' : '';
   root.toggleAttribute('data-receipt-handover', handingReceipt);
   root.toggleAttribute('data-between-batches', idleTools);
@@ -906,12 +883,12 @@ function renderArrivalStatus() {
 }
 
 const glanceReturnLabels = {
-  docs: '回到单据', sample: '回到检样', carton: '回到外箱', archive: '回到交接簿', phone: '回到电话', visit: '回到来件',
+  docs: '回到单据', sample: '回到检样', carton: '回到外箱', archive: '回到交接簿', visit: '回到来件',
 };
 
 function syncWindowGlance() {
   const content = modalLayer.querySelector('.modal-shade, .desk-surface');
-  const receiving = Boolean(content && arrival?.ready && toolsAvailableBetweenBatches() && ['archive', 'phone'].includes(panel));
+  const receiving = Boolean(content && arrival?.ready && toolsAvailableBetweenBatches() && panel === 'archive');
   const live = Boolean(content && !arrival && !closingShot && Object.hasOwn(glanceReturnLabels, panel) &&
     (run?.phase === 'case' || run?.phase === 'receipt' || activeVisit()));
   const available = receiving || live;
@@ -978,13 +955,12 @@ function showDeskDialogue(surface) {
 }
 
 function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
-  const { compare, inspection, archiveFocus, archiveQuery, pinned, phoneNumber, egg } = interaction;
+  const { compare, inspection, archiveFocus, archiveQuery, egg } = interaction;
   const correction = activeCorrection();
   const correctionFindings = correction ? selectedCorrectionFindings(correction, correctionDraft.keys) : null;
   const batchPapers = panel === 'archive' || panel === 'handoff' ? filedBatchPapers() : [];
   const supportingBasis = correction && filedCorrectionBasis(correction);
-  const incomingCall = incomingAtWindow();
-  const work = { ...interaction, incomingCall, returningWeek: run?.sampleSet === 4, supplementRequest: run?.supplementRequestDraft };
+  const work = { ...interaction, returningWeek: run?.sampleSet === 4, supplementRequest: run?.supplementRequestDraft };
   let markup = '';
   if (isWelcomePanel()) {
     markup = view.welcome(panel === 'welcome-project' ? 'project' : 'play');
@@ -1005,16 +981,16 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     const historyLabel = reviewedWeekLabel();
     const original = archivePaper && archivedPaper(archivePaper.id, archivePaper.index);
     markup = correction && run.phase === 'receipt' ? view.windowCorrection(correction, correctionFindings, supportingBasis)
-      : original ? view.archiveSourcePaper(original, pinned, {
-      returnTo: reportIndex ? 'report-index' : returnTo, finished, historyLabel,
+      : original ? view.archiveSourcePaper(original, {
+      returnTo: reportIndex ? 'report-index' : returnTo, historyLabel,
       fromDesk: toolsAvailableBetweenBatches() && !reportIndex && !returnTo,
     })
       : reportIndex && sources.length
-      ? view.archiveReportPanel(reportIndex, sources, pinned, {
-        returnTo, finished, historyLabel, fromInquiry: archiveFocus === TRACE_INQUIRY_KEY,
-        fromPhoneLookup: returnTo === 'phone' && archiveReturn.opener?.act === 'report-search',
+      ? view.archiveReportPanel(reportIndex, sources, {
+        returnTo, historyLabel, fromInquiry: archiveFocus === TRACE_INQUIRY_KEY,
+        canFileTrace: reportIndex === 'R-071' && canFileTraceOriginal(run),
       })
-      : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus, pinned,
+      : view.archivePanel(archive(run, archiveQuery), filedSupportingPapers(archiveQuery, batchPapers), archiveFocus,
         archiveQuery, Boolean(correction), run.phase === 'handoff', finished, {
         returnTo, historyLabel,
         unresolvedIssue: finished && getEnding(run).issues.some(({ id }) => id === archiveFocus),
@@ -1025,17 +1001,6 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
         batchPapers,
         supportingBasis,
       });
-  }
-  if (panel === 'phone' && run) {
-    const filed = archive(run);
-    const papers = pinned.flatMap(({ id, index }) => {
-      const row = filed.find((item) => item.id === id);
-      return row ? [{ id, index, batch: row.batch, document: row.documents[index] ?? null }] : [];
-    });
-    markup = view.phone(phoneNumber, run.phone, papers, interaction.phoneBottom, item, {
-      returnTo: phoneReturn?.archivePaper ? 'archive-paper' : phoneReturn?.reportIndex ? 'report-index' : phoneReturn?.panel,
-      incomingCall, reportLookup: getPhoneReportLookup(run),
-    });
   }
   if (panel === 'handoff' && run?.phase === 'handoff') {
     const rows = archive(run).filter(({ record }) => record);
@@ -1084,7 +1049,6 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     query: previousSearch.defaultValue, value: previousSearch.value,
     start: previousSearch.selectionStart, end: previousSearch.selectionEnd, direction: previousSearch.selectionDirection,
   };
-  const phoneScroll = modalLayer.querySelector('.phone-modal .modal-body')?.scrollTop;
   const handoffIndexScroll = modalLayer.querySelector('.handoff-board')?.scrollTop;
   const handoffDetailScroll = modalLayer.querySelector('.handoff-detail-scroll')?.scrollTop;
   modalLayer.innerHTML = markup;
@@ -1100,7 +1064,6 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
     archiveSearch.value = searchDraft.value;
     archiveSearch.setSelectionRange(searchDraft.start, searchDraft.end, searchDraft.direction);
   }
-  if (phoneScroll !== undefined) modalLayer.querySelector('.phone-modal .modal-body')?.scrollTo(0, phoneScroll);
   if (handoffIndexScroll !== undefined) modalLayer.querySelector('.handoff-board')?.scrollTo(0, handoffIndexScroll);
   if (handoffDetailScroll !== undefined) modalLayer.querySelector('.handoff-detail-scroll')?.scrollTo(0, handoffDetailScroll);
   screenLayer.inert = Boolean(markup);
@@ -1180,7 +1143,6 @@ function workspaceBody() {
   if (panel === 'docs') return modalLayer.querySelector('.documents-surface .desk-surface-content');
   if (panel === 'sample') return modalLayer.querySelector('.sample-surface .desk-surface-content');
   if (panel === 'carton') return modalLayer.querySelector('.carton-surface .desk-surface-content');
-  if (panel === 'phone') return modalLayer.querySelector('.phone-modal .modal-body');
   if (panel === 'handoff') return modalLayer.querySelector('.handoff-detail-scroll');
   if (panel === 'archive') return modalLayer.querySelector('.archive-surface .desk-surface-content');
   if (!panel && run?.phase === 'receipt' && !arrival) return modalLayer.querySelector('.receipt-surface .desk-surface-content');
@@ -1198,22 +1160,19 @@ function persistRun() {
   captureCorrectionScroll();
   const body = workspaceBody();
   const item = getCase(run);
-  const betweenBatches = toolsAvailableBetweenBatches() && ['archive', 'phone'].includes(panel);
+  const betweenBatches = toolsAvailableBetweenBatches() && panel === 'archive';
   const boardWorkspace = recallPairReturn ?? currentHandoffWorkspace();
   const handoffArchive = Boolean(boardWorkspace && panel === 'archive' && archiveReturn?.panel === 'handoff');
   const lookup = reportWorkspace(run, {
     caseId: handoffArchive ? getDay(run)?.cases[run.index]?.id : item?.id,
     panel, reportIndex, archivePaper, archiveFocus: interaction.archiveFocus,
-    archiveQuery: interaction.archiveQuery, archiveReturn, phoneReturn, scrollTop: body?.scrollTop, scrollLeft: body?.scrollLeft,
+    archiveQuery: interaction.archiveQuery, archiveReturn, scrollTop: body?.scrollTop, scrollLeft: body?.scrollLeft,
   }, reportWorkspaceContext(betweenBatches, handoffArchive));
-  const originalWork = lookup && [lookup.archiveReturn, lookup.phoneReturn?.archiveReturn, lookup.phoneReturn]
-    .find((origin) => ['docs', 'sample'].includes(origin?.panel));
-  const archived = originalWork ?? (panel === 'archive' && ['phone', 'docs', 'sample'].includes(archiveReturn?.panel) ? archiveReturn : null);
+  const archived = panel === 'archive' && ['docs', 'sample'].includes(archiveReturn?.panel) ? archiveReturn : null;
   const context = body || archived ? workspaceContext() : undefined;
   const workspacePanel = archived?.panel ?? panel;
   const workspace = context ? {
     ...context, panel: workspacePanel, scrollTop: archived ? archived.scrollTop : body?.scrollTop ?? 0,
-    returnTo: workspacePanel === 'phone' ? phoneReturn : undefined,
   } : undefined;
   saved = {
     ...run,
@@ -1282,18 +1241,8 @@ function update(action, redraw = true) {
 
 function openPanel(name, opener, scroll) {
   if (!panel && opener instanceof HTMLElement) modalOpener = { ...opener.dataset };
-  const archiveOrigin = panel === 'archive' && (reportIndex || opener?.dataset?.act === 'phone-document');
-  if (name === 'phone' && (panel === 'docs' || panel === 'sample' || archiveOrigin)) {
-    const body = workspaceBody();
-    phoneReturn = { panel, opener: { ...opener.dataset }, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0,
-      ...(archiveOrigin ? { reportIndex, archivePaper, archiveReturn, archiveFocus: interaction.archiveFocus, archiveQuery: interaction.archiveQuery } : {}) };
-  } else if (panel === 'phone' && name !== 'archive' && name !== 'phone') {
-    interaction.phoneBottom = false;
-    update({ type: 'hang-up' }, false);
-    phoneReturn = null;
-  }
   const archiveParent = panel ?? (opener?.closest('.receipt-surface') ? 'receipt' : null);
-  if (name === 'archive' && ['phone', 'handoff', 'docs', 'sample', 'receipt'].includes(archiveParent)) {
+  if (name === 'archive' && ['handoff', 'docs', 'sample', 'receipt'].includes(archiveParent)) {
     const body = workspaceBody();
     const index = panel === 'handoff' ? modalLayer.querySelector('.handoff-board') : body;
     archiveReturn = { panel: archiveParent, opener: { ...opener.dataset }, scrollTop: index?.scrollTop ?? 0, detailScroll: body?.scrollTop ?? 0,
@@ -1336,11 +1285,16 @@ function enter(restore) {
     run = restoreRun(savedRun);
     const boardState = board ?? (pair ? { ...pair, comparing: true } : null);
     if (boardState && run.phase === 'handoff') savedBoard = handoffWorkspace(run, boardState, filedBatchPapers());
-    const restored = restoreInspectionProgress(inspectionProgress, getCase(run), run.seen, workspaceContext());
+    const storedWorkspace = inspectionProgress?.workspace;
+    const restoredWorkspace = storedWorkspace?.panel === 'phone' ? storedWorkspace.returnTo : storedWorkspace;
+    const restored = restoreInspectionProgress({ ...inspectionProgress, workspace: restoredWorkspace }, getCase(run), run.seen, workspaceContext());
     ({ workspace, ...interaction } = restored);
     const betweenBatches = savedArrival === 'next' && run.phase === 'receipt' && Boolean(needsArrival(windowAdvance(savedArrival)));
     const handoffArchive = Boolean(savedBoard && savedLookup?.archiveReturn?.panel === 'handoff');
-    lookup = reportWorkspace(run, savedLookup, reportWorkspaceContext(betweenBatches, handoffArchive));
+    const savedArchive = savedLookup?.panel === 'phone' ? savedLookup.phoneReturn : savedLookup;
+    if (savedArchive?.panel === 'archive') {
+      lookup = reportWorkspace(run, { ...savedArchive, caseId: savedLookup.caseId }, reportWorkspaceContext(betweenBatches, handoffArchive));
+    }
     resumeWaitingTools = betweenBatches && Boolean(lookup);
     visitorWaiting = resumeWaitingTools && arrivalReady === true;
   } else {
@@ -1351,18 +1305,15 @@ function enter(restore) {
     interaction = freshInteraction();
   }
   panel = lookup?.panel ?? workspace?.panel ?? null;
-  if (tutorialStep() && (panel === 'docs' || workspace?.returnTo?.panel === 'docs')) {
+  if (tutorialStep() && panel === 'docs') {
     const documents = getCase(run)?.documents;
     readDocument(documents?.[viewedDocument()]);
     readDocument(documents?.[interaction.compare]);
   }
   advanceTutorial();
-  phoneReturn = lookup ? lookup.phoneReturn : workspace?.returnTo
-    ? { ...workspace.returnTo, opener: { act: workspace.returnTo.panel === 'archive' ? 'phone-document' : 'phone' } } : null;
-  if (panel !== 'phone' && lookup?.archiveReturn?.panel !== 'phone') run = dispatch(run, { type: 'hang-up' });
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
-  archiveReturn = lookup?.archiveReturn ?? null;
+  archiveReturn = lookup?.archiveReturn?.panel === 'phone' ? null : lookup?.archiveReturn ?? null;
   reportIndex = lookup?.reportIndex ?? null;
   archivePaper = lookup?.archivePaper ?? null;
   if (lookup) {
@@ -1416,7 +1367,7 @@ function enter(restore) {
     }
     return;
   }
-  const resumeSound = { docs: 'paper', sample: 'slide', carton: 'slide', phone: 'click' }[panel];
+  const resumeSound = { docs: 'paper', sample: 'slide', carton: 'slide' }[panel];
   if (resumeSound) playSound(resumeSound);
   else if (run.phase !== 'summary') playSound(run.phase === 'ending' ? 'paper' : 'shutter');
   render(lookup?.scrollTop ?? workspace?.scrollTop);
@@ -1457,7 +1408,6 @@ function reviewCompletedShift(id) {
   reportIndex = null;
   archivePaper = null;
   correctionDraft = null;
-  phoneReturn = null;
   playSound('paper');
   render();
   focusControl(screenLayer, { act: 'archive' });
@@ -1564,7 +1514,7 @@ function finishWindowAdvance(value, restoreFocus) {
   const action = windowAction(value);
   const visit = action?.type === 'ack-visit' ? activeVisit() : null;
   if (!action || !update(action, false)) return;
-  if (action.type === 'next' && ['summary', 'handoff'].includes(run.phase) && !getIncomingCall(run)) playSound('bell');
+  if (action.type === 'next' && ['summary', 'handoff'].includes(run.phase)) playSound('bell');
   if (visit) {
     interaction.archiveFocus = visit.key;
     interaction.archiveQuery = '';
@@ -2257,101 +2207,6 @@ function stamp(value) {
   }
 }
 
-function revealPhoneLog() {
-  modalLayer.querySelector('.phone-log')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-}
-
-function dial() {
-  if (panel !== 'phone' || interaction.phoneBottom || !interaction.phoneNumber) return;
-  const number = interaction.phoneNumber;
-  playSound(number === '880' ? 'dialTone' : 'click');
-  toast('');
-  update({ type: 'dial', number, papers: interaction.pinned });
-  revealPhoneLog();
-  if (run.phase === 'handoff' && activeVisit()) toast('有人到窗口递留底');
-}
-
-function openPhone(opener) {
-  if (!run || reviewingHistory) return;
-  const returningToCall = panel === 'archive' && archiveReturn?.panel === 'phone';
-  const ringingNow = incomingAtWindow();
-  if (!returningToCall || ringingNow) interaction.phoneBottom = false;
-  if (ringingNow) update({ type: 'answer-call' }, false);
-  playSound('click');
-  if (returningToCall) closePanel();
-  else openPanel('phone', opener);
-  if (ringingNow) revealPhoneLog();
-}
-
-function phoneFromDocument(caseId, index, field, opener) {
-  if (!run || reviewingHistory) return;
-  let doc;
-  const item = windowCase();
-  const activeArchivePaper = archivePaper ? archivePaper.id === caseId && archivePaper.index === index : interaction.archiveFocus === caseId;
-  if (panel === 'archive' && activeArchivePaper && !activeCorrection()) {
-    doc = archive(run).find(({ id }) => id === caseId)?.documents[index];
-  } else if (item?.id === caseId && heldObjects(item).heldDocuments.includes(index)) {
-    doc = item.documents[index];
-  } else if (panel === 'docs' && item && interaction.previousDoc === index) {
-    const previous = previousInspection(item);
-    if (previous?.record.id === caseId) doc = previous.documents[index];
-  }
-  const reference = doc?.fields[field];
-  const number = documentExtension(reference);
-  const holdReport = ['docs', 'sample'].includes(panel) && documentReportNumber(reference);
-  if (!number && !holdReport) return;
-  interaction.phoneNumber = number ?? '204';
-  const displaced = pinPhonePaper(caseId, index);
-  if (displaced) toast(`${displaced} 已收回交接簿`);
-  openPhone(opener);
-  focusControl(modalLayer, { act: 'dial' });
-}
-
-function pinPhonePaper(id, index) {
-  const retained = interaction.pinned.filter((paper) => paper.id !== id || (paper.index !== index && paper.index !== null));
-  interaction.pinned = [...retained.slice(-1), { id, index }];
-  if (retained.length < 2) return null;
-  const [older] = retained;
-  const row = archive(run).find((item) => item.id === older.id);
-  return row ? `${row.batch} ${row.documents[older.index]?.title ?? '批次留底'}` : null;
-}
-
-function setPhoneNumber(value) {
-  if (panel !== 'phone' || interaction.phoneBottom || interaction.phoneNumber === value) return;
-  interaction.phoneNumber = value;
-  view.updatePhoneNumber(modalLayer, value, run.phone);
-  persistRun();
-}
-
-function selectPhoneContact(number, caseId, docIndex) {
-  if (panel !== 'phone' || interaction.phoneBottom) return;
-  const item = windowCase();
-  const order = number === '204' && item?.id === caseId && item.documents[docIndex];
-  if (order?.type === 'order' && order.fields.some((field) => documentExtension(field) === number) &&
-      !interaction.pinned.some(({ id, index }) => id === caseId && index === docIndex)) {
-    const displaced = pinPhonePaper(caseId, docIndex);
-    if (displaced) toast(`${displaced} 已收回交接簿`);
-    playSound('paper');
-  }
-  interaction.phoneNumber = number;
-  renderModal();
-  persistRun();
-  focusControl(modalLayer, { act: 'dial' });
-}
-
-function flipPhone() {
-  if (panel !== 'phone' || !run) return;
-  const bottom = !interaction.phoneBottom;
-  interaction.phoneBottom = bottom;
-  if (bottom && !run.flags.phoneBack) update({ type: 'explore', key: 'phone-back' }, false);
-  playSound('slide');
-  render();
-  animateOnDesk(modalLayer.querySelector('.phone-turn-light'), [
-    { transform: `perspective(700px) rotateX(${bottom ? -64 : 64}deg)`, opacity: .85 },
-    { transform: 'perspective(700px) rotateX(0deg)', opacity: 0 },
-  ], 205);
-}
-
 function openArchive(opener) {
   reportIndex = null;
   archivePaper = null;
@@ -2392,7 +2247,7 @@ function archivedPaper(id, index) {
   return { id, index, batch: row.batch, day: row.day, document };
 }
 
-function openArchivePaper(id, index, opener) {
+function openArchivePaper(id, index) {
   if (!run || !Number.isInteger(index)) return;
   if (panel === 'archive' && reportIndex && !archivePaper) {
     if (!matchingReportSources(reportIndex).some((source) => source.id === id && source.index === index)) return;
@@ -2400,12 +2255,6 @@ function openArchivePaper(id, index, opener) {
     archivePaper = { id, index, scrollTop: body?.scrollTop ?? 0, scrollLeft: body?.scrollLeft ?? 0 };
     playSound('paper');
     render(0);
-  } else if (panel === 'phone' && interaction.pinned.some((paper) => paper.id === id && paper.index === index) && archivedPaper(id, index)) {
-    focusArchiveRow(id);
-    interaction.archiveQuery = '';
-    archivePaper = { id, index, scrollTop: 0, scrollLeft: 0 };
-    playSound('paper');
-    openPanel('archive', opener);
   }
 }
 
@@ -2541,13 +2390,7 @@ function closePanel({ receiveWaiting = false } = {}) {
     focusControl(modalLayer, { act: 'report-index-paper', i: String(id), doc: String(index) });
     return;
   }
-  let previousPanel = !receiveWaiting && run && panel === 'archive' ? archiveReturn : null;
-  if (panel === 'phone' || (receiveWaiting && archiveReturn?.panel === 'phone')) {
-    interaction.phoneBottom = false;
-    update({ type: 'hang-up' }, false);
-    if (!receiveWaiting) previousPanel = phoneReturn;
-    phoneReturn = null;
-  }
+  const previousPanel = !receiveWaiting && run && panel === 'archive' ? archiveReturn : null;
   const toReceipt = previousPanel?.panel === 'receipt';
   if (toReceipt && activeCorrection()) correctionDraft = null;
   panel = toReceipt ? null : previousPanel?.panel ?? null;
@@ -2567,21 +2410,13 @@ function closePanel({ receiveWaiting = false } = {}) {
   render(toBoard ? previousPanel.detailScroll : previousPanel?.scrollTop, 0, toBoard ? previousPanel.scrollTop : undefined);
   if (leftWelcome && document.activeElement === document.body) screenLayer.querySelector('.primary')?.focus({ preventScroll: true });
   if (!panel && tutorialStep()?.key === 'stamp') focusControl(desktop, { act: 'stamp', key: 'pass' });
-  if (panel === 'phone' && previousPanel?.opener?.act === 'report-search' && interaction.phoneNumber === run.phone?.number &&
-      modalLayer.querySelector('[data-report-redial]')) {
-    workspaceBody()?.scrollTo(0, 0);
-    focusControl(modalLayer, { act: 'dial' });
-    persistRun();
-    return;
-  }
   if (previousPanel) {
     if (!toBoard) {
       const body = workspaceBody();
       if (body) body.scrollLeft = previousPanel.scrollLeft ?? 0;
       else modalLayer.querySelector('.modal-body')?.scrollTo(0, previousPanel.scrollTop);
     }
-    const opener = previousPanel.opener && focusControl(modalLayer, previousPanel.opener);
-    if (opener?.dataset.act === 'phone-document') opener.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (previousPanel.opener) focusControl(modalLayer, previousPanel.opener);
   } else if (run?.phase === 'summary' && document.activeElement === document.body) focusControl(screenLayer, { act: 'advance-day' });
 }
 
@@ -2632,7 +2467,6 @@ root.addEventListener('click', (event) => {
       reviewingHistory = false;
       historyNavigation = null;
       recallPairReturn = null;
-      phoneReturn = null;
       toast('');
       resetGaze();
       closePanel();
@@ -2748,17 +2582,18 @@ root.addEventListener('click', (event) => {
     case 'stamp': if (!pointerClick) stamp(key); break;
     case 'archive': if (run) openArchive(target); break;
     case 'report-search': openReportIndex(key, target); break;
-    case 'report-index-paper': openArchivePaper(index, Number(target.dataset.doc), target); break;
-    case 'archive-call': {
-      if (panel !== 'phone') break;
-      const registration = key === TRACE_INQUIRY_KEY ? key : labRegistrationKey(index);
-      if (!filedPhonePapers().some(([entry]) => entry === registration)) break;
-      focusArchiveRow(registration);
-      interaction.archiveQuery = '';
-      openArchive(target);
-      revealArchiveReceipt(true);
+    case 'report-index-paper': openArchivePaper(index, Number(target.dataset.doc)); break;
+    case 'file-trace-original':
+      if (panel === 'archive' && !archivePaper && reportIndex === key && key === 'R-071' &&
+          update({ type: 'file-trace-original' }, false)) {
+        focusArchiveRow('trace');
+        interaction.archiveQuery = '';
+        playSound('paper');
+        toast('实验室原件已收入交接簿');
+        render(0);
+        revealArchiveReceipt(true);
+      }
       break;
-    }
     case 'report-index-back':
       if (panel === 'archive' && reportIndex) {
         const fromInquiry = interaction.archiveFocus === TRACE_INQUIRY_KEY;
@@ -2771,12 +2606,8 @@ root.addEventListener('click', (event) => {
         if (fromInquiry) focusControl(modalLayer, { act: 'report-search', key: number });
       }
       break;
-    case 'archive-receipt': case 'phone-paper': {
+    case 'archive-receipt': {
       if (!run?.seen.includes(index)) break;
-      if (act === 'phone-paper' && target.dataset.doc !== undefined) {
-        openArchivePaper(index, Number(target.dataset.doc), target);
-        break;
-      }
       focusArchiveRow(index);
       interaction.archiveQuery = '';
       openArchive(target);
@@ -2803,24 +2634,6 @@ root.addEventListener('click', (event) => {
       render();
       revealArchiveReceipt(act === 'archive-followup');
       break;
-    case 'archive-pin': {
-      if (!run?.seen.includes(index) || run.phase === 'ending') break;
-      const docIndex = Number(target.dataset.doc);
-      const row = archive(run).find(({ id }) => id === index);
-      if (!Number.isInteger(docIndex) || !row?.documents[docIndex]) break;
-      const pinned = interaction.pinned;
-      const selected = pinned.find((paper) => paper.id === index && paper.index === docIndex);
-      const displaced = selected ? null : pinPhonePaper(index, docIndex);
-      if (selected) interaction.pinned = pinned.filter((paper) => paper !== selected);
-      if (displaced) toast(`新单据已放到电话旁，${displaced} 已收回交接簿`);
-      else toast(selected ? '单据已收回交接簿' : '单据已放到电话旁');
-      playSound('paper');
-      render();
-      if (panel === 'phone' && !selected) {
-        focusControl(modalLayer, { act: 'phone-paper', i: String(index), doc: String(docIndex) })?.scrollIntoView({ block: 'nearest' });
-      }
-      break;
-    }
     case 'edit-receipt':
       if (!panel && target.closest('.receipt-surface') && !arrival && canRecheckReceipt(run, index)) {
         focusArchiveRow(index);
@@ -2891,23 +2704,6 @@ root.addEventListener('click', (event) => {
       }
       break;
     }
-    case 'phone': openPhone(target); break;
-    case 'phone-document': phoneFromDocument(Number(key), index, Number(target.dataset.field), target); break;
-    case 'phone-answer':
-      if (panel === 'phone' && incomingAtWindow()) {
-        interaction.phoneBottom = false;
-        playSound('click'); update({ type: 'answer-call' });
-        revealPhoneLog();
-      }
-      break;
-    case 'phone-digit':
-      if (interaction.phoneNumber.length < 5) setPhoneNumber(interaction.phoneNumber + key);
-      playSound('click');
-      break;
-    case 'phone-clear': setPhoneNumber(interaction.phoneNumber.slice(0, -1)); break;
-    case 'phone-select': selectPhoneContact(key, index, Number(target.dataset.doc)); break;
-    case 'phone-back': flipPhone(); break;
-    case 'dial': dial(); break;
     case 'clipboard-back': {
       if (panel !== 'docs' || !EASTER_EGGS.cat.slots.includes(windowCase()?.id)) break;
       interaction.clipboardBack = !interaction.clipboardBack;
@@ -3038,10 +2834,6 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && panel) { event.preventDefault(); closePanel(); }
   const editable = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'));
   if (!run || editable || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (panel === 'phone' && /^\d$/.test(event.key)) {
-    if (interaction.phoneNumber.length < 5) setPhoneNumber(interaction.phoneNumber + event.key);
-    return;
-  }
   if (!event.repeat && ['1', '2', '3'].includes(event.key)) stamp(['pass', 'fail', 'review'][Number(event.key) - 1]);
 });
 

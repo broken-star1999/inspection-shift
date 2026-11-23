@@ -54,8 +54,6 @@ function workshopMaterials() {
     clipboard: mat('#8f734c', .94, 0, grain), paper: mat('#e5d6b6', .98),
     paperEdge: mat('#bfa783', .95), ink: mat('#5c6a55', .91), oldInk: mat('#8b6c4a', .95),
     binder: mat('#623630', .93, 0, paint), binderLight: mat('#865141', .94, 0, grain),
-    phone: mat('#a6a079', .60, .05), phoneShade: mat('#77785a', .71, .05),
-    phoneLight: mat('#c5bd92', .59, .03), key: mat('#e3d6ac', .76), cord: mat('#484437', .92),
     work: mat('#73806b', .86, .15), tray: mat('#3d4a3c', .89), trayFelt: mat('#69715b', .99, 0, felt),
     machine: mat('#3d4e43', .69, .27), machineEdge: mat('#697b66', .68, .18),
     pass: mat('#718d57', .64, .09), fail: mat('#9c5948', .65, .09), review: mat('#b68a45', .66, .11),
@@ -293,94 +291,6 @@ function makeBinder(parent, m) {
   return group;
 }
 
-function phoneBody(parent, m) {
-  const profile = new THREE.Shape();
-  profile.moveTo(-.406, .069);
-  profile.lineTo(.395, .069);
-  profile.lineTo(.375, .319);
-  profile.quadraticCurveTo(.335, .355, .247, .329);
-  profile.lineTo(-.355, .181);
-  profile.quadraticCurveTo(-.432, .154, -.406, .069);
-  const geometry = new THREE.ExtrudeGeometry(profile, {
-    depth: 1.105, steps: 1, curveSegments: 4, bevelSize: .023, bevelThickness: .025, bevelSegments: 2,
-  });
-  geometry.rotateY(halfPi);
-  geometry.translate(-.5525, 0, 0);
-  parent.add(new THREE.Mesh(geometry, [m.phoneShade, m.phone]));
-}
-
-function makePhone(parent, m) {
-  const group = place(parent, new THREE.Group(), -3.64, deskY, 1.03);
-  group.rotation.y = -.14;
-  flat(group, [m.phoneShade, m.cord], 1.17, .867, .112, 0, .091, .027, .103, .025);
-  phoneBody(group, m);
-  const keypad = place(group, new THREE.Group(), 0, .258, .082);
-  keypad.rotation.x = .24;
-  flat(keypad, [m.phoneShade, m.cord], .77, .574, .047, 0, .017, .008, .061, .019);
-  for (let row = 0; row < 4; row++) {
-    for (let column = 0; column < 3; column++) {
-      const x = (column - 1) * .205;
-      const z = .128 + (row - 1.5) * .105 - .11;
-      flat(keypad, [m.key, m.phoneLight], .142, .069, .039, x, .065, z, .027, .011);
-    }
-  }
-  for (const x of [-.385, .385]) {
-    flat(group, [m.phoneShade, m.phone], .25, .289, .096, x, .339, -.233, .074, .024);
-  }
-  const socket = new THREE.Vector3(-.628, .406, -.224);
-  const lift = new THREE.Vector3(.29, .22, .29);
-  const handset = place(group, new THREE.Group(), socket.x, socket.y, socket.z);
-  const handsetBody = place(handset, new THREE.Group(), -socket.x, -socket.y, -socket.z);
-  const handle = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-.485, .443, -.245), new THREE.Vector3(-.304, .55, -.247),
-    new THREE.Vector3(.005, .574, -.264), new THREE.Vector3(.301, .542, -.26),
-    new THREE.Vector3(.484, .432, -.247),
-  ]);
-  handsetBody.add(new THREE.Mesh(new THREE.TubeGeometry(handle, 21, .087, 8, false), m.phoneLight));
-  for (const x of [-.506, .506]) {
-    const earpiece = flat(handsetBody, [m.phoneLight, m.phone], .285, .297, .146, x, .43, -.244, .088, .036);
-    earpiece.rotateY(x < 0 ? -.09 : .09);
-  }
-  rounded(group, m.bronze, .211, .033, .015, -.289, .13, .475, .013, .006);
-  flat(group, m.phoneShade, .112, .096, .052, .448, .27, .23, .034, .008);
-  const lamp = cylinder(group, new THREE.MeshStandardMaterial({ color: '#84633f', roughness: .56, emissive: '#ffad43' }), .037, .019, .448, .306, .23, 10);
-  lamp.material.emissiveIntensity = 0;
-
-  const cordCenter = new THREE.CatmullRomCurve3([
-    socket, new THREE.Vector3(-.781, .202, -.101),
-    new THREE.Vector3(-.852, .103, .133), new THREE.Vector3(-.816, .076, .442),
-    new THREE.Vector3(-.674, .075, .579), new THREE.Vector3(-.535, .126, .392),
-  ]);
-  const cordSpine = [];
-  for (let i = 0; i <= 144; i++) {
-    const t = i / 144;
-    const point = cordCenter.getPoint(t);
-    const direction = cordCenter.getTangent(t);
-    const side = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
-    const up = new THREE.Vector3().crossVectors(direction, side).normalize();
-    const radius = .046 * Math.min(1, t * 15, (1 - t) * 15);
-    const phase = t * Math.PI * 35;
-    cordSpine.push(point.addScaledVector(side, Math.sin(phase) * radius).addScaledVector(up, Math.cos(phase) * radius));
-  }
-  const segments = 160;
-  const radial = 6;
-  const cordGeometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(cordSpine), segments, .014, radial, false);
-  // Retain the resting extent for the desk's fixed camera and phone hit area.
-  cordGeometry.computeBoundingBox();
-  const liftedCord = cordGeometry.attributes.position.clone();
-  for (let segment = 0; segment <= segments; segment++) {
-    const weight = 1 - THREE.MathUtils.smoothstep(segment / segments, 0, .43);
-    for (let edge = 0; edge <= radial; edge++) {
-      const vertex = segment * (radial + 1) + edge;
-      liftedCord.setXYZ(vertex, liftedCord.getX(vertex) + lift.x * weight,
-        liftedCord.getY(vertex) + lift.y * weight, liftedCord.getZ(vertex) + lift.z * weight);
-    }
-  }
-  cordGeometry.morphAttributes.position = [liftedCord];
-  const cord = place(group, new THREE.Mesh(cordGeometry, m.cord), 0, 0, 0);
-  return { group, handset, socket, lift, cord, lamp };
-}
-
 function makeTray(parent, m) {
   const group = place(parent, new THREE.Group(), 1.62, deskY, 1.7);
   flat(group, [m.tray, m.rail], 1.40, 1.09, .071, 0, .066, 0, .109, .027);
@@ -591,11 +501,9 @@ export function createWorkbenchModels() {
   anchors.rules = makeClipboard(group, m);
   anchors.shift = makeShiftHolder(group, m);
   anchors.archive = makeBinder(group, m);
-  const phone = makePhone(group, m);
-  anchors.phone = phone.group;
   anchors.sample = makeTray(group, m);
   anchors.pencil = makePencil(group, m);
   const { outgoingSlip, stampDecks } = makeStampMachine(group, m, anchors, caps);
   const { cargo, cargoLabels } = makeCargoLane(group, m);
-  return { group, anchors, caps, stampDecks, cargo, cargoLabels, outgoingSlip, phone };
+  return { group, anchors, caps, stampDecks, cargo, cargoLabels, outgoingSlip };
 }

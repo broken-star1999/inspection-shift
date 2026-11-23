@@ -16,8 +16,6 @@ const shutterTravelMs = 420;
 const catTravelMs = 900;
 const slipFeedStartMs = 42;
 const evidencePassingMs = 590;
-const phoneLiftMs = 230;
-const phoneSetDownMs = 195;
 const cargoStart = { x: -1.05, z: -.04, angle: -.115 };
 const cargoDestinations = {
   ready: cargoStart,
@@ -27,7 +25,7 @@ const cargoDestinations = {
 };
 const slipInks = { returned: 'fail', supplementReturned: 'fail', fail: 'fail', held: 'review', supplementHeld: 'review', review: 'review' };
 const shutterRestPhases = new Set(['brief', 'summary', 'ending']);
-const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, handedReceipt: null, presentedEvidence: null, phoneHeld: false, phoneRinging: false };
+const initialFrame = { npc: null, day: 0, phase: 'home', documents: [], sample: null, positions: {}, pencil: false, heldDocuments: [], sampleHeld: false, visit: false, keepVisitor: false, visitorWaiting: false, approach: null, shutterClosed: null, catPassing: false, cargo: null, outgoingSlip: null, handedReceipt: null, presentedEvidence: null };
 
 function visibleVisitor(frame) {
   if (frame.phase === 'waiting' && !frame.keepVisitor && !frame.visitorWaiting) return null;
@@ -562,9 +560,6 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
   let handoffMotionAt = -Infinity;
   let evidenceKey = null;
   let evidenceMotionAt = -Infinity;
-  let phoneFrom = 0;
-  let phoneMotionAt = -Infinity;
-  let phoneRingAt = -Infinity;
   let pressed = null;
   let pressedAt = -Infinity;
   let poseX = 0;
@@ -729,13 +724,11 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     scene.add(shadow);
     return shadow;
   }
-  for (const bounds of [staticBounds.phone, staticBounds.sample]) {
-    if (bounds && !bounds.isEmpty()) addFixtureShadow(bounds);
-  }
+  const sampleBounds = staticBounds.sample;
+  if (sampleBounds && !sampleBounds.isEmpty()) addFixtureShadow(sampleBounds);
   const desktopStampShadow = addFixtureShadow(stampBounds);
   const compactStampShadow = addFixtureShadow(new THREE.Box3().setFromObject(compactStampDeck.deck));
   compactStampShadow.visible = false;
-  const sampleBounds = staticBounds.sample;
   const sampleSize = sampleBounds?.getSize(new THREE.Vector3());
   const sampleCenter = sampleBounds?.getCenter(new THREE.Vector3());
   sample.position.set(sampleCenter?.x ?? 1.62, (sampleBounds?.max.y ?? BOOTH_METRICS.deskTop) + .02, sampleCenter?.z ?? 1.7);
@@ -823,12 +816,6 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     cuffSplit.visible = (frame.phase === 'case' || frame.phase === 'receipt') &&
       !frame.visit && !frame.sampleHeld && frame.sample?.cuffSplit === true;
     const now = view.performance.now();
-    if (Boolean(frame.phoneHeld) !== Boolean(before.phoneHeld)) {
-      const snap = before.phase === 'home' || frame.phase === 'home' || reduced.matches;
-      phoneFrom = snap ? Number(Boolean(frame.phoneHeld)) : phoneLiftFraction(now, Number(Boolean(before.phoneHeld)));
-      phoneMotionAt = snap ? -Infinity : now;
-    }
-    if (frame.phoneRinging && !before.phoneRinging) phoneRingAt = now;
     const shown = frame.presentedEvidence;
     const evidence = frame.phase === 'case' && !frame.visit && typeof shown?.key === 'string' && shown.key ? shown : null;
     const nextEvidenceKey = evidence ? JSON.stringify([evidence.caseId, evidence.key, evidence.batch, evidence.source, evidence.text]) : null;
@@ -1005,30 +992,8 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     if (reduced.matches) {
       cargoMotionAt = -Infinity;
       handoffMotionAt = -Infinity;
-      phoneMotionAt = -Infinity;
     }
     invalidate();
-  }
-
-  function phoneLiftFraction(now, target) {
-    if (reduced.matches || phoneFrom === target) return target;
-    const duration = target ? phoneLiftMs : phoneSetDownMs;
-    return THREE.MathUtils.lerp(phoneFrom, target, THREE.MathUtils.smoothstep(now - phoneMotionAt, 0, duration));
-  }
-
-  function placePhone(now) {
-    const target = Number(Boolean(frame.phoneHeld));
-    const liftAmount = phoneLiftFraction(now, target);
-    const { handset, socket, lift, cord, lamp } = models.phone;
-    handset.position.copy(socket).addScaledVector(lift, liftAmount);
-    handset.rotation.set(.16 * liftAmount, -.26 * liftAmount, .21 * liftAmount);
-    cord.morphTargetInfluences[0] = liftAmount;
-
-    const ringAge = now - phoneRingAt;
-    const pulsing = frame.phoneRinging && !reduced.matches && ringAge < 445;
-    const lit = !pulsing || ringAge < 150 || ringAge >= 255;
-    lamp.material.emissiveIntensity = frame.phoneRinging ? lit ? .95 : .21 : 0;
-    return liftAmount !== target || pulsing;
   }
 
   function placeOutgoingSlip(now) {
@@ -1110,8 +1075,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     const probe = camera.clone();
     const corner = new THREE.Vector3();
     let vertical = Math.tan(THREE.MathUtils.degToRad(baseFov) / 2);
-    // Choose one lens for the whole pan. The phone is closer to the eye than
-    // the notices, so sizing from the window alone can cut off the hardware.
+    // Keep the workbench fixtures in view throughout the full camera pan.
     for (const x of [-1, 0, 1]) {
       for (const y of [-1, 0, 1]) {
         aimCamera(probe, x, y);
@@ -1184,7 +1148,6 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     const handedReceiptMoving = placeHandedReceipt(now);
     const evidenceVisible = placeEvidenceSlip(now);
     const deskMoving = placeDesk(now);
-    const phoneMoving = placePhone(now);
     const catMoving = placeCat(now);
     if (reduced.matches) shutterFrom = shutterTarget;
     const coverage = shutterCoverage(now);
@@ -1205,7 +1168,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
       ready = true;
       onReady?.();
     }
-    if (shutterMoving || catMoving || deskMoving || phoneMoving || cargoMoving || slipVisible || handedReceiptMoving || evidenceVisible || (portrait.visible && progress < 1) ||
+    if (shutterMoving || catMoving || deskMoving || cargoMoving || slipVisible || handedReceiptMoving || evidenceVisible || (portrait.visible && progress < 1) ||
         (!reduced.matches && pressed && pressAge < 165)) invalidate();
   }
 

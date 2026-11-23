@@ -4,9 +4,6 @@ let muted;
 let audio;
 let master;
 let noise;
-let phoneCall = null;
-let ringOutput = null;
-let ringVersion = 0;
 
 export function bindAudio(page) {
   const captureGesture = (event) => {
@@ -15,11 +12,6 @@ export function bindAudio(page) {
   for (const event of ['pointerdown', 'touchstart', 'keydown', 'click']) {
     page.addEventListener(event, captureGesture, { capture: true, passive: true });
   }
-  page.addEventListener('visibilitychange', refreshPhoneRing);
-  page.defaultView.addEventListener('pagehide', silencePhoneRing);
-  page.defaultView.addEventListener('pageshow', () => {
-    if (!ringOutput) refreshPhoneRing();
-  });
 }
 
 export function isMuted() {
@@ -34,7 +26,6 @@ export function isMuted() {
 }
 
 export function setMuted(value) {
-  const changed = isMuted() !== Boolean(value);
   muted = Boolean(value);
   try {
     globalThis.localStorage?.setItem(muteKey, String(muted));
@@ -46,7 +37,6 @@ export function setMuted(value) {
     master.gain.cancelScheduledValues(now);
     master.gain.setTargetAtTime(muted ? 0 : 0.2, now, 0.012);
   }
-  if (changed) refreshPhoneRing();
   return muted;
 }
 
@@ -98,9 +88,9 @@ function envelope(ctx, start, duration, volume, attack, output) {
   return gain;
 }
 
-function tone(ctx, time, { from, to = from, duration, level, type = 'sine', attack = 0.004 }, output = master) {
+function tone(ctx, time, { from, to = from, duration, level, type = 'sine', attack = 0.004 }) {
   const osc = ctx.createOscillator();
-  const gain = envelope(ctx, time, duration, level, attack, output);
+  const gain = envelope(ctx, time, duration, level, attack, master);
   osc.type = type;
   osc.frequency.setValueAtTime(from, time);
   if (from !== to) osc.frequency.exponentialRampToValueAtTime(to, time + duration);
@@ -113,7 +103,7 @@ function tone(ctx, time, { from, to = from, duration, level, type = 'sine', atta
   osc.stop(time + duration);
 }
 
-function rustle(ctx, time, { from, to = from, duration, level, q = 0.8, attack = 0.004 }, output = master) {
+function rustle(ctx, time, { from, to = from, duration, level, q = 0.8, attack = 0.004 }) {
   const source = ctx.createBufferSource();
   source.buffer = noise;
   const filter = ctx.createBiquadFilter();
@@ -121,7 +111,7 @@ function rustle(ctx, time, { from, to = from, duration, level, q = 0.8, attack =
   filter.Q.value = q;
   filter.frequency.setValueAtTime(from, time);
   if (to !== from) filter.frequency.exponentialRampToValueAtTime(to, time + duration);
-  const gain = envelope(ctx, time, duration, level, attack, output);
+  const gain = envelope(ctx, time, duration, level, attack, master);
   source.connect(filter);
   filter.connect(gain);
   source.onended = () => {
@@ -200,17 +190,6 @@ const effects = {
     }
     rustle(ctx, time + 0.142, { from: 2360, to: 1250, duration: 0.068, level: 0.15, attack: 0.011 });
   },
-  ring(ctx, time, output) {
-    for (const [delay, pitch, overtone] of [[0, 1035, 1740], [0.10, 1175, 1940], [0.49, 1035, 1740], [0.59, 1175, 1940]]) {
-      const strike = time + delay;
-      tone(ctx, strike, { from: pitch, duration: 0.206, level: 0.21, type: 'triangle' }, output);
-      tone(ctx, strike, { from: overtone, duration: 0.132, level: 0.102 }, output);
-      rustle(ctx, strike, { from: 2760, to: 1520, duration: 0.033, level: 0.13 }, output);
-    }
-  },
-  dialTone(ctx, time) {
-    tone(ctx, time, { from: 425, duration: .125, level: .22, attack: .012 });
-  },
   click(ctx, time) {
     rustle(ctx, time, { from: 1450, to: 510, duration: 0.035, level: 0.3 });
     tone(ctx, time, { from: 185, to: 96, duration: 0.044, level: 0.21 });
@@ -244,31 +223,6 @@ const effects = {
     tone(ctx, time + 0.073, { from: 523.25, duration: 0.24, level: 0.18 });
   },
 };
-
-function silencePhoneRing() {
-  ringVersion++;
-  ringOutput?.disconnect();
-  ringOutput = null;
-}
-
-async function startPhoneRing(version) {
-  const ctx = await getAudio();
-  if (!ctx || version !== ringVersion) return;
-  ringOutput = ctx.createGain();
-  ringOutput.connect(master);
-  effects.ring(ctx, ctx.currentTime + 0.012, ringOutput);
-}
-
-function refreshPhoneRing() {
-  silencePhoneRing();
-  if (phoneCall) void startPhoneRing(ringVersion);
-}
-
-export function setPhoneRinging(key) {
-  if (key === phoneCall) return;
-  phoneCall = key;
-  refreshPhoneRing();
-}
 
 export async function playSound(kind, detail) {
   if (!Object.prototype.hasOwnProperty.call(effects, kind)) return false;

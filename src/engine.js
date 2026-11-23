@@ -1,4 +1,4 @@
-import { COMPACT_CASE_OVERRIDES, COMPACT_DAY_COPY, COMPACT_EXTRA_CASES, COMPACT_NIGHT_PHONE, COMPACT_TUTORIAL, DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
+import { COMPACT_CASE_OVERRIDES, COMPACT_DAY_COPY, COMPACT_EXTRA_CASES, COMPACT_NIGHT_RECORD, COMPACT_TUTORIAL, DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
 import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
 import { normalizeFindings } from './inspection-findings.js';
 import { sampleFinding } from './samples.js';
@@ -30,7 +30,7 @@ export const EVIDENCE = {
 };
 
 export function runEvidence(state) {
-  return state.schedule === COMPACT_SCHEDULE ? { ...EVIDENCE, night: COMPACT_NIGHT_PHONE.evidence } : EVIDENCE;
+  return state.schedule === COMPACT_SCHEDULE ? { ...EVIDENCE, night: COMPACT_NIGHT_RECORD.evidence } : EVIDENCE;
 }
 
 export const TRACE_CASE_ID = 7;
@@ -135,7 +135,11 @@ export function restoreRun(state) {
       records = updateRecord(records, supplement.id, { status: 'shipped' });
     }
   }
-  return records === state.records ? state : { ...state, records };
+  const restored = records === state.records ? state : { ...state, records };
+  if (state.schedule === COMPACT_SCHEDULE && (state.phone || state.incomingCalls?.length || state.ringbackArmed)) {
+    return { ...restored, phone: null, incomingCalls: [], ringbackArmed: false };
+  }
+  return restored;
 }
 
 export function getDay(state) {
@@ -333,7 +337,7 @@ function isVisitQueued(state, key) {
 }
 
 export function nightRegisterForReceipt(state) {
-  if (state?.phase !== 'receipt') return null;
+  if (state?.phase !== 'receipt' || state.schedule === COMPACT_SCHEDULE) return null;
   const record = state.records.at(-1);
   const item = getCase(state);
   if (record?.id !== 11 || item?.id !== record.id) return null;
@@ -348,7 +352,7 @@ export function nightRegisterForReceipt(state) {
 }
 
 function visitForKey(state, key) {
-  if (key === 'night' && state.schedule === COMPACT_SCHEDULE) return { ...VISITS.night, line: COMPACT_NIGHT_PHONE.delivery };
+  if (key === 'night' && state.schedule === COMPACT_SCHEDULE) return { ...VISITS.night, line: COMPACT_NIGHT_RECORD.delivery };
   if (key !== REWORK_KEY) return VISITS[key];
   if (state.phase !== 'brief' || state.day !== 1) return null;
   const followup = getReworkFollowup(state);
@@ -732,6 +736,7 @@ function isIncomingKey(key) {
 }
 
 function labRequest(state, caseId) {
+  if (state.schedule === COMPACT_SCHEDULE) return null;
   return state.phoneLog.find((call) => call?.kind === 'lab-request' && call.caseId === caseId);
 }
 
@@ -765,7 +770,7 @@ function incomingQueue(state) {
 }
 
 export function getIncomingCall(state) {
-  if (state?.phase === 'ending') return null;
+  if (state?.phase === 'ending' || state?.schedule === COMPACT_SCHEDULE) return null;
   return incomingQueue(state).find(isIncomingKey) ?? null;
 }
 
@@ -846,6 +851,11 @@ function traceInquirySources(state) {
   return shippingSlip && withdrawal ? [shippingSlip, withdrawal] : [];
 }
 
+export function canFileTraceOriginal(state) {
+  return ['case', 'receipt', 'summary', 'handoff'].includes(state?.phase) && !state.flags.traceDocument &&
+    !isVisitQueued(state, 'trace') && traceInquirySources(state).length === 2;
+}
+
 export function getTraceInquiry(state) {
   const call = state?.phoneLog?.findLast((entry) => retainedCallKey(entry) === 'trace');
   if (!call) return null;
@@ -920,7 +930,7 @@ function dialLabRequest(state, number, npc, { caseId, request, arrived }) {
 }
 
 function dialNight(state, action, number) {
-  const script = state.schedule === COMPACT_SCHEDULE ? COMPACT_NIGHT_PHONE : PHONE[number];
+  const script = PHONE[number];
   if (state.flags.nightDocument) return callResult(state, number, script.npc, [script.received]);
   let delivery = '下次交接，我到窗口递给你。';
   if (activeVisits(state)[0]?.key === 'night') delivery = '回执已经递到窗口了。';
@@ -953,14 +963,16 @@ function dial(state, action) {
 
 function explore(state, key) {
   const item = getCase(state);
-  if (key === 'r071-241' && state.seen.includes(7)) return setFlags(state, { source241: true });
-  if (key === 'r071-248' && state.seen.includes(14)) return setFlags(state, { source248: true });
-  if (key === 'g211' && state.seen.includes(11)) return setFlags(state, { source211: true });
-  if (key === 'clear-selection') return setFlags(state, { source241: false, source248: false, source211: false });
+  if (state.schedule !== COMPACT_SCHEDULE) {
+    if (key === 'r071-241' && state.seen.includes(7)) return setFlags(state, { source241: true });
+    if (key === 'r071-248' && state.seen.includes(14)) return setFlags(state, { source248: true });
+    if (key === 'g211' && state.seen.includes(11)) return setFlags(state, { source211: true });
+    if (key === 'clear-selection') return setFlags(state, { source241: false, source248: false, source211: false });
+    if (key === 'phone-back') return setFlags(state, { phoneBack: true });
+  }
   if (key === 'cat' && (item?.id === 3 || item?.id === 15 || state.seen.includes(3))) return setFlags(state, { cat: true });
   if (key === 'umbrella' && state.seen.includes(16)) return setFlags(state, { umbrella: true });
   if (key === 'pencil' && item?.id === 8 && state.flags.rollingPencil) return setFlags(state, { pencil: true });
-  if (key === 'phone-back') return setFlags(state, { phoneBack: true });
   return state;
 }
 
@@ -1019,10 +1031,12 @@ export function dispatch(state, action) {
         : state;
     case 'ack-visit':
       return acknowledgeVisit(state);
+    case 'file-trace-original':
+      return canFileTraceOriginal(state) ? setFlags(state, { traceDocument: true }) : state;
     case 'dial':
-      return dial(state, action);
+      return state.schedule === COMPACT_SCHEDULE ? state : dial(state, action);
     case 'hang-up':
-      return hangUp(state);
+      return state.schedule === COMPACT_SCHEDULE ? state : hangUp(state);
     case 'answer-call':
       return answerCall(state);
     case 'explore':

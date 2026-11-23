@@ -51,6 +51,8 @@ const gloveReport = [['缝线', '符合'], ['掌面覆层', '符合'], seal];
 const earmuffReport = [visual, ['头带调节', '符合'], ['隔声抽测', '符合'], seal];
 const earmuffChecks = [['检验项目', '外观、头带调节、隔声抽测']];
 const shieldReport = [visual, ['耐冲击', '符合'], seal];
+const g248Checks = [['必查项目', '外观、耐冲击'], ['随货要求', '附本批实验室耐冲击结果']];
+const g211RegisterFields = [['原箱批号', 'G-111'], ['现箱批号', 'G-216'], ['夜班退单', '请核对实物对应批号']];
 
 function label(batch, fields = [], product = '防护护目镜') {
   return { type: 'label', title: '外箱标签', fields: [['批号', batch], ['品名', product], ...fields] };
@@ -412,13 +414,13 @@ export const DAYS = [
           compared: '耐冲击那份，我明早去实验室问。',
           called: '实验室已经记了这批。签好的耐冲击结果一到，我先送窗口。',
         },
-        documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-079', [visual, seal], '外观抽检报告'), order('G-248', [['必查项目', '外观、耐冲击'], ['随货要求', '附本批实验室耐冲击结果']], labContact)], sample: shield,
+        documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-079', [visual, seal], '外观抽检报告'), order('G-248', g248Checks, labContact)], sample: shield,
       },
       {
         id: 11, batch: 'G-211', npc: 'tang', title: '记录差了一行',
         line: '还是昨晚那一摞。这个我对过，应该一样。',
         answer: 'review', reason: '登记的新签号不是本箱', receiptAside: '这摞单昨晚也送来过。我问了两个人，都叫我先送来看看。',
-        documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签登记', [['原箱批号', 'G-111'], ['现箱批号', 'G-216'], ['夜班退单', '请核对实物对应批号'], ['经手窗口', '夜班窗口·孙姐　内线 107']], '右下是前一晚的退单章。')], sample: glove,
+        documents: [label('G-211', [], '作业防护手套'), report('G-111', 'R-081', gloveReport), archive('换签登记', [...g211RegisterFields, ['经手窗口', '夜班窗口·孙姐　内线 107']], '右下是前一晚的退单章。')], sample: glove,
         inspectionReply: { relabel: { register: 2, side: 'current' }, line: '现箱那栏？这张是昨晚夜班退回来的。经手窗口写在下面。' },
       },
       {
@@ -535,9 +537,7 @@ export const COMPACT_TUTORIAL = TUTORIAL.map((step) => step.target === 'pass' ? 
   ...step, line: '单和样你都看过了，这张由你盖「通过」。留底的一联放你桌上。',
 } : step);
 
-export const COMPACT_NIGHT_PHONE = {
-  ...PHONE['107'],
-  found: '周一夜里唐禾来问过。我看那份登记对不上箱号，就退给他了。',
+export const COMPACT_NIGHT_RECORD = {
   delivery: '给你，周一夜班那份。退回的时间和我的签名都在上面。',
   evidence: {
     ...PHONE['107'].evidence,
@@ -552,7 +552,7 @@ export const COMPACT_DAY_COPY = {
   },
   1: {
     subtitle: '上一班留下的单',
-    intro: '老周把桌角的留底往里推了推。「缺报告找实验室，小陈的内线是二零四。夜班的单，上头另有号码。」',
+    intro: '老周把桌角的留底往里推了推。「昨天的单都夹在左边。今天补来的，搁在对应原单后头。」',
   },
   2: {
     subtitle: '今天的装车单',
@@ -572,10 +572,10 @@ export const COMPACT_CASE_OVERRIDES = {
   10: {
     line: '装货台要算今天出库。先给个通过，回执上别记缺项。耐冲击那张明早签了，再补进今天这摞。',
     pressure: 'warning',
+    documents: [label('G-248', [], '防护面屏'), report('G-248', 'R-079', [visual, seal], '外观抽检报告'), order('G-248', g248Checks)],
     receiptLines: { held: '我去把装车单上的二四八划掉。车先走，箱留黄线。', shipping: '好，我这就把回执交给装货台，让他们照今天的算。' },
     reviewAside: {
       compared: '耐冲击那份签好再过窗。我去把今天的装车数改一下。',
-      called: '实验室记上了。今天这张先留着，签好的来了另外收。',
     },
     shownFindingLines: {
       projects: '外观这栏有字，耐冲击还空着。我去跟装货台说这批还要等。',
@@ -584,10 +584,15 @@ export const COMPACT_CASE_OVERRIDES = {
   },
   11: {
     line: '上个班说是抄错了。再退回去，今天又要算我拖单。你能照箱签给我开吗？',
+    documents: [
+      label('G-211', [], '作业防护手套'),
+      report('G-111', 'R-081', gloveReport),
+      archive('换签登记', [...g211RegisterFields, ['退单经手', '夜班窗口·孙姐']], '右下是前一晚的退单章。'),
+    ],
     receiptLines: { held: '那我拿这联去找库管。登记对不上的地方，总得有人把它对上。' },
     inspectionReply: {
       relabel: { register: 2, side: 'current' },
-      line: '箱签是二一一，那一栏确实写二一六。孙姐夜里退过这份，号码在纸上。',
+      line: '箱签是二一一，那一栏确实写二一六。孙姐夜里退过这份，右下还留着她的章。',
     },
   },
   13: {
