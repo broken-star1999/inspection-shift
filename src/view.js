@@ -386,7 +386,7 @@ export function dialog(title, body, type = '', footer = '', { closeText = '×', 
 export function welcome(page, { binaryVerdicts = true } = {}) {
   const play = page === 'play';
   const body = play ? `<div class="welcome-sheet welcome-play-page" data-welcome-page="play">
-    <p class="welcome-lead">先看箱签、送检联和报告，再拿起检样。前两批跟着箭头学怎么查。</p>
+    <p class="welcome-lead">前两批跟着箭头走。点开桌上的单据，核对批号和检验项目，再看检样。</p>
     <dl class="welcome-verdicts">
       <div><dt>通过</dt><dd>实物合格，有效报告对应本批，并覆盖送检要求。</dd></div>
       ${binaryVerdicts ? '<div><dt>不通过</dt><dd>实物不合格，或者材料缺失、对不上或没验齐。材料待核的货留厂待查。</dd></div>'
@@ -395,10 +395,12 @@ export function welcome(page, { binaryVerdicts = true } = {}) {
     <p class="welcome-note">开单后回执会自动递出。${binaryVerdicts ? '' : '想细看或更正，点「留看回执」。'}</p>
   </div>` : `<div class="welcome-sheet welcome-project-page" data-welcome-page="project">
     <p class="welcome-kicker">2026年工学院廉洁文化节 · 智造清风·廉铸匠心</p>
-    <h3 class="welcome-heading">质检员的一天</h3>
-    <p class="welcome-track">活动一「智造廉品」 · 代码方向</p>
-    <p>在虚构的南渡防护用品厂，你要守五天出货窗口。查过样品、核过单据，才知道这批货该盖什么章。</p>
-    <p>有人催你先放行，说缺的报告明天再补。按当时查到的依据开单，下一班才能从回执里看清这批货是怎么处理的。</p>
+    <div class="welcome-identity">
+      <h3 class="welcome-heading">质检员的一天</h3>
+      <p class="welcome-track">活动一「智造廉品」 · 代码方向</p>
+    </div>
+    <p class="welcome-project-copy">在虚构的南渡防护用品厂，你接手五天的出货质检。每天都有货等着装车，来递单的人也各有难处。你签下的回执会留在交接簿里，影响这批货接下来去哪儿。</p>
+    <p class="welcome-theme">「先放行，报告明天补。」有人催你通融时，<strong>廉洁正直</strong>就体现在你怎么签字。按同一套标准办事，如实留下当时的判断，让下一班查得清，也对用上这批产品的人负责。</p>
   </div>`;
   const actions = play ? button('返回介绍', 'welcome-project') : button('下一页 · 玩法', 'welcome-play', 'primary');
   return dialog(play ? '玩法介绍' : '项目介绍', body, 'welcome-modal',
