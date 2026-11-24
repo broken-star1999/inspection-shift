@@ -151,10 +151,39 @@ export const TUTORIAL = [
   { target: 'pass', title: '把单交出去', line: '这箱的单据和样品都齐，可以盖「通过」。', sampleLine: '镜片没有裂痕，扣件也没松。' },
 ];
 
+const DOCUMENT_CHECK_TUTORIAL = [
+  { key: 'label', target: 'label', line: '拿起外箱标签，摊开同一箱的三张单。' },
+  { key: 'label-batch', paper: 'label', field: '批号', line: '记住箱签上的批号，后面都跟它对。点亮处继续。' },
+  { key: 'report-batch', paper: 'report', field: '批号', line: '把报告批号和箱签对照。两处一致，报告才对应这箱货。' },
+  { key: 'order-batch', paper: 'order', field: '批号', line: '送检联的批号也得一致，才知道是这箱的查验要求。' },
+  { key: 'required-paper', paper: 'order', field: '随货材料', line: '看随货材料要求。这箱必须带本批的检验报告。' },
+  { key: 'signature', paper: 'report', field: '签发', line: '到报告底部看签发栏。这里写「已签发」，才能用这份报告。' },
+  { key: 'required-projects', paper: 'order', field: '检验项目', line: '送检联要求查外观和扣合。报告里两项都要有结果。' },
+  { key: 'reported-appearance', paper: 'report', field: '外观', line: '找到报告的外观结果。这项写「符合」，等会儿再看实物。' },
+  { key: 'reported-clasp', paper: 'report', field: '扣合', line: '再看扣合结果。这项也写「符合」，稍后还要轻拉扣件。' },
+  { key: 'pick-sample', target: 'sample', line: '单据核齐了。拿起检样，先看正面的镜片。' },
+];
+
+const CLASP_CHECK_TUTORIAL = {
+  key: 'sample', target: 'sample', line: '看背面的两侧扣件。', claspLine: '按合两侧扣件，再轻拉。扣得牢就不会松脱。',
+};
+
+export const FIRST_BATCH_TUTORIAL = [
+  ...DOCUMENT_CHECK_TUTORIAL,
+  { key: 'lens', target: 'sample', line: '迎着灯看镜片中间和边缘，找裂纹或划伤。看完点镜片翻面。' },
+  CLASP_CHECK_TUTORIAL,
+  { key: 'stamp', target: 'pass', line: '单据齐全，镜片无裂痕，扣件也没松。现在选一枚章。' },
+];
+
+export const SECOND_BATCH_TUTORIAL = [
+  ...DOCUMENT_CHECK_TUTORIAL,
+  { key: 'film', target: 'sample', line: '灯下有道白痕。揭开膜角，看白痕是留在镜片上，还是跟膜抬起来。' },
+  { key: 'lens', target: 'sample', line: '白痕跟着膜起来了。看露出的镜片有没有裂纹或划伤，再点镜片翻面。' },
+  CLASP_CHECK_TUTORIAL,
+  { key: 'stamp', target: 'pass', line: '按你核过的单据和实物，选一枚章。' },
+];
+
 export const DOCUMENT_TUTORIAL = '先对箱签和报告的批号，再看签发和检验项目。看完拿起检样。';
-export const FILM_BENCH_TUTORIAL = '拿起检样，看看那道白痕。';
-export const FILM_TUTORIAL = '揭开膜角，看白痕会不会跟着起来。';
-export const FILM_STAMP_TUTORIAL = '白痕跟着膜起来了。选一枚章。';
 
 export const G205_SUPPLEMENT_REQUEST = {
   shown: '就这两张，报告没夹进来。你开审查，我拿补件联去趟实验室。',
@@ -269,6 +298,39 @@ export const HANDOFF = {
   normal: { title: '周五交班', line: '老周把交接单翻到最后一页。「该留下一班的都在这儿。行，你下班吧。」', stamp: '本周交班完成' },
   investigation: { title: '第二张复检单', line: '老周把两份原件摊在交接板上，圈住二四一。「这批单独复检。货在哪儿，按交接回执办。」', stamp: 'G-241 追加复检' },
   escaped: { title: '车已经走了', line: '老周按住要卷起来的出货回执。「把批号和去向记上，下一班接着查。」', stamp: '待接收方确认' },
+};
+
+export const ENDING_AFTERMATH = {
+  accepted: {
+    scene: '下周一 · 出货窗', speaker: 'luo',
+    line: '收货那边的签收联到了。我夹进交接簿，你看，单和货都对得上。下一箱我照常送过来。',
+    comment: '这一周无事发生。回执一张张归档，下一班照常开工。做质检，能这样平平淡淡地交班，就是最好的结果。',
+  },
+  stopped: {
+    scene: '下周一 · 停工后的出货窗', speaker: 'zhou',
+    line: '到货那批被拦下了，夜班领不到护具，工位停了一整班。几个人翻完了整排库存，天亮才排出替换批次。收货方要查的第一张单，就是你盖了通过的那张。',
+    comment: '你盖下「通过」只花了一秒。那一整班的人等到天亮，也没能开工。现在回执送回窗口，放行依据得由你说清楚。',
+  },
+  unresolved: {
+    scene: '下周一 · 仍亮着灯的出货窗', speaker: 'zhou',
+    line: '装货的和收货的对了一夜批号，还是没法把这批从待查单上划掉。原单就压在交接簿最上面。下一班来了，头一件事是追这笔货。',
+    comment: '你在回执上盖了「通过」。现在厂里和收货方都在找能对上这批货的材料。追到最后，还得回到窗口问你，当时看到了什么。',
+  },
+  early: {
+    scene: '下周一 · 待查桌前', speaker: 'zhou',
+    line: '接班的人把出库单和补件摊开，签发日期比出库晚。昨晚两边重对了一遍货单，出货台到天亮还在等回复。原来那枚章，得留着给他们查。',
+    comment: '补验报告签发晚于出库。原回执留在交接簿里。等收货方来复核，得由你说清当时凭什么放行。',
+  },
+  delayed: {
+    scene: '下周一 · 装货台边', speaker: 'luo',
+    line: '这批重新查过，符合放行要求。原先那班车已经发了，我把它排进今天的单，等窗口再核一遍。',
+    comment: '拦住问题件，也让依据齐全的合格品按时走。回执应写清拦下这批的理由。',
+  },
+  held: {
+    scene: '下周一 · 厂内隔离区', speaker: 'xu',
+    line: '这箱的留厂单我看到了。我先按回执找缺的那项材料，齐了再送来复查。',
+    comment: '依据还没齐时留厂待查，并把缺项留在回执上，下一班就知道从哪里查起。',
+  },
 };
 
 export const EASTER_EGGS = {

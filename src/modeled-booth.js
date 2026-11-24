@@ -17,6 +17,7 @@ const catTravelMs = 900;
 const slipFeedStartMs = 42;
 const evidencePassingMs = 590;
 const cargoStart = { x: -1.05, z: -.04, angle: -.115 };
+const cartonStart = { ...cargoStart, x: 2.2 };
 const cargoDestinations = {
   ready: cargoStart,
   shipping: { x: 3.92, z: -.045, angle: .035 },
@@ -786,7 +787,8 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     const from = sameBatch ? cargoPose(now) : null;
     const continuous = sameBatch && from?.visible;
     const moving = next && next.route !== 'ready' && (next.animate || continuous) && !reduced.matches;
-    cargoFrom = continuous ? from : cargoStart;
+    const start = next?.inspectable ? cartonStart : cargoStart;
+    cargoFrom = continuous ? from : start;
     cargo = next;
     const destination = cargoDestination();
     const alreadyThere = destination?.x === cargoFrom.x && destination.z === cargoFrom.z && destination.angle === cargoFrom.angle;
@@ -955,6 +957,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
   }
 
   function cargoDestination() {
+    if (cargo?.route === 'ready' && cargo.inspectable) return cartonStart;
     return cargo ? cargoDestinations[cargo.route] : null;
   }
 

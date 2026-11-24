@@ -16,12 +16,13 @@ function extraCaseRoll(seed, dayIndex) {
   return ((hash ^ (hash >>> 16)) >>> 0) % 100;
 }
 
-export function getCompactCaseIds(seed, dayIndex) {
+export function getCompactCaseIds(seed, dayIndex, batchesPerDay) {
   if (!Number.isInteger(dayIndex) || dayIndex < 0 || dayIndex >= COMPACT_FIXED_CASE_IDS.length) return [];
 
   const [first, second, last] = COMPACT_FIXED_CASE_IDS[dayIndex];
   const extras = extraCaseIds[dayIndex];
   const roll = extraCaseRoll(seed, dayIndex);
+  if (batchesPerDay === 4) return [first, second, extras[roll % extras.length], last];
   if (roll < 75) return [first, second, last];
   if (roll < 95) return [first, second, extras[roll % 2], last];
   return [first, second, ...extras, last];

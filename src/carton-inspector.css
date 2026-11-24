@@ -1,5 +1,5 @@
 .carton-model {
-  --carton-width: clamp(6.4rem, 21cqw, 12rem);
+  --carton-width: clamp(6.4rem, min(21cqw, 100cqh - 13rem), 12rem);
   --carton-height: calc(var(--carton-width) * .57);
   --carton-depth: calc(var(--carton-width) * .65);
   --carton-board: repeating-linear-gradient(102deg, transparent 0 7px, #65472112 7px 8px, transparent 8px 13px);

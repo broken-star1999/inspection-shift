@@ -679,6 +679,22 @@
 .sample-stage .clasp-handle { inset: auto .52rem .43rem auto; }
 .sample-stage .pack-handle { inset: .42rem .52rem auto auto; }
 .sample-stage .sample-object .film-handle { inset: 0 -3% auto auto; }
+#game .sample-surface .sample-stage .lens-look-handle.instructed {
+  inset: 30% 11% 23%;
+  max-inline-size: none;
+  min-block-size: 2.75rem;
+  place-items: end center;
+  padding: .18rem;
+  border-color: #e7c17e;
+  background: #fee6b012;
+  box-shadow: none;
+}
+.lens-look-handle > span {
+  padding: .17rem .38rem;
+  border-radius: 2px;
+  background: #2c2519ef;
+  color: #fff0c5;
+}
 .sample-stage .sample-object > .pack-handle {
   inset: auto -.75rem 9% auto;
   min-inline-size: 2.75rem;

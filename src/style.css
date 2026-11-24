@@ -1080,6 +1080,92 @@ button:disabled { opacity: .46; }
 }
 
 .ending-card { inline-size: min(42rem, 100%); }
+.ending-card:has(.ending-aftermath) { inline-size: min(49rem, 100%); }
+.ending-aftermath {
+  display: grid;
+  grid-template-columns: clamp(4rem, 14cqw, 7.6rem) minmax(0, 1fr);
+  margin-block-start: .34rem;
+  overflow: hidden;
+  border: 1px solid #6f795f;
+  border-inline-start: 3px solid #82936c;
+  background: linear-gradient(100deg, #13271a80, #15271dec 37%, #17241f), var(--ending-room) center 47% / cover;
+  color: #f3e5c7;
+}
+.ending-aftermath[data-attention] { border-inline-start-color: #bb775a; }
+.ending-after-portrait { position: relative; min-block-size: 6.8rem; overflow: hidden; }
+.ending-after-portrait img {
+  position: absolute;
+  inset: .2rem 0 0;
+  inline-size: 100%;
+  block-size: 127%;
+  object-fit: contain;
+  object-position: center top;
+  image-rendering: pixelated;
+}
+.ending-after-copy { align-self: center; padding: .53rem .75rem .53rem .24rem; }
+.ending-after-time { color: #d9c69b; font-size: .74rem; }
+.ending-after-time b { margin-inline-start: .48em; color: #f5dfaf; font-family: var(--mono); }
+.ending-card .ending-after-copy p { margin: .35rem 0 0; font-size: clamp(.84rem, 1.58cqw, 1.02rem); line-height: 1.52; }
+.ending-after-copy strong { margin-inline-end: .16em; color: #ffdc9d; }
+.ending-comment {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: .58rem;
+  margin-block-start: .52rem;
+  padding: .44rem .6rem;
+  border-inline-start: 2px solid #a08a5e;
+  background: #fff0cb77;
+  color: #5b442f;
+}
+.ending-comment > b { font-size: .82rem; white-space: nowrap; }
+.ending-card .ending-comment p { margin: 0; font-size: clamp(.77rem, 1.45cqw, .92rem); line-height: 1.45; }
+.ending-case {
+  --ending-ink: #405642;
+  --ending-line: #8e946d;
+  margin-block-start: .36rem;
+  padding: .58rem .68rem;
+  border: 1px solid #af9d76;
+  border-inline-start: 3px solid var(--ending-line);
+  background: #fff0cdab;
+  box-shadow: inset 0 1px #fff6da, 0 .16rem .44rem #49382332;
+}
+.ending-case[data-attention] { --ending-ink: #783a2e; --ending-line: #a06849; }
+.ending-case-batch {
+  display: flex;
+  align-items: baseline;
+  gap: .48rem;
+  color: var(--ending-ink);
+  font-size: .77rem;
+}
+.ending-case-batch b { font: 850 1rem / 1.2 var(--mono); }
+.ending-case-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .44rem;
+  margin: .42rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ending-case-steps li {
+  display: grid;
+  align-content: start;
+  gap: .16rem;
+  min-inline-size: 0;
+  padding: .37rem .42rem;
+  border-block-start: 2px solid var(--ending-line);
+  background: #ab925c20;
+  font-size: clamp(.75rem, 1.45cqw, .89rem);
+  line-height: 1.32;
+}
+.ending-case-steps span { color: #5e4d35; font-size: .73rem; }
+.ending-case-steps b { color: var(--ending-ink); }
+.ending-card .ending-case-note { margin: .38rem 0 0; font-size: .8rem; line-height: 1.4; }
+.ending-details {
+  margin-block: .38rem .62rem;
+  border-block-start: 1px solid #aa956e;
+}
+.ending-details > summary { padding: .38rem .18rem; color: #5d442e; font-weight: 760; cursor: pointer; }
 .ending-history-label {
   width: fit-content;
   margin: 0;
@@ -1544,6 +1630,15 @@ button:disabled { opacity: .46; }
 
 @container workstation (max-height: 390px) {
   .ending-card { padding-block: .72rem; }
+  .ending-card:has(.ending-aftermath) { padding-block: .48rem; }
+  .ending-after-portrait { min-block-size: 5.3rem; }
+  .ending-after-copy { padding-block: .39rem; }
+  .ending-card .ending-after-copy p { margin-block: .21rem 0; line-height: 1.38; }
+  .ending-comment { gap: .42rem; margin-block-start: .34rem; padding-block: .32rem; }
+  .ending-case { padding: .38rem .46rem; }
+  .ending-case-steps { gap: .28rem; margin-block-start: .27rem; }
+  .ending-case-steps li { padding: .25rem .31rem; }
+  .ending-card .ending-case-note { margin-block: .3rem 0; }
   .ending-card p { margin-block: .34rem .54rem; line-height: 1.45; }
   .ending-card .ending-note { padding-block: .38rem; }
   .ending-card .ending-receipt { min-block-size: 2.12rem; }

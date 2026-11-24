@@ -6,7 +6,7 @@ import { bindViewport, toggleFullscreen, stagePoint } from './devices.js';
 import { bindAudio, playSound, isMuted, setMuted } from './audio.js';
 import { captureDeskProjection } from './desk-projection.js';
 import { ARRIVAL_APPROACH_MS, CARGO_DEPARTURE_MS, RECEIPT_FEED_MS, RECEIPT_HANDOVER_MS } from './booth-motion.js';
-import { freshInteraction, captureInspectionProgress, restoreInspectionProgress, tutorialActionComplete } from './inspection-progress.js';
+import { freshInteraction, captureInspectionProgress, restoreInspectionProgress } from './inspection-progress.js';
 import { readFindings } from './inspection-findings.js';
 import { reportWorkspace, TRACE_INQUIRY_KEY } from './report-workspace.js';
 import { completedShiftHistory, collectedEndingIds, createWeekId } from './completed-shifts.js';
@@ -430,12 +430,17 @@ function positionTutorialCallout(target, bounds, stage) {
   const centerY = y + (bounds.h - h) * .5;
   const stageRight = stage.x + stage.w - w - 9;
   const stageBottom = stage.y + stage.h - h - 9;
-  const gap = key === 'docs-sample' ? 12 : 22;
+  const gap = key === 'docs-sample' || key.startsWith('paper-') ? 12 : 22;
   const candidates = [
     [centerX, y - h - gap], [x - w - gap, centerY], [right + gap, centerY], [centerX, bottom + gap],
     [right + gap, y - h - 8], [x - w - gap, y - h - 8], [right + gap, bottom + 8], [x - w - gap, bottom + 8],
     [stage.x + 9, stage.y + 9], [stageRight, stage.y + 9], [stage.x + 9, stageBottom], [stageRight, stageBottom],
   ];
+  const paper = key.startsWith('paper-') && target.closest('.sheet');
+  if (paper) {
+    const abovePaper = stageBounds(paper).y - h - 8;
+    candidates.unshift([centerX, abovePaper], [x - w - gap, abovePaper], [right + gap, abovePaper]);
+  }
   const controls = panel
     ? modalLayer.querySelectorAll('.first-documents .sheet h3, .first-documents .fields > div, .sample-findings, .sample-object, .desk-dialogue, button:enabled')
     : booth.querySelectorAll('.speaker, .speech > p, button:enabled');
@@ -493,8 +498,10 @@ function positionTutorialPointer() {
   const above = { x: middleX, y: y - 19, angle: 90 };
   const right = { x: x + w + 19, y: middleY, angle: 180 };
   const below = { x: middleX, y: y + h + 19, angle: 270 };
-  const directions = panel ? [above, left, right, below] : [left, above, right, below];
-  const guidance = [callout, ...[...playfield.querySelectorAll('.room-hud .speech, .desk-dialogue')].map(stageBounds)];
+  const directions = key.startsWith('paper-') ? [right, left, above, below]
+    : panel ? [above, left, right, below] : [left, above, right, below];
+  const dialogue = [...playfield.querySelectorAll('.room-hud .speech, .desk-dialogue')].filter(visibleGuideTarget);
+  const guidance = [callout, ...dialogue.map(stageBounds)];
   const inStage = directions.filter(({ x, y, angle }) => {
     const horizontal = angle % 180 === 0;
     const marginX = horizontal ? 17 : 13;
@@ -618,7 +625,8 @@ function syncReceiptHandover() {
 }
 
 function tutorialStep() {
-  return run?.phase === 'case' && getCase(run)?.id === 1 ? getTutorialStep(run) : null;
+  if (run?.phase !== 'case') return null;
+  return run.binaryVerdicts || getCase(run)?.id === 1 ? getTutorialStep(run) : null;
 }
 
 function showPencil(item) {
@@ -889,6 +897,7 @@ function render(resumeScroll, resumeScrollLeft = 0, resumeBoardScroll) {
   const settingDownCloseSheet = run?.phase === 'summary' &&
     (root.dataset.phase === 'receipt' || root.dataset.phase === 'summary') &&
     !screenLayer.querySelector('.shift-close-sheet');
+  const showingEnding = run?.phase === 'ending' && root.dataset.phase !== 'ending' && !reviewingHistory;
   root.dataset.phase = arrival ? 'waiting' : (run?.phase ?? 'home');
   if (root.dataset.phase !== 'case') hideTutorialGuide();
   if (arrival) root.dataset.arrivalStage = arrival.stage;
@@ -901,22 +910,18 @@ function render(resumeScroll, resumeScrollLeft = 0, resumeBoardScroll) {
   soundToggle.setAttribute('aria-label', isMuted() ? '开启音效' : '关闭音效');
   const item = windowCase();
   const step = item ? tutorialStep() : null;
-  const filmPhase = !panel && run?.phase === 'case' &&
-    view.filmGuidePhase(item, { returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked });
-  const filmCue = filmPhase === 'inspect';
-  const deskGuide = step;
   const visit = arrival ? null : activeVisit();
   const previous = item && run.phase === 'case' ? getPreviousReceipt(run, item) : null;
   hud.innerHTML = run && !arrival && !closingShot && (run.phase !== 'summary' || visit)
-    ? view.room(run, item, deskGuide, item?.pressureLine, visit, previous, filmCue, filmPhase === 'stamp')
+    ? view.room(run, item, step, item?.pressureLine, visit, previous)
     : '';
   const preview = arrival?.stage === 'approach' && root.dataset.modeled !== 'true' ? arrival.next : null;
   const previewVisit = preview ? activeVisit(preview) : null;
   const previewItem = preview && !previewVisit ? getCase(preview) : null;
   const delivered = visit ? visitDocument(visit) : visitDocument(previewVisit, preview);
   const retainedPaper = waitingRegister();
-  desktop.innerHTML = delivered ? view.visitSlip(delivered, visit ?? previewVisit, panel === 'visit') : item ? view.desk(run, item, deskGuide, {
-    ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), filmCue, ...heldObjects(item),
+  desktop.innerHTML = delivered ? view.visitSlip(delivered, visit ?? previewVisit, panel === 'visit') : item ? view.desk(run, item, step, {
+    ...interaction, pencil: showPencil(item), stampBlocked: Boolean(panel), ...heldObjects(item),
   }) : previewItem ? view.desk(preview, previewItem, null, { ...freshInteraction(), stampBlocked: true })
     : retainedPaper && !retainedPaper.held ? view.retainedRegister(retainedPaper) : '';
   fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
@@ -936,11 +941,20 @@ function render(resumeScroll, resumeScrollLeft = 0, resumeBoardScroll) {
       { translate: '0 0', rotate: '0deg', opacity: 1 },
     ], 300);
   }
+  if (showingEnding) {
+    animateOnDesk(screenLayer.querySelector('.ending-aftermath'), [
+      { translate: '0 .9rem', opacity: .56 },
+      { translate: '0 0', opacity: 1 },
+    ], 290);
+  }
   screenLayer.querySelectorAll('.ending-card details').forEach((details, index) => { details.open = openEndingDetails[index] === true; });
   if (recapScroll !== undefined) screenLayer.querySelector('.summary-body, .ending-body')?.scrollTo(0, recapScroll);
   setScene();
   renderModal(item, step);
   if (resumeScroll !== undefined) workspaceBody()?.scrollTo(resumeScrollLeft, resumeScroll);
+  if (panel === 'docs' && step?.paper && !glancedPanel) {
+    modalLayer.querySelector('[data-act="tutorial-paper"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
   if (resumeBoardScroll !== undefined) modalLayer.querySelector('.handoff-board')?.scrollTo(0, resumeBoardScroll);
   persistRun();
   syncReceiptHandover();
@@ -1043,7 +1057,7 @@ function renderModal(item = windowCase(), step = item ? tutorialStep() : null) {
   const correctionFindings = correction ? selectedCorrectionFindings(correction, correctionDraft.keys) : null;
   const batchPapers = panel === 'archive' || panel === 'handoff' ? filedBatchPapers() : [];
   const supportingBasis = correction && filedCorrectionBasis(correction);
-  const work = { ...interaction, binaryVerdicts, returningWeek: run?.sampleSet === 4, supplementRequest: run?.supplementRequestDraft };
+  const work = { ...interaction, binaryVerdicts, supplementRequest: run?.supplementRequestDraft };
   let markup = '';
   if (isWelcomePanel()) {
     markup = view.welcome(panel === 'welcome-project' ? 'project' : 'play', { binaryVerdicts });
@@ -1379,18 +1393,19 @@ function enter(restore) {
     visitorWaiting = resumeWaitingTools && arrivalReady === true;
   } else {
     const lastCompleted = saved?.phase === 'ending' ? saved : completedShifts.values().next().value;
-    const schedule = { schedule: COMPACT_SCHEDULE, binaryVerdicts: true };
+    const schedule = { schedule: COMPACT_SCHEDULE, binaryVerdicts: true, batchesPerDay: 4 };
     const newWeek = endings.length ? createFollowingRun(lastCompleted, undefined, schedule) : createRun(undefined, schedule);
     run = { ...newWeek, weekId: createWeekId() };
     interaction = freshInteraction();
   }
   panel = lookup?.panel ?? workspace?.panel ?? null;
-  if (tutorialStep() && panel === 'docs') {
-    const documents = getCase(run)?.documents;
-    readDocument(documents?.[viewedDocument()]);
-    readDocument(documents?.[interaction.compare]);
+  const step = tutorialStep();
+  if (panel === 'sample' && (step?.key === 'label' || step?.paper)) panel = null;
+  if (step && panel === 'docs') {
+    readDocument(getCase(run)?.documents[viewedDocument()]);
   }
-  advanceTutorial();
+  if (panel === 'sample' && step?.key === 'pick-sample') takeTutorialSample();
+  if (tutorialStep()?.key === 'sample' && interaction.inspection.tug) update({ type: 'tutorial', key: 'sample' }, false);
   modalOpener = panel === 'docs' ? { act: 'doc', i: String(viewedDocument()) }
     : panel ? { act: panel, fixture: panel } : null;
   archiveReturn = lookup?.archiveReturn?.panel === 'phone' ? null : lookup?.archiveReturn ?? null;
@@ -1670,15 +1685,6 @@ function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready
     }, RECEIPT_HANDOVER_MS);
   } else arrivalTimer = setTimeout(advance, duration - ARRIVAL_APPROACH_MS);
   render(scrollTop, scrollLeft);
-}
-
-function advanceTutorial({ openingSample = false } = {}) {
-  const item = getCase(run);
-  let step = tutorialStep();
-  while (step && ((openingSample && ['report', 'signature'].includes(step.key)) || tutorialActionComplete(step.key, interaction, item))) {
-    if (!update({ type: 'tutorial', key: step.key }, false)) break;
-    step = tutorialStep();
-  }
 }
 
 function readDocument(doc) {
@@ -1994,17 +2000,21 @@ function carryDocumentsToTool() {
   interaction.documentsScroll = papers ? { scrollTop: papers.scrollTop, scrollLeft: papers.scrollLeft } : null;
 }
 
+function takeTutorialSample() {
+  if (!update({ type: 'tutorial', key: 'pick-sample' }, false)) return;
+  interaction.inspection = freshInteraction().inspection;
+  interaction.filmChecked = false;
+}
+
 function openSample(opener) {
   const item = windowCase();
   if (run?.phase !== 'case' || !item) return;
   const step = tutorialStep();
-  if (step?.key === 'label') {
-    toast('先拿起桌上的箱签');
+  if (step?.key === 'label' || step?.paper) {
+    toast(step.paper ? '跟着亮处核完单据，再拿检样。' : '先拿起桌上的箱签。');
     return;
   }
-  if (step) advanceTutorial({ openingSample: true });
-  const turnToClasp = tutorialStep()?.key === 'sample' && !interaction.inspection.back;
-  if (turnToClasp) interaction.inspection.back = true;
+  if (step?.key === 'pick-sample') takeTutorialSample();
   carryDocumentsToTool();
   interaction.referenceDoc = null;
   if (interaction.returnToDocs) {
@@ -2020,10 +2030,6 @@ function openSample(opener) {
   }
   playSound('slide');
   openPanel('sample', opener);
-  if (turnToClasp) {
-    const face = modalLayer.querySelector('.sample-stage .sample-object img');
-    animateOnDesk(face, [{ transform: 'perspective(600px) rotateY(-55deg)' }, { transform: 'perspective(600px) rotateY(0deg)' }], 225);
-  }
 }
 
 function checkCarton(action, opener, rotationFrom) {
@@ -2086,6 +2092,7 @@ function checkSample(act) {
   if (!spec) return;
   const step = tutorialStep();
   const waitingForClasp = step && step.key !== 'sample' && step.key !== 'stamp';
+  const flip = act === 'sample-flip' || act === 'sample-lens';
   const packed = spec.kind === 'yellow' && !sample.unpacked;
   const inGauge = sampleInGauge(spec, sample);
   const previousJaw = act === 'sample-gauge-clamp' && modalLayer.querySelector('.gauge-moving-jaw');
@@ -2097,14 +2104,22 @@ function checkSample(act) {
     case 'sample-image-retry':
       retrySampleImage(modalLayer.querySelector('.sample-stage'));
       return;
+    case 'sample-lens':
+      if (step?.key !== 'lens' || sample.back) return;
+      sample.back = true;
+      update({ type: 'tutorial', key: 'lens' }, false);
+      break;
     case 'sample-flip':
-      if (packed || inGauge) return;
+      if (packed || inGauge || step?.key === 'lens' || (step?.key === 'film' && !sample.back)) return;
       sample.back = !sample.back;
       break;
     case 'sample-film':
       if (sample.back || !['film', 'crack'].includes(spec.kind)) return;
       sample.film = !sample.film;
-      if (item.id === 2 && sample.film) interaction.filmChecked = true;
+      if (item.id === 2 && sample.film) {
+        interaction.filmChecked = true;
+        if (step?.key === 'film') update({ type: 'tutorial', key: 'film' }, false);
+      }
       break;
     case 'sample-clasp':
       if (waitingForClasp || !sample.back || sample.clasp || !sampleAppearance(spec).clasp) return;
@@ -2116,13 +2131,13 @@ function checkSample(act) {
       sample.clasp = true;
       sample.tug = true;
       sound = 'tug';
-      advanceTutorial();
+      update({ type: 'tutorial', key: 'sample' }, false);
       break;
     case 'sample-tug':
       if (waitingForClasp || !sample.back || !sample.clasp || sample.tug || !sampleAppearance(spec).clasp) return;
       sample.tug = true;
       sound = ['loose', 'broken'].includes(spec.kind) ? 'claspRelease' : 'tug';
-      advanceTutorial();
+      if (step?.key === 'sample') update({ type: 'tutorial', key: 'sample' }, false);
       break;
     case 'sample-measure':
       if (!spec.reading || sample.measured) return;
@@ -2187,13 +2202,10 @@ function checkSample(act) {
   if (act === 'sample-basis') modalLayer.querySelector('.sample-surface .evidence-show-control')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (act === 'sample-measure' && sample.gaugeLoaded) focusControl(modalLayer, { act: 'sample-gauge-clamp' });
   if (act === 'sample-gauge-clamp' && !sample.measured) focusControl(modalLayer, { act: 'sample-measure' });
-  if (step?.key === 'sample' && act === 'sample-flip' && sample.back) focusControl(modalLayer, { act: 'sample-clasp-test' });
-  if (act === 'sample-clasp-test' || (act === 'sample-film' && item.id === 2 && interaction.filmChecked)) {
+  if (flip && sample.back && tutorialStep()?.key === 'sample') focusControl(modalLayer, { act: 'sample-clasp-test' });
+  if (act === 'sample-clasp-test') {
     modalLayer.querySelector('[data-guide-target="stamp-choice"]')?.focus({ preventScroll: true });
   }
-  if (act === 'sample-flip' && !sample.back && view.filmLessonPending(item, {
-    returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked,
-  })) focusControl(modalLayer, { act: 'sample-film' });
   if (interaction.thicknessOpen && (act === 'sample-thickness' || (act === 'sample-gauge-clamp' && sample.measured))) {
     modalLayer.querySelector('.sample-inspector')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
@@ -2207,8 +2219,8 @@ function checkSample(act) {
         animateOnDesk(element, [{ visibility: 'hidden' }, { visibility: 'hidden' }], jawDuration);
       }
     }
-  } else if (act === 'sample-flip') {
-    const face = spec.reading || item.id === 1 ? graphic?.querySelector('img') : graphic;
+  } else if (flip) {
+    const face = spec.reading || act === 'sample-lens' ? graphic?.querySelector('img') : graphic;
     animateOnDesk(face, [{ transform: 'perspective(600px) rotateY(-57deg)', opacity: .8 }, { transform: 'perspective(600px) rotateY(0deg)', opacity: 1 }], 220);
   } else if (act === 'sample-film' && previousFold) {
     const film = modalLayer.querySelector('.sample-film-sheet');
@@ -2238,12 +2250,6 @@ function stamp(value) {
   const step = tutorialStep();
   if (step && step.key !== 'stamp') {
     toast(tutorialPointerTarget()?.dataset.guideCue ?? '先跟老周查完这批');
-    return;
-  }
-  if (run.binaryVerdicts && view.filmLessonPending(windowCase(), {
-    returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked,
-  })) {
-    toast('先揭开保护膜，查看白痕');
     return;
   }
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
@@ -2461,7 +2467,6 @@ function closePanel({ receiveWaiting = false } = {}) {
   const toBoard = previousPanel?.panel === 'handoff';
   render(toBoard ? previousPanel.detailScroll : previousPanel?.scrollTop, 0, toBoard ? previousPanel.scrollTop : undefined);
   if (leftWelcome && document.activeElement === document.body) screenLayer.querySelector('.primary')?.focus({ preventScroll: true });
-  if (!panel && tutorialStep()?.key === 'stamp') focusControl(desktop, { act: 'stamp', key: 'pass' });
   if (previousPanel) {
     if (!toBoard) {
       const body = workspaceBody();
@@ -2573,6 +2578,12 @@ root.addEventListener('click', (event) => {
     }
     case 'doc':
       if (run && (!pointerClick || !target.matches('#desk [data-drag="paper"]'))) chooseDoc(index, target);
+      break;
+    case 'tutorial-paper':
+      if (panel === 'docs' && tutorialStep()?.paper && update({ type: 'tutorial', key }, false)) {
+        playSound('click');
+        render();
+      }
       break;
     case 'doc-focus':
       if (panel !== 'docs') break;

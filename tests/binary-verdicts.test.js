@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  COMPACT_SCHEDULE, TUTORIAL, archivedReportSources, canFileTraceOriginal, canRecheckReceipt, createFollowingRun, createRun,
+  COMPACT_SCHEDULE, archivedReportSources, canFileTraceOriginal, canRecheckReceipt, createFollowingRun, createRun,
   dispatch, getCase, getDay, getEnding, getIntegrityTrail, getPreviousReceipt, getShipmentAcceptance,
   getShipmentException, getTutorialStep, restoreRun,
 } from '../src/engine.js';
@@ -13,8 +13,12 @@ const act = (run, type, details) => dispatch(run, { type, ...details });
 function playUntil(run, stop, decisions = {}) {
   while (!stop(run)) {
     const item = getCase(run);
-    if (run.binaryVerdicts && run.phase === 'case' && item?.id === 1 && run.sampleSet !== 4) {
-      for (const { key } of TUTORIAL.slice(run.tutorial, -1)) run = act(run, 'tutorial', { key });
+    if (run.binaryVerdicts && run.phase === 'case') {
+      for (let step = getTutorialStep(run); step && step.key !== 'stamp'; step = getTutorialStep(run)) {
+        const guided = act(run, 'tutorial', { key: step.key });
+        assert.notEqual(guided, run, step.key);
+        run = guided;
+      }
     }
     const verdict = run.binaryVerdicts && item?.answer === 'review' ? 'fail' : item?.answer;
     const next = run.event ? act(run, 'ack-visit') : act(run, actions[run.phase], { value: decisions[item?.id] ?? verdict });
@@ -27,12 +31,22 @@ function playUntil(run, stop, decisions = {}) {
 const onCase = (id) => (run) => run.phase === 'case' && getCase(run)?.id === id;
 const finish = (run) => playUntil(run, (state) => state.phase === 'ending');
 
-test('the first binary batch requires coaching before either verdict and saves completion with the receipt', () => {
+test('the first binary batch walks each real field and both sample checks before either verdict', () => {
   let run = act(createRun(0, options), 'start-day');
   assert.ok(onCase(1)(run));
-  assert.equal(act(run, 'tutorial', { key: 'sample' }), run);
-  for (const key of ['label', 'report', 'signature', 'sample']) {
-    assert.equal(getTutorialStep(run).key, key);
+  const sequence = [
+    'label', 'label-batch', 'report-batch', 'order-batch', 'required-paper', 'signature', 'required-projects',
+    'reported-appearance', 'reported-clasp', 'pick-sample', 'lens', 'sample',
+  ];
+  for (const key of sequence) {
+    const step = getTutorialStep(run);
+    assert.equal(step.key, key);
+    if (step.paper) {
+      const document = getCase(run).documents.find(({ type }) => type === step.paper);
+      assert.ok(document?.fields.some(([field]) => field === step.field), key);
+      assert.equal(act(run, 'tutorial', { key: 'pick-sample' }), run);
+    }
+    assert.equal(act(run, 'tutorial', { key: 'stamp' }), run);
     assert.equal(act(run, 'stamp', { value: 'pass' }), run);
     assert.equal(act(run, 'stamp', { value: 'fail' }), run);
     run = restoreRun(JSON.parse(JSON.stringify(act(run, 'tutorial', { key }))));
@@ -41,7 +55,7 @@ test('the first binary batch requires coaching before either verdict and saves c
   for (const value of ['pass', 'fail']) {
     const receipt = act(run, 'stamp', { value });
     assert.equal(receipt.phase, 'receipt');
-    assert.equal(receipt.tutorial, TUTORIAL.length);
+    assert.equal(receipt.tutorial, 'done');
     assert.equal(receipt.records[0].decision, value);
     assert.equal(restoreRun(receipt), receipt);
   }
@@ -49,17 +63,93 @@ test('the first binary batch requires coaching before either verdict and saves c
 
 test('restored first-batch progress is usable and a subsequent week skips coaching', () => {
   const first = act(createRun(0, options), 'start-day');
-  for (const tutorial of [undefined, -1, TUTORIAL.length, '4']) {
+  for (const tutorial of [undefined, -1, 5, '4', 'done']) {
     const restored = restoreRun({ ...first, tutorial });
     assert.equal(getTutorialStep(restored).key, 'label');
-    assert.equal(act(restored, 'tutorial', { key: 'label' }).tutorial, 1);
+    assert.equal(act(restored, 'tutorial', { key: 'label' }).tutorial, 'label-batch');
   }
-  const old = restoreRun({ ...first, tutorial: 3 });
-  assert.equal(getTutorialStep(old).key, 'sample');
-  assert.equal(act(old, 'tutorial', { key: 'sample' }).tutorial, 4);
+  for (const [tutorial, key] of [[0, 'label'], [1, 'label-batch'], [2, 'label-batch'], [3, 'pick-sample'], [4, 'stamp']]) {
+    assert.equal(getTutorialStep(restoreRun({ ...first, tutorial })).key, key);
+  }
+  const current = { ...first, tutorial: 'reported-appearance' };
+  assert.equal(restoreRun(current), current);
+  assert.equal(act(current, 'tutorial', { key: 'reported-appearance' }).tutorial, 'reported-clasp');
 
   const replay = act(createFollowingRun(null, 0, options), 'start-day');
   assert.equal(act(replay, 'stamp', { value: 'pass' }).phase, 'receipt');
+});
+
+test('the second batch starts at the papers and requires film, lens, and clasp checks before a verdict', () => {
+  let run = playUntil(createRun(0, options), onCase(2));
+  assert.equal(run.tutorial, 'label');
+  assert.equal(restoreRun({ ...run, tutorial: 'done' }).tutorial, 'label');
+  assert.equal(restoreRun({ ...run, tutorial: 5 }).tutorial, 'label');
+  const sequence = [
+    'label', 'label-batch', 'report-batch', 'order-batch', 'required-paper', 'signature', 'required-projects',
+    'reported-appearance', 'reported-clasp', 'pick-sample', 'film', 'lens', 'sample',
+  ];
+  for (const key of sequence) {
+    const step = getTutorialStep(run);
+    assert.equal(step.key, key);
+    if (step.paper) {
+      const document = getCase(run).documents.find(({ type }) => type === step.paper);
+      assert.ok(document?.fields.some(([field]) => field === step.field), key);
+      assert.equal(act(run, 'tutorial', { key: 'film' }), run);
+    }
+    assert.equal(act(run, 'stamp', { value: 'pass' }), run);
+    assert.equal(act(run, 'stamp', { value: 'fail' }), run);
+    run = restoreRun(JSON.parse(JSON.stringify(act(run, 'tutorial', { key }))));
+  }
+  assert.equal(getTutorialStep(run).key, 'stamp');
+  assert.equal(act(run, 'stamp', { value: 'fail' }).records.at(-1).decision, 'fail');
+  assert.equal(act(run, 'stamp', { value: 'pass' }).records.at(-1).decision, 'pass');
+});
+
+test('new four-batch weeks close each day after exactly four receipts', () => {
+  const first = createRun(0, { ...options, batchesPerDay: 4 });
+  const closed = finish(first);
+  assert.deepEqual([0, 1, 2, 3, 4].map((day) => closed.records.filter((receipt) => receipt.day === day).length), [4, 4, 4, 4, 4]);
+  assert.deepEqual(closed.records.slice(0, 2).map(({ id }) => id), [1, 2]);
+  assert.equal(closed.records.at(-1).id, 20);
+  assert.equal(restoreRun(JSON.parse(JSON.stringify(closed))).batchesPerDay, 4);
+});
+
+test('the ending features the actual receipt and dates for accepted, early, stopped, and delayed cargo', () => {
+  const week = () => createRun(0, { ...options, batchesPerDay: 4 });
+  const featured = (decisions) => {
+    const ending = getEnding(playUntil(week(), (state) => state.phase === 'ending', decisions));
+    assert.equal(ending.comment, ending.featuredCase.aftermath.comment);
+    assert.ok(ending.comment && ending.featuredCase.aftermath.line);
+    return ending.featuredCase;
+  };
+
+  const accepted = featured({});
+  assert.equal(accepted.batch, 'G-248');
+  assert.equal(accepted.title, '等材料齐了，货才到站');
+  assert.equal(accepted.outcome, 'accepted');
+  assert.match(accepted.aftermath.line, /下一箱我照常送过来/u);
+  assert.deepEqual(accepted.steps.map(({ detail }) => detail), ['不通过', '周四 09:10', '收货方已签收']);
+
+  const early = featured({ 10: 'pass' });
+  assert.equal(early.batch, 'G-248');
+  assert.equal(early.title, '车先走了，报告后到');
+  assert.equal(early.outcome, 'early');
+  assert.match(early.aftermath.comment, /签发晚于出库/u);
+  assert.deepEqual(early.steps.slice(0, 2).map(({ detail }) => detail), ['通过', '周四 09:10']);
+  assert.match(early.steps.at(-1).detail, /出库|暂缓入库/u);
+
+  const stopped = featured({ 4: 'pass' });
+  assert.equal(stopped.batch, 'G-204');
+  assert.equal(stopped.outcome, 'stopped');
+  assert.match(stopped.aftermath.line, /工位停了一整班/u);
+  assert.match(stopped.steps.at(-1).detail, /收货方暂缓入库/u);
+  assert.match(stopped.note, /裂纹/u);
+
+  const delayed = featured({ 1: 'fail' });
+  assert.equal(delayed.batch, 'G-201');
+  assert.equal(delayed.title, '有一批合格品还在等');
+  assert.equal(delayed.outcome, 'delayed');
+  assert.match(delayed.steps.at(-1).detail, /退回/u);
 });
 
 test('binary rejects a third stamp and keeps the actual held and returned dispositions', () => {

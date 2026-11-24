@@ -1,4 +1,4 @@
-import { BINARY_CASE_OVERRIDES, BINARY_DAY_COPY, COMPACT_CASE_OVERRIDES, COMPACT_DAY_COPY, COMPACT_EXTRA_CASES, COMPACT_NIGHT_RECORD, COMPACT_TUTORIAL, DAYS, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
+import { BINARY_CASE_OVERRIDES, BINARY_DAY_COPY, COMPACT_CASE_OVERRIDES, COMPACT_DAY_COPY, COMPACT_EXTRA_CASES, COMPACT_NIGHT_RECORD, COMPACT_TUTORIAL, DAYS, ENDING_AFTERMATH, FIRST_BATCH_TUTORIAL, G202_RECHECK, G205_SUPPLEMENT_REQUEST, HANDOFF, INCOMING_CALLS, PHONE, PRESSURE, RECEIPT_HANDLING, SECOND_BATCH_TUTORIAL, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION, TUTORIAL as tutorialContent, documentExtension } from './content.js';
 import { intakeComparison, projectComparison, relabelComparison } from './document-comparison.js';
 import { normalizeFindings } from './inspection-findings.js';
 import { sampleFinding } from './samples.js';
@@ -19,13 +19,20 @@ const REWORK_KEY = 'rework:2';
 const TUTORIAL_KEYS = ['label', 'report', 'signature', 'sample', 'stamp'];
 export const TUTORIAL = tutorialContent.map((step, index) => ({ ...step, key: TUTORIAL_KEYS[index] }));
 const compactTutorial = COMPACT_TUTORIAL.map((step, index) => ({ ...step, key: TUTORIAL_KEYS[index] }));
+const oldBinaryTutorialSteps = ['label', 'label-batch', 'label-batch', 'pick-sample', 'stamp'];
 
 export function getTutorialStep(state) {
+  if (state.binaryVerdicts) {
+    const id = getDay(state)?.cases[state.index]?.id;
+    return binaryTutorial(state, id)?.find(({ key }) => key === state.tutorial);
+  }
   return (state.schedule === COMPACT_SCHEDULE ? compactTutorial : TUTORIAL)[state.tutorial];
 }
 
-function coachesFirstBatch(state, caseId) {
-  return state.binaryVerdicts === true && state.sampleSet !== 4 && state.day === 0 && caseId === 1;
+function binaryTutorial(state, caseId) {
+  if (!state.binaryVerdicts || state.sampleSet === 4 || state.day !== 0) return null;
+  if (caseId === 1) return FIRST_BATCH_TUTORIAL;
+  return caseId === 2 ? SECOND_BATCH_TUTORIAL : null;
 }
 
 export const EVIDENCE = {
@@ -62,17 +69,18 @@ function seededChoice(seed, salt, size) {
   return ((hash ^ (hash >>> 16)) >>> 0) % size;
 }
 
-export function createRun(seed, { schedule = 2, binaryVerdicts = false } = {}) {
+export function createRun(seed, { schedule = 2, binaryVerdicts = false, batchesPerDay } = {}) {
   const runSeed = makeSeed(seed);
   return {
     version: 1,
     schedule,
     ...(binaryVerdicts === true && { binaryVerdicts: true }),
+    ...(schedule === COMPACT_SCHEDULE && batchesPerDay === 4 && { batchesPerDay }),
     sampleSet: 3,
     phase: 'brief',
     day: 0,
     index: 0,
-    tutorial: 0,
+    tutorial: binaryVerdicts === true ? FIRST_BATCH_TUTORIAL[0].key : 0,
     seed: runSeed,
     records: [],
     seen: [],
@@ -107,7 +115,8 @@ export function createRun(seed, { schedule = 2, binaryVerdicts = false } = {}) {
 }
 
 export function createFollowingRun(previousRun, seed, options) {
-  const run = { ...createRun(seed, options), sampleSet: 4, replayDocuments: true, replayCartons: true, tutorial: TUTORIAL.length };
+  const initial = createRun(seed, options);
+  const run = { ...initial, sampleSet: 4, replayDocuments: true, replayCartons: true, tutorial: initial.binaryVerdicts ? 'done' : TUTORIAL.length };
   const fixed = COMPACT_FIXED_CASE_IDS.flat();
   const replayCases = run.schedule === COMPACT_SCHEDULE ? REPLAY_VARIANT_CASES.filter(({ id }) => fixed.includes(id)) : REPLAY_VARIANT_CASES;
   if (!previousRun || replayCases.some((item) => variantIndex(previousRun, item) !== variantIndex(run, item))) {
@@ -148,9 +157,10 @@ export function restoreRun(state) {
   restored = restoreBinaryVisits(restored);
   const openingCaseId = restored.day === 0 && ['brief', 'case'].includes(restored.phase)
     ? getDay(restored)?.cases[restored.index]?.id : null;
-  if (coachesFirstBatch(restored, openingCaseId) &&
-      (!Number.isInteger(restored.tutorial) || !getTutorialStep(restored))) {
-    return { ...restored, tutorial: 0 };
+  const guide = binaryTutorial(restored, openingCaseId);
+  if (guide && !guide.some(({ key }) => key === restored.tutorial)) {
+    const tutorial = openingCaseId === 1 && Number.isInteger(restored.tutorial) ? oldBinaryTutorialSteps[restored.tutorial] : null;
+    return { ...restored, tutorial: tutorial ?? guide[0].key };
   }
   return restored;
 }
@@ -159,7 +169,7 @@ export function getDay(state) {
   const day = DAYS[state.day];
   const copy = state.binaryVerdicts ? BINARY_DAY_COPY[state.day] : null;
   if (day && state.schedule === COMPACT_SCHEDULE) {
-    const cases = getCompactCaseIds(state.seed, state.day).map((id) => caseDefinition(state, id));
+    const cases = getCompactCaseIds(state.seed, state.day, state.batchesPerDay).map((id) => caseDefinition(state, id));
     return { ...day, ...COMPACT_DAY_COPY[state.day], ...copy, cases };
   }
   const options = ARRIVAL_ORDERS[state.day];
@@ -441,7 +451,8 @@ function startCase(state, index) {
       }
     }
   }
-  return { ...arrived, seen: [...arrived.seen, id] };
+  const guide = binaryTutorial(arrived, id);
+  return { ...arrived, ...(guide && { tutorial: guide[0].key }), seen: [...arrived.seen, id] };
 }
 
 function startDay(state) {
@@ -671,7 +682,7 @@ function currentSupplementProof(state, item, decision) {
 function stamp(state, action) {
   const item = getCase(state);
   if (!item || !DECISIONS.includes(action.value) || (state.binaryVerdicts && action.value === 'review')) return state;
-  const coached = coachesFirstBatch(state, item.id);
+  const coached = binaryTutorial(state, item.id);
   if (coached && getTutorialStep(state)?.key !== 'stamp') return state;
   const value = state.binaryVerdicts && action.value === 'fail' && item.answer === 'review' ? 'review' : action.value;
   const findings = normalizeFindings(action.findings);
@@ -698,7 +709,7 @@ function stamp(state, action) {
   };
   return {
     ...state,
-    ...(coached && { tutorial: TUTORIAL.length }),
+    ...(coached && { tutorial: 'done' }),
     phase: 'receipt',
     records: confirmFollowup([...state.records, record], record),
   };
@@ -1063,10 +1074,16 @@ export function dispatch(state, action) {
     case 'start-day':
       return state.phase === 'brief' && !waitingForVisit ? startDay(state) : state;
     case 'tutorial': {
-      const step = getTutorialStep(state);
+      if (state.phase !== 'case' || waitingForVisit) return state;
+      const id = getCase(state)?.id;
       const key = action.key ?? action.step ?? action.value;
-      if (state.phase !== 'case' || getCase(state)?.id !== 1 || !step || step.key === 'stamp') return state;
-      return key === step.key ? { ...state, tutorial: state.tutorial + 1 } : state;
+      const guide = state.binaryVerdicts ? binaryTutorial(state, id) : id === 1 ? (state.schedule === COMPACT_SCHEDULE ? compactTutorial : TUTORIAL) : null;
+      if (!guide) return state;
+      const index = state.binaryVerdicts ? guide.findIndex((step) => step.key === state.tutorial) : state.tutorial;
+      const step = guide[index];
+      if (!step || step.key === 'stamp' || key !== step.key) return state;
+      const tutorial = state.binaryVerdicts ? guide[index + 1].key : index + 1;
+      return { ...state, tutorial };
     }
     case 'stamp':
       return state.phase === 'case' && !waitingForVisit ? stamp(state, action) : state;
@@ -1120,12 +1137,17 @@ const cargoLocation = {
   shipping: '排车待发', shipped: '已出库', held: '留在黄线内', returned: '已退回',
   recallPending: '等召回回签', recalled: '已确认召回',
 };
+const followupCases = [[11, 13, '换签单'], [10, 14, '耐冲击报告'], [17, null, '落签箱']];
+
+function reportSignedAt(state, caseId) {
+  return caseDefinition(state, caseId).documents.flatMap(({ fields }) => fields)
+    .find(([name]) => name === '签发时间')?.[1];
+}
 
 export function getIntegrityTrail(state) {
   if (state.schedule !== COMPACT_SCHEDULE) return [];
   const verdicts = state.binaryVerdicts ? { pass: '通过', fail: '不通过', review: '不通过' } : paperVerdict;
-  const pairs = [[11, 13, '换签单'], [10, 14, '耐冲击报告'], [17, null, '落签箱']];
-  return pairs.flatMap(([firstId, laterId, subject]) => {
+  return followupCases.flatMap(([firstId, laterId, subject]) => {
     const first = getRecord(state, firstId);
     if (!first) return [];
     const later = getRecord(state, laterId);
@@ -1139,8 +1161,7 @@ export function getIntegrityTrail(state) {
 
     const evidence = [];
     if (later) {
-      const documents = caseDefinition(state, laterId).documents;
-      const signedAt = documents.flatMap(({ fields }) => fields).find(([name]) => name === '签发时间')?.[1];
+      const signedAt = reportSignedAt(state, laterId);
       if (signedAt) evidence.push(`${signedAt}签发`);
     }
     const latest = findEffectiveSuccessor(state.records, first) ?? first;
@@ -1152,6 +1173,48 @@ export function getIntegrityTrail(state) {
     }
     return [{ batch: first.batch, subject, initial: initial.join(' · '), evidence: evidence.join(' · '), early: Boolean(later && departed && first.shippedDay < later.day) }];
   });
+}
+
+function featuredEndingCase(state, { issues, exceptionCaseId, delayedReceipts, acceptedReceipt, acceptanceDay, heldReceipts, integrityTrail }) {
+  const issue = issues.find(({ id }) => id === exceptionCaseId) ?? issues[0];
+  const early = integrityTrail.find((row) => row.early);
+  const earlyReceipt = early && state.records.find(({ batch, shippedDay }) => batch === early.batch && Number.isInteger(shippedDay));
+  const delayed = delayedReceipts[0];
+  const record = issue ?? earlyReceipt ?? delayed ?? acceptedReceipt ?? heldReceipts[0];
+  if (!record) return null;
+
+  const pair = followupCases.find(([first, later]) => record.id === first || record.id === later);
+  const original = getRecord(state, pair?.[0]) ?? record;
+  const followup = getRecord(state, pair?.[1]);
+  const signedAt = followup && reportSignedAt(state, followup.id);
+  const decisiveIssue = issue && shipmentIssueFeedback(issue, exceptionCaseId);
+  const accepted = record === acceptedReceipt;
+  const sentEarly = followup && Number.isInteger(original.shippedDay) && original.shippedDay < followup.day;
+  const waiting = record === delayed;
+
+  const steps = [{
+    label: `${DAYS[original.day].title} · 你盖的首章`,
+    detail: (original.original ?? original.decision) === 'pass' ? '通过' : '不通过',
+  }];
+  if (signedAt) steps.push({ label: `${pair[2]}签发`, detail: signedAt });
+  else if (followup) steps.push({ label: `${DAYS[followup.day].title} · 补件`, detail: `${pair[2]}送达窗口` });
+  else if (Number.isInteger(record.shippedDay)) steps.push({ label: `${DAYS[record.shippedDay].title} · 发货`, detail: '货物已出库' });
+  else steps.push({ label: '查验记录', detail: record.reason });
+
+  const location = decisiveIssue?.action ?? (accepted ? '收货方已签收'
+    : sentEarly ? `${DAYS[original.shippedDay].title}已出库，先后日期留底` : cargoLocation[record.status] ?? '去向待核');
+  steps.push({ label: accepted && DAYS[acceptanceDay] ? `${DAYS[acceptanceDay].title} · 到货` : '截至交班', detail: location });
+
+  const title = sentEarly ? '车先走了，报告后到'
+    : issue ? (issue.id === exceptionCaseId ? '收货方暂缓入库' : '出库后，这批还要复核')
+    : waiting ? '有一批合格品还在等'
+    : accepted ? (original !== record && original.decision !== 'pass' ? '等材料齐了，货才到站' : '这批货，收货方签了字')
+    : '这一批留给下一班';
+  const note = decisiveIssue?.reason ?? (sentEarly ? '补件写着实际签发时间，原回执也按原日期留着。'
+    : waiting ? '这批已符合放行要求，下一班会接着处理。' : '');
+  const outcome = sentEarly ? 'early' : issue ? (issue.id === exceptionCaseId ? 'stopped' : 'unresolved')
+    : waiting ? 'delayed' : accepted ? 'accepted' : 'held';
+  return { batch: record.batch, title, note, steps, outcome, aftermath: ENDING_AFTERMATH[outcome], attention: Boolean(issue || sentEarly || waiting) };
 }
 
 export function getEnding(state) {
@@ -1197,7 +1260,14 @@ export function getEnding(state) {
   const delayedReceipts = [...delayedByBatch.values()];
   const traceDetail = !state.flags.traceAttached ? '' : (traceDisposition[traceReceipt?.status] ?? 'G-241 已登记追加复检，去向待核。');
   const integrityTrail = getIntegrityTrail(state);
-  const shared = { issues, exceptionCaseId, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceFiled, traceDisposition: traceDetail, counts, delayed, delayedReceipts, integrityTrail };
+  const featuredCase = state.binaryVerdicts && state.phase === 'ending' ? featuredEndingCase(state, {
+    issues, exceptionCaseId, delayedReceipts, acceptedReceipt, acceptanceDay: acceptance?.day, heldReceipts, integrityTrail,
+  }) : null;
+  const comment = featuredCase?.aftermath.comment ?? (issues.length ? ENDING_AFTERMATH.unresolved.comment
+    : traceReceipt ? '追加复检有单独的留底。补来的材料和原回执一起交给下一班。'
+    : delayedReceipts.length ? ENDING_AFTERMATH.delayed.comment
+    : heldReceipts.length ? ENDING_AFTERMATH.held.comment : '按当时的查验依据开单，交接的人才能看懂每一次判定。');
+  const shared = { issues, exceptionCaseId, pendingRecalls, confirmedRecalls, heldReceipts, acceptedReceipt, traceReceipt, traceFiled, traceDisposition: traceDetail, counts, delayed, delayedReceipts, integrityTrail, featuredCase, comment };
   if (issues.length) {
     const detail = issues.map((record) => {
       const { action, reason } = shipmentIssueFeedback(record, exceptionCaseId);
