@@ -24,6 +24,10 @@ export function getTutorialStep(state) {
   return (state.schedule === COMPACT_SCHEDULE ? compactTutorial : TUTORIAL)[state.tutorial];
 }
 
+function coachesFirstBatch(state, caseId) {
+  return state.binaryVerdicts === true && state.sampleSet !== 4 && state.day === 0 && caseId === 1;
+}
+
 export const EVIDENCE = {
   trace: PHONE['204'].evidence,
   night: PHONE['107'].evidence,
@@ -140,7 +144,15 @@ export function restoreRun(state) {
   if (!legacyPhoneAvailable(state) && (state.phone || state.incomingCalls?.length || state.ringbackArmed)) {
     restored = { ...restored, phone: null, incomingCalls: [], ringbackArmed: false };
   }
-  return state.binaryVerdicts && state.phase !== 'ending' ? restoreBinaryVisits(restored) : restored;
+  if (!state.binaryVerdicts || state.phase === 'ending') return restored;
+  restored = restoreBinaryVisits(restored);
+  const openingCaseId = restored.day === 0 && ['brief', 'case'].includes(restored.phase)
+    ? getDay(restored)?.cases[restored.index]?.id : null;
+  if (coachesFirstBatch(restored, openingCaseId) &&
+      (!Number.isInteger(restored.tutorial) || !getTutorialStep(restored))) {
+    return { ...restored, tutorial: 0 };
+  }
+  return restored;
 }
 
 export function getDay(state) {
@@ -659,6 +671,8 @@ function currentSupplementProof(state, item, decision) {
 function stamp(state, action) {
   const item = getCase(state);
   if (!item || !DECISIONS.includes(action.value) || (state.binaryVerdicts && action.value === 'review')) return state;
+  const coached = coachesFirstBatch(state, item.id);
+  if (coached && getTutorialStep(state)?.key !== 'stamp') return state;
   const value = state.binaryVerdicts && action.value === 'fail' && item.answer === 'review' ? 'review' : action.value;
   const findings = normalizeFindings(action.findings);
   const previous = previousSameLot(state.records, item);
@@ -682,7 +696,12 @@ function stamp(state, action) {
     status: disposition(state.records, item, value),
     amendments: [],
   };
-  return { ...state, phase: 'receipt', records: confirmFollowup([...state.records, record], record) };
+  return {
+    ...state,
+    ...(coached && { tutorial: TUTORIAL.length }),
+    phase: 'receipt',
+    records: confirmFollowup([...state.records, record], record),
+  };
 }
 
 function amendedDisposition(records, record, decision) {

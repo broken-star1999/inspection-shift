@@ -152,9 +152,9 @@ export const TUTORIAL = [
 ];
 
 export const DOCUMENT_TUTORIAL = '先对箱签和报告的批号，再看签发和检验项目。看完拿起检样。';
-export const FILM_BENCH_TUTORIAL = '拿起检样，看看白痕在膜上，还是在镜片上。';
-export const FILM_TUTORIAL = '点一下膜角或往右上拉，看白痕会不会跟着膜起来。';
-export const FILM_STAMP_TUTORIAL = '白痕跟着膜起来了。单据也对得上，就盖通过。';
+export const FILM_BENCH_TUTORIAL = '拿起检样，看看那道白痕。';
+export const FILM_TUTORIAL = '揭开膜角，看白痕会不会跟着起来。';
+export const FILM_STAMP_TUTORIAL = '白痕跟着膜起来了。选一枚章。';
 
 export const G205_SUPPLEMENT_REQUEST = {
   shown: '就这两张，报告没夹进来。你开审查，我拿补件联去趟实验室。',

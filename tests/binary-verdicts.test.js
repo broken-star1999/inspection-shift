@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  COMPACT_SCHEDULE, archivedReportSources, canFileTraceOriginal, canRecheckReceipt, createFollowingRun, createRun,
+  COMPACT_SCHEDULE, TUTORIAL, archivedReportSources, canFileTraceOriginal, canRecheckReceipt, createFollowingRun, createRun,
   dispatch, getCase, getDay, getEnding, getIntegrityTrail, getPreviousReceipt, getShipmentAcceptance,
-  getShipmentException, restoreRun,
+  getShipmentException, getTutorialStep, restoreRun,
 } from '../src/engine.js';
 
 const options = { schedule: COMPACT_SCHEDULE, binaryVerdicts: true };
@@ -13,6 +13,9 @@ const act = (run, type, details) => dispatch(run, { type, ...details });
 function playUntil(run, stop, decisions = {}) {
   while (!stop(run)) {
     const item = getCase(run);
+    if (run.binaryVerdicts && run.phase === 'case' && item?.id === 1 && run.sampleSet !== 4) {
+      for (const { key } of TUTORIAL.slice(run.tutorial, -1)) run = act(run, 'tutorial', { key });
+    }
     const verdict = run.binaryVerdicts && item?.answer === 'review' ? 'fail' : item?.answer;
     const next = run.event ? act(run, 'ack-visit') : act(run, actions[run.phase], { value: decisions[item?.id] ?? verdict });
     assert.notEqual(next, run, `day ${run.day + 1}, case ${run.index + 1}, ${run.phase}`);
@@ -23,6 +26,41 @@ function playUntil(run, stop, decisions = {}) {
 
 const onCase = (id) => (run) => run.phase === 'case' && getCase(run)?.id === id;
 const finish = (run) => playUntil(run, (state) => state.phase === 'ending');
+
+test('the first binary batch requires coaching before either verdict and saves completion with the receipt', () => {
+  let run = act(createRun(0, options), 'start-day');
+  assert.ok(onCase(1)(run));
+  assert.equal(act(run, 'tutorial', { key: 'sample' }), run);
+  for (const key of ['label', 'report', 'signature', 'sample']) {
+    assert.equal(getTutorialStep(run).key, key);
+    assert.equal(act(run, 'stamp', { value: 'pass' }), run);
+    assert.equal(act(run, 'stamp', { value: 'fail' }), run);
+    run = restoreRun(JSON.parse(JSON.stringify(act(run, 'tutorial', { key }))));
+  }
+  assert.equal(getTutorialStep(run).key, 'stamp');
+  for (const value of ['pass', 'fail']) {
+    const receipt = act(run, 'stamp', { value });
+    assert.equal(receipt.phase, 'receipt');
+    assert.equal(receipt.tutorial, TUTORIAL.length);
+    assert.equal(receipt.records[0].decision, value);
+    assert.equal(restoreRun(receipt), receipt);
+  }
+});
+
+test('restored first-batch progress is usable and a subsequent week skips coaching', () => {
+  const first = act(createRun(0, options), 'start-day');
+  for (const tutorial of [undefined, -1, TUTORIAL.length, '4']) {
+    const restored = restoreRun({ ...first, tutorial });
+    assert.equal(getTutorialStep(restored).key, 'label');
+    assert.equal(act(restored, 'tutorial', { key: 'label' }).tutorial, 1);
+  }
+  const old = restoreRun({ ...first, tutorial: 3 });
+  assert.equal(getTutorialStep(old).key, 'sample');
+  assert.equal(act(old, 'tutorial', { key: 'sample' }).tutorial, 4);
+
+  const replay = act(createFollowingRun(null, 0, options), 'start-day');
+  assert.equal(act(replay, 'stamp', { value: 'pass' }).phase, 'receipt');
+});
 
 test('binary rejects a third stamp and keeps the actual held and returned dispositions', () => {
   const clean = createRun(0, options);

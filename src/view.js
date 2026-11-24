@@ -28,6 +28,7 @@ const batchPaperLabels = {
 export const esc = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const cls = (name, enabled) => enabled ? ` ${name}` : '';
 const active = (selected) => selected ? ' aria-pressed="true"' : ' aria-pressed="false"';
+const guideAttributes = (target, cue) => target ? ` data-guide-target="${target}" data-guide-cue="${esc(cue)}"` : '';
 
 function dispositionLabel(record) {
   return statuses[receiptDisposition(record)] ?? '待登记';
@@ -79,7 +80,9 @@ export function shell() {
       <div class="paper-drag-cue" id="paper-drag-cue" role="status" hidden><strong></strong><span></span></div>
       <div class="screen-layer" id="screen"></div>
       <div class="modal-layer" id="modal"></div>
+      <span class="tutorial-spotlight" aria-hidden="true" hidden></span>
       <span class="tutorial-pointer" aria-hidden="true" hidden></span>
+      <div class="tutorial-callout" role="status" hidden><small>老周 · 带教</small><strong></strong></div>
       <div class="game-toast" aria-live="polite"></div>
     </main>
   </div>`;
@@ -150,6 +153,12 @@ export function filmLessonPending(item, progress) {
   return filmGuidePhase(item, progress) === 'inspect';
 }
 
+function verdictCoaching(tutorial, filmPhase) {
+  if (filmPhase === 'stamp') return { cue: FILM_STAMP_TUTORIAL };
+  if (tutorial?.key === 'stamp') return { cue: '镜片无裂痕，扣件没松。盖一枚章。' };
+  return { disabled: Boolean(tutorial || filmPhase === 'inspect') };
+}
+
 export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCue = false, filmStampCue = false) {
   const day = getDay(run);
   const character = CHARACTERS[sceneEvent?.npc ?? (run.phase === 'brief' || run.phase === 'handoff' ? 'zhou' : item?.npc)];
@@ -158,9 +167,11 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCu
   const exchange = pressure && !sceneEvent && !record;
   const line = sceneEvent?.line ?? (record ? receiptFeedback(run) : null) ?? reply ?? item?.line ?? day.intro;
   const earlier = run.phase === 'case' && !sceneEvent && previous?.record ? priorReceipt(previous, run.binaryVerdicts) : '';
-  const training = tutorial && !sceneEvent
-    ? `<div class="training" aria-live="polite"><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>`
-    : (filmCue || filmStampCue) && !sceneEvent ? `<div class="training" id="film-bench-cue" aria-live="polite"><small>老周</small><p>${esc(filmStampCue ? FILM_STAMP_TUTORIAL : FILM_BENCH_TUTORIAL)}</p></div>` : '';
+  let training = '';
+  if (!run.binaryVerdicts && !sceneEvent) {
+    if (tutorial) training = `<div class="training" aria-live="polite"><small>老周 · ${esc(tutorial.title)}</small><p>${esc(tutorial.line)}</p></div>`;
+    else if (filmCue || filmStampCue) training = `<div class="training" id="film-bench-cue" aria-live="polite"><small>老周</small><p>${esc(filmStampCue ? FILM_STAMP_TUTORIAL : FILM_BENCH_TUTORIAL)}</p></div>`;
+  }
   return `<div class="speech${cls('dispatch-event', sceneEvent)}${cls('pressure-exchange', exchange)}"${sceneEvent?.kind ? ` data-visit-kind="${esc(sceneEvent.kind)}"` : ''} aria-live="polite"><div class="speaker"><strong>${esc(character?.name ?? '值班室')}</strong><small>${esc(character?.role ?? '')}</small></div>
       <p${reply ? ' class="finding-reply"' : ''}>${esc(line)}</p>${exchange && !reply ? `<p class="pressure-line">${esc(pressure)}</p>` : ''}
       ${earlier}</div>${training}`;
@@ -168,7 +179,7 @@ export function room(run, item, tutorial, pressure, sceneEvent, previous, filmCu
 
 function paperCard(doc, index, target, offset, lifted, disabled = false) {
   const guide = target === doc.type;
-  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', guide)}" data-act="doc" data-i="${index}" data-drag="paper" data-fixture="doc${index}"${guide ? ' data-guide-target="desk-label"' : ''}${lifted ? ' data-lifted' : ''}${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}"${disabled ? ' disabled' : ''}>
+  return `<button type="button" class="paper-card paper-${doc.type}${cls('instructed', guide)}" data-act="doc" data-i="${index}" data-drag="paper" data-fixture="doc${index}"${guideAttributes(guide && 'desk-label', '拿起箱签，看看这批的单据。')}${lifted ? ' data-lifted' : ''}${offset ? ` style="--paper-x:${offset.x}px;--paper-y:${offset.y}px"` : ''} aria-label="查看${esc(doc.title)}"${disabled ? ' disabled' : ''}>
     <small>${types[doc.type] ?? '归档'}</small><h3>${esc(doc.title)}</h3><b class="paper-num">${esc(doc.fields[0]?.[1])}</b><span class="paper-rules" aria-hidden="true"></span><span class="paper-seal" aria-hidden="true">${doc.type === 'label' ? '批' : doc.type === 'report' ? '检' : '联'}</span></button>`;
 }
 
@@ -192,16 +203,13 @@ export function visitSlip(doc, visit, lifted = false) {
     <h3>${label}</h3><b class="paper-num">${esc(doc.title)}</b><span class="paper-rules" aria-hidden="true"></span></button></div></section>`;
 }
 
-function stampButtons(instructed, disabled = false, action = 'stamp', currentVerdict = null, projected = action === 'stamp', binary = false) {
+function stampButtons(disabled = false, action = 'stamp', currentVerdict = null, projected = action === 'stamp', binary = false) {
   const decisions = binary ? ['pass', 'fail'] : Object.keys(labels);
-  return decisions.map((key) => {
-    const guide = instructed && key === 'pass';
-    return `<button class="stamp ${key}${cls('instructed', guide)}" data-act="${action}" data-key="${key}"${guide ? ' data-guide-target="stamp-pass"' : ''}${projected ? ` data-fixture="${key}"` : ''}${disabled || key === currentVerdict ? ' disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${labels[key]}</b></button>`;
-  }).join('');
+  return decisions.map((key) => `<button class="stamp ${key}" data-act="${action}" data-key="${key}"${projected ? ` data-fixture="${key}"` : ''}${disabled || key === currentVerdict ? ' disabled' : ''}><span class="stamp-glyph" aria-hidden="true">${glyphs[key]}</span><b>${labels[key]}</b></button>`).join('');
 }
 
-function workStampMachine(instructed = false, binary = false) {
-  return `<div class="work-stamp-machine" role="group" aria-label="开单机"><span aria-hidden="true">开单机</span>${stampButtons(instructed, false, 'stamp', null, false, binary)}</div>`;
+function workStampMachine({ cue, disabled } = {}, binary = false) {
+  return `<div class="work-stamp-machine" role="group" aria-label="开单机"${cue && !disabled ? ' tabindex="-1"' + guideAttributes('stamp-choice', cue) : ''}><span aria-hidden="true">开单机</span>${stampButtons(disabled, 'stamp', null, false, binary)}</div>`;
 }
 
 const sampleRatios = { vented: 508 / 318, compact: 508 / 284, shield: 357 / 363, clip: 496 / 218, glove: 282 / 363, earmuff: 396 / 363 };
@@ -235,9 +243,9 @@ function sampleArt(spec, appearance, { back = false, unpacked = false, control =
     ${!lensFilm && spec.kind !== 'yellow' && !cup ? '<span class="sample-mark" aria-hidden="true"></span>' : ''}`;
 }
 
-function sampleHotspot(action, className, text, label, pressed = null, guideTarget) {
+function sampleHotspot(action, className, text, label, pressed = null, guideTarget, cue) {
   const gesture = { film: 'film', tug: 'clasp', measure: 'gauge', unpack: 'wrapper' }[action];
-  return `<button type="button" class="sample-hotspot ${className}${cls('instructed', guideTarget)}" data-act="sample-${action}"${guideTarget ? ` data-guide-target="${guideTarget}"` : ''}${gesture ? ` data-drag="${gesture}"` : ''} aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
+  return `<button type="button" class="sample-hotspot ${className}${cls('instructed', guideTarget)}" data-act="sample-${action}"${guideAttributes(guideTarget, cue)}${gesture ? ` data-drag="${gesture}"` : ''} aria-label="${label}"${pressed === null ? '' : active(pressed)}>${text}</button>`;
 }
 
 export function desk(run, item, tutorial, interaction) {
@@ -247,9 +255,12 @@ export function desk(run, item, tutorial, interaction) {
   const appearance = sampleAppearance(item.sample);
   const sampleBack = inspection.back && (item.sample.kind !== 'yellow' || inspection.unpacked);
   const issued = run.phase === 'receipt';
-  const target = tutorial?.target;
-  const sampleGuide = target === 'sample' || filmCue;
-  const stampGuide = tutorial?.key === 'stamp' || filmGuidePhase(item, { returningWeek: run.sampleSet === 4, filmChecked }) === 'stamp';
+  const target = tutorial?.key === 'label' ? 'label' : null;
+  const sampleGuide = ['report', 'signature', 'sample'].includes(tutorial?.key) || filmCue;
+  const sampleCue = filmCue ? FILM_BENCH_TUTORIAL : '看完单据，拿起检样。';
+  const filmPhase = filmGuidePhase(item, { returningWeek: run.sampleSet === 4, filmChecked });
+  const stamps = verdictCoaching(tutorial, filmPhase);
+  const stampDisabled = stampBlocked || run.phase !== 'case' || stamps.disabled;
   const findings = binary ? [] : readFindings(interaction);
   const viewer = findings.some((finding) => canShowFinding(item, finding)) ? item : null;
   const shown = item.shownFinding;
@@ -263,8 +274,8 @@ export function desk(run, item, tutorial, interaction) {
   return `<section class="paper-work"><div class="section-label"><b>收件</b><span>${item.documents.length} 份</span></div><div class="papers">${item.documents.map((doc, index) => paperCard(doc, index, target, positions[index], heldDocuments.includes(index), issued)).join('')}</div>
       ${carton}
       ${pencil && !binary ? '<button class="desk-pencil" data-act="egg" data-key="pencil" data-fixture="pencil" aria-label="按住滚过来的铅笔" title="一支铅笔滚过来了"></button>' : ''}</section>
-    <section class="sample-work"><button class="sample-preview${cls('instructed', sampleGuide)}" data-act="sample" data-fixture="sample"${sampleGuide ? ' data-guide-target="desk-sample"' : ''}${sampleHeld ? ' data-lifted' : ''} aria-label="拿起检样，${appearance.name}"${filmCue ? ' aria-describedby="film-bench-cue"' : ''}${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
-    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${item.carton ? '申报 ' : ''}${esc(item.batch)}</span></div><div class="stamp-buttons"${binary ? ' data-binary-verdicts' : ''}>${stampButtons(stampGuide, stampBlocked || run.phase !== 'case', 'stamp', null, true, binary)}<span class="booth-print-slot" aria-hidden="true"><i></i></span></div>
+    <section class="sample-work"><button class="sample-preview${cls('instructed', sampleGuide)}" data-act="sample" data-fixture="sample"${guideAttributes(sampleGuide && 'desk-sample', sampleCue)}${sampleHeld ? ' data-lifted' : ''} aria-label="拿起检样，${appearance.name}"${filmCue && !binary ? ' aria-describedby="film-bench-cue"' : ''}${issued ? ' disabled' : ''}><span class="sample-visual sample-preview-art${cls('turned', sampleBack)}${cls('peeled', inspection.film)}${cls('unpacked', inspection.unpacked)}" data-kind="${esc(item.sample.kind)}" data-appearance="${appearance.key}">${sampleArt(item.sample, appearance, { back: sampleBack, unpacked: inspection.unpacked })}</span><span class="sample-caption">${appearance.name}</span></button></section>
+    <aside class="stamp-rail"><div class="section-label"><b>出票</b><span>${item.carton ? '申报 ' : ''}${esc(item.batch)}</span></div><div class="stamp-buttons"${binary ? ' data-binary-verdicts' : ''}${guideAttributes(!stampDisabled && stamps.cue && 'stamp-choice', stamps.cue)}>${stampButtons(stampDisabled, 'stamp', null, true, binary)}<span class="booth-print-slot" aria-hidden="true"><i></i></span></div>
       ${binary || benchDraft || issued ? '' : `<p class="stamp-tip">${note ? `备注 · ${esc(note)}` : '可在纸上记下依据'}</p>`}</aside>${benchDraft}`;
 }
 
@@ -636,13 +647,14 @@ function returnComparison(item, index, previous, previousIndex, activeSheet, bin
 export function documents(item, index, compare, tutorial, progress, previous) {
   const binary = progress.binaryVerdicts === true;
   const filmPhase = filmGuidePhase(item, progress);
-  const stampGuide = tutorial?.key === 'stamp' || filmPhase === 'stamp';
-  const footer = workStampMachine(stampGuide, binary);
-  if (tutorial || filmPhase === 'inspect') {
-    const guide = tutorialGuide(stampGuide ? tutorial.line : DOCUMENT_TUTORIAL);
+  const stamps = verdictCoaching(tutorial, filmPhase);
+  const footer = workStampMachine(stamps, binary);
+  if (tutorial || (!binary && filmPhase === 'inspect')) {
+    const guide = binary ? '' : tutorialGuide(stamps.cue ?? DOCUMENT_TUTORIAL);
     const inspection = { guided: true, batch: true, signature: true, projects: true, selected: new Set() };
     const papers = item.documents.map((document, position) => sheet(document, position, inspection)).join('');
-    const guidedSample = stampGuide ? '' : button('拿起检样', 'sample', 'primary tutorial-next tutorial-sample-next', 'data-guide-target="docs-sample"');
+    const guidedSample = stamps.cue ? '' : button('拿起检样', 'sample', 'primary tutorial-next tutorial-sample-next',
+      guideAttributes('docs-sample', '对批号、签发和项目。看完拿起检样。'));
     return deskSurface('桌面单据', `${guide}<div class="doc-grid spread">${papers}</div>`, 'documents-surface first-documents', '放回台面', 'training', {
       footer: guidedSample + footer,
     });
@@ -658,7 +670,8 @@ export function documents(item, index, compare, tutorial, progress, previous) {
   const findings = binary ? [] : readFindings(progress);
   const inspection = binary ? null : { selected: new Set(findings.map(({ key }) => key)) };
   const draft = findingsDraft(findings, progress.showFindings, item, progress.supplementRequest);
-  const sampleAction = button('拿起检样', 'sample', 'reference-control', filmPhase ? 'data-guide-target="docs-sample"' : '');
+  const sampleAction = button('拿起检样', 'sample', 'reference-control',
+    guideAttributes(filmPhase === 'inspect' && 'docs-sample', FILM_BENCH_TUTORIAL));
   const canCompare = previous?.documents?.length;
   const previousIndex = progress.previousDoc;
   const comparing = Boolean(canCompare && Number.isInteger(previousIndex) && previous.documents[previousIndex]);
@@ -760,6 +773,7 @@ export function sample(item, inspection, tutorial, progress) {
   const practicing = tutorial?.key === 'sample';
   const stampReady = tutorial?.key === 'stamp';
   const filmPhase = filmGuidePhase(item, progress);
+  const stamps = verdictCoaching(tutorial, filmPhase);
   const filmLesson = !film && filmPhase === 'inspect';
   const filmHint = !back && filmLesson;
   const guidedFlip = (practicing && !back) || (filmLesson && back);
@@ -795,9 +809,11 @@ export function sample(item, inspection, tutorial, progress) {
     : '';
   let control = '';
   if (packaged) control = sampleHotspot('unpack', 'pack-handle', '拆袋', '拆开包装');
-  if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜', film ? '放回保护膜' : '揭开膜角', film, filmHint ? 'sample-film' : undefined);
+  if (!back && (kind === 'film' || kind === 'crack')) control = sampleHotspot('film', 'film-handle', film ? '放回' : '揭膜',
+    film ? '放回保护膜' : '揭开膜角', film, filmHint && 'sample-film', FILM_TUTORIAL);
   if ((!tutorial || practicing || stampReady) && !model && appearance.clasp && back && !tug) {
-    if (practicing) control = sampleHotspot('clasp-test', 'clasp-handle', '按合并轻拉', '按合并轻拉扣件', null, 'sample-clasp-test');
+    if (practicing) control = sampleHotspot('clasp-test', 'clasp-handle', '按合并轻拉', '按合并轻拉扣件', null,
+      'sample-clasp-test', tutorial.claspLine);
     else control = clasp ? sampleHotspot('tug', 'clasp-handle', '轻拉', '轻拉检查') : sampleHotspot('clasp', 'clasp-handle', '按合', '按合扣件');
   }
   if (spec.reading && !measured) control = sampleHotspot('measure', 'gauge-handle', `<span class="gauge-grip-label">${inGauge ? '取出' : '放入'}</span>`,
@@ -817,7 +833,7 @@ export function sample(item, inspection, tutorial, progress) {
   const show = recorded && !tutorial ? findingShowButton(observation, item, item.shownFinding, progress?.supplementRequest, 'source') : '';
   const flipAction = packaged || inGauge ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip',
     guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : 'secondary sample-flip-control',
-    guidedFlip ? 'data-guide-target="sample-flip"' : '');
+    guideAttributes(guidedFlip && 'sample-flip', back ? '翻回正面，找到膜角。' : '翻到背面，找到扣件。'));
   const besideStamps = Boolean(spec.model) && !guidedFlip;
   const sampleActions = (guidedFlip || besideStamps ? '' : flipAction) + (thicknessOpen ? show : '');
   const observationSide = inGauge ? '量规实测' : packaged ? '包装' : back ? '背面' : appearance.front ?? '正面';
@@ -830,12 +846,12 @@ export function sample(item, inspection, tutorial, progress) {
   const putDown = '放下检样';
   const observed = thicknessOpen ? thicknessSlip(comparison, thicknessRecorded, measured, recorded, !binary)
     : model ? (reference ? '' : modelCard) : observationCard;
-  return deskSurface(title, `${guide ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}"${gaugeStyle}>
+  return deskSurface(title, `${guide && !binary ? tutorialGuide(guide, filmHint ? 'film-tutorial' : '') : ''}${draft.list}<div class="sample-workbench${cls('with-reference', reference)}${cls('with-thickness', thicknessOpen)}"><div class="sample-work-main"><div class="sample-inspector"><div class="sample-visual sample-stage${cls('gauge-stage', spec.reading)}${cls('gauge-loaded', inGauge)}${cls('turned', back)}${cls('peeled', film)}${cls('pulled', tug)}${cls('unpacked', unpacked)}${cls('measured', measured)}" tabindex="-1" aria-label="检样台" data-kind="${esc(kind)}" data-appearance="${appearance.key}"${gaugeStyle}>
     ${sampleArt(spec, appearance, { back, unpacked, control, inspection })}${imageNotice}${spec.reading ? gaugeArt(measured ? spec.reading : '', { loaded: inGauge, measured, control: clamp }) : ''}${gaugeCue}${thicknessAction}</div>
     ${observed}</div>
     ${sampleActions ? `<div class="modal-actions">${sampleActions}</div>` : ''}</div>${referencePicker}</div>`, 'sample-surface', putDown, undefined, {
     headerActions: draft.header + (guidedFlip ? flipAction : '') + referenceActions,
-    closeLabel: putDown, footer: (besideStamps ? flipAction : '') + workStampMachine(stampReady || filmPhase === 'stamp', binary),
+    closeLabel: putDown, footer: (besideStamps ? flipAction : '') + workStampMachine(stamps, binary),
   });
 }
 
@@ -853,7 +869,7 @@ export function carton(item, progress) {
   const empty = bottom && !item.carton.code ? '<p class="carton-no-ink">箱底没有可辨喷码。</p>' : '';
   const body = `<div class="carton-workbench"><div class="carton-inspect-object">${cartonModel(bottom ? item.carton.code : null, bottom)}${empty}</div>${reference}</div>`;
   const close = progress.returnToDocs ? '回到单据' : '放下外箱';
-  return deskSurface('外箱查验', body, 'carton-surface', close, bottom ? 'bottom' : 'front', { footer: turn + note + workStampMachine(false, binary), closeLabel: close });
+  return deskSurface('外箱查验', body, 'carton-surface', close, bottom ? 'bottom' : 'front', { footer: turn + note + workStampMachine({}, binary), closeLabel: close });
 }
 
 function receiptFacts(record, destinationLabel = '去向', showEmptyNote = false, basisLabel = '开单依据') {
@@ -966,7 +982,7 @@ function correctionStamps(row, followup, effect) {
     : previousReceipt?.sameLot === false ? '留厂件'
       : followup?.previousReceipt?.sameLot === false ? '原批' : '出货回执';
   return `<p id="correction-target" class="correction-target"><b>${esc(record.batch)}</b><small>${esc(DAYS[record.day]?.title)} · ${source}</small>${effect ? `<small>${effect}</small>` : ''}</p>
-    <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, false, 'recheck', record.decision)}</div>`;
+    <div class="stamp-buttons archive-correction" role="group" aria-label="更正开单" aria-describedby="correction-target">${stampButtons(false, 'recheck', record.decision)}</div>`;
 }
 
 export function windowCorrection(row, findings, supportingBasis) {

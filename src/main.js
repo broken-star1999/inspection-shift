@@ -43,8 +43,8 @@ const CARTON_TURN_TRAVEL = 28;
 const TOOL_DRAG_PX = 9;
 const RECEIPT_LIFT_MS = 235;
 const RECEIPT_REVIEW_MS = 1250;
-const TUTORIAL_FIELD_MS = 1000;
-const TUTORIAL_FIELDS = ['batch', 'signature', 'projects'];
+const TUTORIAL_CALLOUT_TRAVEL_MS = 300;
+const TUTORIAL_REMIND_MS = 4000;
 const cargoRoutes = new Set(['shipping', 'returned', 'held']);
 
 function readStorage(key) {
@@ -126,6 +126,9 @@ const desktop = root.querySelector('#desk');
 const screenLayer = root.querySelector('#screen');
 const modalLayer = root.querySelector('#modal');
 const tutorialPointer = root.querySelector('.tutorial-pointer');
+const tutorialSpotlight = root.querySelector('.tutorial-spotlight');
+const tutorialCallout = root.querySelector('.tutorial-callout');
+const tutorialCalloutText = tutorialCallout.querySelector('strong');
 const toastBox = root.querySelector('.game-toast');
 const roomHost = root.querySelector('.canvas-room');
 const cargoHost = root.querySelector('.booth-cargo');
@@ -141,8 +144,8 @@ let fixtureElements = [...booth.querySelectorAll('[data-fixture]')];
 let fixtureLayout = {};
 let tutorialPointerFrame = 0;
 let tutorialPointerMotion = 0;
-let tutorialDocsOpenedAt = null;
-let guidedTarget = null;
+let tutorialCalloutMovingUntil = 0;
+let tutorialRemindTimer = 0;
 
 bindViewport(root, ({ fullscreen, immersive, rotated }) => {
   if (drag) endDrag({ type: 'pointercancel', pointerId: drag.pointerId });
@@ -376,46 +379,127 @@ function visibleGuideTarget(target) {
 }
 
 function tutorialPointerTarget() {
-  if (run?.phase !== 'case' || run.day !== 0 || run.sampleSet === 4 || glancedPanel) return null;
-  const item = windowCase();
-  if (!item || (item.id !== 2 && !tutorialStep())) return null;
-  if (!panel) return desktop.querySelector('[data-guide-target]:enabled');
-  if (panel === 'docs') {
-    const stamp = modalLayer.querySelector('[data-guide-target="stamp-pass"]:enabled');
-    if (stamp) return stamp;
-    const field = tutorialDocsOpenedAt === null ? null : TUTORIAL_FIELDS[Math.floor((performance.now() - tutorialDocsOpenedAt) / TUTORIAL_FIELD_MS)];
-    const detail = field && [...modalLayer.querySelectorAll(`[data-guide-detail="${field}"]`)].find(visibleGuideTarget);
-    return detail || modalLayer.querySelector('[data-guide-target="docs-sample"]:enabled');
+  if (run?.phase !== 'case' || run.day !== 0 || run.sampleSet === 4 || glancedPanel || arrival) return null;
+  const surface = !panel ? desktop : ['docs', 'sample', 'carton'].includes(panel) ? modalLayer : null;
+  return surface?.querySelector('[data-guide-target]:not(:disabled)') ?? null;
+}
+
+function guideBounds(target) {
+  if (!target) return null;
+  const targets = target.dataset.guideTarget === 'stamp-choice'
+    ? [...target.querySelectorAll('[data-act="stamp"]:enabled')] : [target];
+  const rectangles = targets.filter(visibleGuideTarget).map(stageBounds);
+  if (!rectangles.length) return null;
+  const x = Math.min(...rectangles.map((rect) => rect.x));
+  const y = Math.min(...rectangles.map((rect) => rect.y));
+  const right = Math.max(...rectangles.map((rect) => rect.x + rect.w));
+  const bottom = Math.max(...rectangles.map((rect) => rect.y + rect.h));
+  return { x, y, w: right - x, h: bottom - y };
+}
+
+function overlappingArea(a, b) {
+  return Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
+    Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+}
+
+function positionTutorialCallout(target, bounds, stage) {
+  const key = target.dataset.guideTarget;
+  const surface = panel ?? 'desk';
+  const wasShown = !tutorialCallout.hidden;
+  if (!wasShown || tutorialCallout.dataset.guideFor !== key || tutorialCallout.dataset.guideSurface !== surface) {
+    if (wasShown) {
+      tutorialCalloutMovingUntil = performance.now() + TUTORIAL_CALLOUT_TRAVEL_MS;
+      toast('');
+    }
+    clearTimeout(tutorialRemindTimer);
+    tutorialSpotlight.removeAttribute('data-remind');
+    tutorialRemindTimer = setTimeout(() => tutorialSpotlight.setAttribute('data-remind', ''), TUTORIAL_REMIND_MS);
   }
-  return panel === 'sample' ? modalLayer.querySelector('[data-guide-target]:enabled') : null;
+  const cue = target.dataset.guideCue ?? target.getAttribute('aria-label') ?? target.textContent.trim();
+  if (tutorialCalloutText.textContent !== cue) tutorialCalloutText.textContent = cue;
+  tutorialCallout.hidden = false;
+  tutorialCallout.dataset.guideFor = key;
+  tutorialCallout.dataset.guideSurface = surface;
+  tutorialCallout.toggleAttribute('data-moving', wasShown && performance.now() < tutorialCalloutMovingUntil);
+
+  const { w, h } = stageBounds(tutorialCallout);
+  const { x, y } = bounds;
+  const right = x + bounds.w;
+  const bottom = y + bounds.h;
+  const centerX = x + (bounds.w - w) * .5;
+  const centerY = y + (bounds.h - h) * .5;
+  const stageRight = stage.x + stage.w - w - 9;
+  const stageBottom = stage.y + stage.h - h - 9;
+  const gap = key === 'docs-sample' ? 12 : 22;
+  const candidates = [
+    [centerX, y - h - gap], [x - w - gap, centerY], [right + gap, centerY], [centerX, bottom + gap],
+    [right + gap, y - h - 8], [x - w - gap, y - h - 8], [right + gap, bottom + 8], [x - w - gap, bottom + 8],
+    [stage.x + 9, stage.y + 9], [stageRight, stage.y + 9], [stage.x + 9, stageBottom], [stageRight, stageBottom],
+  ];
+  const controls = panel
+    ? modalLayer.querySelectorAll('.first-documents .sheet h3, .first-documents .fields > div, .sample-findings, .sample-object, .desk-dialogue, button:enabled')
+    : booth.querySelectorAll('.speaker, .speech > p, button:enabled');
+  const obstacles = [...controls].filter((element) => element !== target && visibleGuideTarget(element)).map(stageBounds);
+  const targetPadding = { x: x - 9, y: y - 9, w: bounds.w + 18, h: bounds.h + 18 };
+  let best;
+  let bestScore = Infinity;
+  for (const [left, top] of candidates) {
+    const rect = {
+      x: Math.max(stage.x + 9, Math.min(stageRight, left)),
+      y: Math.max(stage.y + 9, Math.min(stageBottom, top)),
+      w, h,
+    };
+    const obstruction = overlappingArea(rect, targetPadding) * 30 +
+      obstacles.reduce((area, obstacle) => area + overlappingArea(rect, obstacle), 0);
+    const distance = Math.hypot(rect.x - centerX, rect.y - centerY);
+    const score = obstruction + distance;
+    if (score < bestScore) {
+      best = rect;
+      bestScore = score;
+    }
+  }
+  tutorialCallout.style.transform = `translate3d(${(best.x - stage.x).toFixed(1)}px,${(best.y - stage.y).toFixed(1)}px,0)`;
+  return best;
+}
+
+function hideTutorialGuide() {
+  tutorialCallout.hidden = true;
+  tutorialCallout.removeAttribute('data-moving');
+  tutorialCalloutMovingUntil = 0;
+  clearTimeout(tutorialRemindTimer);
+  tutorialSpotlight.hidden = true;
+  tutorialPointer.hidden = true;
 }
 
 function positionTutorialPointer() {
   const target = tutorialPointerTarget();
-  if (guidedTarget !== target) {
-    guidedTarget?.classList.remove('guide-current');
-    guidedTarget = target;
-    guidedTarget?.classList.add('guide-current');
-  }
-  tutorialPointer.hidden = true;
-  if (!visibleGuideTarget(target)) return;
-  const { x, y, w, h } = stageBounds(target);
+  const bounds = guideBounds(target);
+  if (!bounds) return hideTutorialGuide();
+  const { x, y, w, h } = bounds;
+  const stage = stageBounds(playfield);
+  const key = target.dataset.guideTarget;
+  const padding = key === 'stamp-choice' ? 5 : 4;
+  tutorialSpotlight.style.insetInlineStart = `${(x - stage.x - padding).toFixed(1)}px`;
+  tutorialSpotlight.style.insetBlockStart = `${(y - stage.y - padding).toFixed(1)}px`;
+  tutorialSpotlight.style.inlineSize = `${(w + padding * 2).toFixed(1)}px`;
+  tutorialSpotlight.style.blockSize = `${(h + padding * 2).toFixed(1)}px`;
+  tutorialSpotlight.dataset.guideFor = key;
+  tutorialSpotlight.hidden = false;
+  const callout = positionTutorialCallout(target, bounds, stage);
   const middleX = x + w / 2;
   const middleY = y + h / 2;
-  const view = stageBounds(playfield);
   const screen = root.getBoundingClientRect();
   const left = { x: x - 19, y: middleY, angle: 0 };
   const above = { x: middleX, y: y - 19, angle: 90 };
   const right = { x: x + w + 19, y: middleY, angle: 180 };
   const below = { x: middleX, y: y + h + 19, angle: 270 };
-  const directions = target.matches('.guided-paper-value') ? [right, left, above, below]
-    : panel ? [above, left, right, below] : [left, above, right, below];
-  const guidance = [...playfield.querySelectorAll('.modal-guide, .room-hud .training, .desk-dialogue')].map(stageBounds);
+  const directions = panel ? [above, left, right, below] : [left, above, right, below];
+  const guidance = [callout, ...[...playfield.querySelectorAll('.room-hud .speech, .desk-dialogue')].map(stageBounds)];
   const inStage = directions.filter(({ x, y, angle }) => {
     const horizontal = angle % 180 === 0;
     const marginX = horizontal ? 17 : 13;
     const marginY = horizontal ? 13 : 17;
-    return x > view.x + marginX && x < view.x + view.w - marginX && y > view.y + marginY && y < view.y + view.h - marginY;
+    return x > stage.x + marginX && x < stage.x + stage.w - marginX && y > stage.y + marginY && y < stage.y + stage.h - marginY;
   });
   const choices = inStage.filter(({ x, y }) => !guidance.some((bounds) =>
     x + 14 > bounds.x && x - 14 < bounds.x + bounds.w && y + 14 > bounds.y && y - 14 < bounds.y + bounds.h));
@@ -425,21 +509,18 @@ function positionTutorialPointer() {
       : document.elementFromPoint(screen.left + x, screen.top + y);
     return !hit?.closest('button:enabled, input, a');
   };
-  const anchor = choices.find(clear) ?? choices[0] ?? inStage.find(clear) ?? inStage[0];
+  const anchor = choices.find(clear) ?? choices[0] ?? inStage.find(clear);
+  tutorialPointer.hidden = !anchor;
   if (!anchor) return;
-  tutorialPointer.style.insetInlineStart = `${(anchor.x - view.x).toFixed(1)}px`;
-  tutorialPointer.style.insetBlockStart = `${(anchor.y - view.y).toFixed(1)}px`;
+  tutorialPointer.style.insetInlineStart = `${(anchor.x - stage.x).toFixed(1)}px`;
+  tutorialPointer.style.insetBlockStart = `${(anchor.y - stage.y).toFixed(1)}px`;
   tutorialPointer.style.setProperty('--pointer-angle', `${anchor.angle}deg`);
-  tutorialPointer.dataset.guideFor = target.dataset.guideTarget ?? target.dataset.guideDetail;
-  tutorialPointer.hidden = false;
+  tutorialPointer.dataset.guideFor = key;
 }
 
 function scheduleTutorialPointer(duration = 0) {
-  if (panel === 'docs' && !glancedPanel && modalLayer.querySelector('[data-guide-detail]')) tutorialDocsOpenedAt ??= performance.now();
-  else tutorialDocsOpenedAt = null;
-  if (tutorialPointer.hidden && !tutorialPointerTarget()) return;
-  const endOfReading = tutorialDocsOpenedAt === null ? 0 : tutorialDocsOpenedAt + TUTORIAL_FIELDS.length * TUTORIAL_FIELD_MS;
-  tutorialPointerMotion = Math.max(tutorialPointerMotion, performance.now() + duration, endOfReading);
+  if (tutorialCallout.hidden && !tutorialPointerTarget()) return;
+  tutorialPointerMotion = Math.max(tutorialPointerMotion, performance.now() + duration);
   if (tutorialPointerFrame) return;
   const updatePointer = (now) => {
     tutorialPointerFrame = 0;
@@ -809,6 +890,7 @@ function render(resumeScroll, resumeScrollLeft = 0, resumeBoardScroll) {
     (root.dataset.phase === 'receipt' || root.dataset.phase === 'summary') &&
     !screenLayer.querySelector('.shift-close-sheet');
   root.dataset.phase = arrival ? 'waiting' : (run?.phase ?? 'home');
+  if (root.dataset.phase !== 'case') hideTutorialGuide();
   if (arrival) root.dataset.arrivalStage = arrival.stage;
   else delete root.dataset.arrivalStage;
   renderArrivalStatus();
@@ -1590,17 +1672,17 @@ function pauseBeforeArrival(action, next, restoreFocus, { resumed = false, ready
   render(scrollTop, scrollLeft);
 }
 
-function advanceTutorial({ showSampleGuide = false } = {}) {
+function advanceTutorial({ openingSample = false } = {}) {
   const item = getCase(run);
   let step = tutorialStep();
-  while (step && ((showSampleGuide && ['label', 'report', 'signature'].includes(step.key)) || tutorialActionComplete(step.key, interaction, item))) {
+  while (step && ((openingSample && ['report', 'signature'].includes(step.key)) || tutorialActionComplete(step.key, interaction, item))) {
     if (!update({ type: 'tutorial', key: step.key }, false)) break;
     step = tutorialStep();
   }
 }
 
 function readDocument(doc) {
-  if (doc && tutorialStep()) advanceTutorial({ showSampleGuide: true });
+  if (doc && tutorialStep()?.key === 'label') update({ type: 'tutorial', key: 'label' }, false);
 }
 
 function chooseDoc(index, opener, single = false) {
@@ -1915,7 +1997,14 @@ function carryDocumentsToTool() {
 function openSample(opener) {
   const item = windowCase();
   if (run?.phase !== 'case' || !item) return;
-  if (tutorialStep()) advanceTutorial({ showSampleGuide: true });
+  const step = tutorialStep();
+  if (step?.key === 'label') {
+    toast('先拿起桌上的箱签');
+    return;
+  }
+  if (step) advanceTutorial({ openingSample: true });
+  const turnToClasp = tutorialStep()?.key === 'sample' && !interaction.inspection.back;
+  if (turnToClasp) interaction.inspection.back = true;
   carryDocumentsToTool();
   interaction.referenceDoc = null;
   if (interaction.returnToDocs) {
@@ -1931,6 +2020,10 @@ function openSample(opener) {
   }
   playSound('slide');
   openPanel('sample', opener);
+  if (turnToClasp) {
+    const face = modalLayer.querySelector('.sample-stage .sample-object img');
+    animateOnDesk(face, [{ transform: 'perspective(600px) rotateY(-55deg)' }, { transform: 'perspective(600px) rotateY(0deg)' }], 225);
+  }
 }
 
 function checkCarton(action, opener, rotationFrom) {
@@ -2094,12 +2187,9 @@ function checkSample(act) {
   if (act === 'sample-basis') modalLayer.querySelector('.sample-surface .evidence-show-control')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   if (act === 'sample-measure' && sample.gaugeLoaded) focusControl(modalLayer, { act: 'sample-gauge-clamp' });
   if (act === 'sample-gauge-clamp' && !sample.measured) focusControl(modalLayer, { act: 'sample-measure' });
-  if (step?.key === 'sample') {
-    if (act === 'sample-flip' && sample.back) focusControl(modalLayer, { act: 'sample-clasp-test' });
-    if (act === 'sample-clasp-test') focusControl(modalLayer, { act: 'stamp', key: 'pass' });
-  }
-  if (act === 'sample-film' && item.id === 2 && run.sampleSet !== 4 && interaction.filmChecked) {
-    focusControl(modalLayer, { act: 'stamp', key: 'pass' });
+  if (step?.key === 'sample' && act === 'sample-flip' && sample.back) focusControl(modalLayer, { act: 'sample-clasp-test' });
+  if (act === 'sample-clasp-test' || (act === 'sample-film' && item.id === 2 && interaction.filmChecked)) {
+    modalLayer.querySelector('[data-guide-target="stamp-choice"]')?.focus({ preventScroll: true });
   }
   if (act === 'sample-flip' && !sample.back && view.filmLessonPending(item, {
     returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked,
@@ -2143,6 +2233,17 @@ function stamp(value) {
   }
   if (!atStampMachine()) {
     if (panel === 'archive') toast('先回到台面，再用开单机盖章');
+    return;
+  }
+  const step = tutorialStep();
+  if (step && step.key !== 'stamp') {
+    toast(tutorialPointerTarget()?.dataset.guideCue ?? '先跟老周查完这批');
+    return;
+  }
+  if (run.binaryVerdicts && view.filmLessonPending(windowCase(), {
+    returningWeek: run.sampleSet === 4, filmChecked: interaction.filmChecked,
+  })) {
+    toast('先揭开保护膜，查看白痕');
     return;
   }
   if (update({ type: 'stamp', value, note: interaction.note, findings: interaction.findings }, false)) {
