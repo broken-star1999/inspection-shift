@@ -557,6 +557,7 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
   let cargoFrom = cargoStart;
   let cargoMotionAt = -Infinity;
   const cargoBounds = new THREE.Box3();
+  const paperBoundsBox = new THREE.Box3();
   let slipMotionAt = -Infinity;
   let handoffMotionAt = -Infinity;
   let evidenceKey = null;
@@ -1053,13 +1054,13 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     }
     if (frame.phase !== 'waiting' && frame.phase !== 'arriving') {
       paperSet.forEach((paper, index) => {
-        const rect = projectBox(new THREE.Box3().setFromObject(paper.userData.paperBounds), camera, width, height);
+        const rect = projectBox(paperBoundsBox.setFromObject(paper.userData.paperBounds), camera, width, height);
         if (rect) controls[`doc${index}`] = rect;
       });
     }
     const retained = paperSet[frame.retainedPaper?.index];
     if (retained?.visible) {
-      const rect = projectBox(new THREE.Box3().setFromObject(retained.userData.paperBounds), camera, width, height);
+      const rect = projectBox(paperBoundsBox.setFromObject(retained.userData.paperBounds), camera, width, height);
       if (rect) controls['retained-register'] = rect;
     }
     onLayout(controls);
@@ -1233,8 +1234,11 @@ export function mountModeledBooth(host, { baseUrl, context, onLayout, onReady, o
     setFrame,
     setPaperOffset,
     setViewPose(x, y) {
-      poseX = THREE.MathUtils.clamp(x, -1, 1);
-      poseY = THREE.MathUtils.clamp(y, -1, 1);
+      const nextX = THREE.MathUtils.clamp(x, -1, 1);
+      const nextY = THREE.MathUtils.clamp(y, -1, 1);
+      if (Math.abs(nextX - poseX) < 1e-4 && Math.abs(nextY - poseY) < 1e-4) return;
+      poseX = nextX;
+      poseY = nextY;
       layoutDirty = true;
       invalidate();
     },

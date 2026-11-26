@@ -1,5 +1,5 @@
 import { CHARACTERS, DAYS, DOCUMENT_TUTORIAL, EASTER_EGGS, SHIPMENT_EXCEPTION } from './content.js';
-import { cartonFinding, intakeComparison, modelComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
+import { cartonFinding, intakeComparison, modelComparison, moldComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { cartonModel } from './carton-inspector.js';
 import { canShowFinding, getCarriedHolds, getDay, getIntegrityTrail, getShipmentException, receiptDisposition, receiptFeedback, shipmentIssueFeedback, TRACE_CASE_ID } from './engine.js';
 import { readFindings } from './inspection-findings.js';
@@ -344,7 +344,7 @@ function endingView(ending, historyLabel, binary = false) {
     <header class="ending-head"><div class="eyebrow">南渡防护用品厂 · ${historyLabel ? `${esc(historyLabel)} <span class="ending-history-label">只读</span>` : '周五交班'}</div><h2>${esc(featured?.title ?? ending.title)}</h2></header>
     <div class="ending-body">${featured ? endingAftermath(featured) : `<p>${esc(ending.line)}</p>`}
       <aside class="ending-comment"><b>评语</b><p>${esc(ending.comment)}</p></aside>
-      ${featured ? `<details class="ending-details"><summary>本周交班明细</summary>${details}</details>` : details}
+      ${featured ? `<details class="ending-details"><summary><span>本周交班明细 · 留底与判章统计</span><em class="ending-details-stamp">${esc(ending.stamp ?? '交班已存档')}</em></summary>${details}</details>` : details}
     </div>
     <footer class="brief-actions ending-footer">${button('翻交接簿', 'archive')}${button(historyLabel ? '返回首页' : '返回窗口', 'home')}${historyLabel ? button('返回交班记录', 'history-index', 'primary') : button('再接一周', 'new', 'primary')}</footer>
   </section></div>`;
@@ -439,12 +439,12 @@ export function instructions(how, { binaryVerdicts = false } = {}) {
   if (binaryVerdicts) return dialog(how ? '接班说明' : '桌边查验卡', `<div class="rule-sheet">
     <p>核对箱签、报告和送检联，再拿起检样。</p>
     <ol><li><b>通过</b>　样品合格，报告有效、对应本批，并覆盖送检要求。</li><li><b>不通过</b>　实物不合格或材料待核。实物问题退回，材料待核留在黄线内。</li></ol>
-    ${how ? '<p>开单后回执会自动递出。电脑也可按 1 通过、2 不通过。</p>' : ''}</div>`, 'rules-modal');
+    ${how ? '<p>开单后回执会自动递出。电脑也可按 1 通过、2 不通过，S 拿/放检样，F 翻面，Q/E 切单。</p>' : ''}</div>`, 'rules-modal');
   return dialog(how ? '接班说明' : '桌边查验卡', `<div class="rule-sheet"><p>先认箱签，按送检联核对收到的报告。看批号、签发和检验项目，再按实际品类查镜片、罩壳、手套接缝或插片。</p>
     <ol><li><b>通过</b>　样品合格，有效报告能对应这批，并覆盖送检要求。</li><li><b>不通过</b>　实物确有裂纹、划伤、扣件问题或已查明的错型、超差。</li><li><b>要求审查</b>　报告没交、对不上或没验齐，先隔离，等对方补证或安排复检。</li></ol>
     <p>缺报告时看清送检联上的随货要求。需要核对旧件时，可在交接簿查批号或报告号。</p>
     <p>有换签时对照登记上的旧号和新号。保护膜可以揭角。测插片时先放入量规，再合上量爪。核对过的旧单会留在交接簿。</p>
-    ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。拿着单据或检样时可以抬头看窗口，再接着查验。两指可在系统支持时缩放视图。查完在开单机上选章，回执会自动递出。想细看或更正，点「留看回执」。电脑也可用 1、2、3 开单。Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
+    ${how ? '<p>点纸张可打开，拖动可挪位置。把纸拖到另一张上稍停，看到「松手并排」就能一起看。可以先记下查验依据。拿着单据或检样时可以抬头看窗口，再接着查验。两指可在系统支持时缩放视图。查完在开单机上选章，回执会自动递出。想细看或更正，点「留看回执」。电脑也可用 1、2、3 开单，S 看样、F 翻面、Q/E 切单，Esc 合上面板。</p>' : ''}</div>`, 'rules-modal');
 }
 
 function moldSketch() {
@@ -808,6 +808,7 @@ export function sample(item, inspection, tutorial, progress) {
   const draft = tutorial ? { header: '', list: '' } : findingsDraft(findings, progress?.showFindings, item, progress?.supplementRequest);
   const referenceIndex = progress?.referenceDoc;
   const reference = !tutorial && !thicknessOpen && Number.isInteger(referenceIndex) ? item.documents[referenceIndex] : null;
+  const mold = !binary && !tutorial && reference ? moldComparison(item, inspection, referenceIndex) : null;
   const leadField = spec.reading && gaugeFields[reference?.type];
   const modelCard = model ? modelSlip(model, findings, !binary) : '';
   const referencePicker = reference ? `<aside class="sample-reference" data-reference-doc="${referenceIndex}">${modelCard}<nav class="doc-tabs reference-tabs" aria-label="对照单据">
@@ -838,15 +839,22 @@ export function sample(item, inspection, tutorial, progress) {
   const gaugeCue = spec.reading ? '<span class="gauge-drag-cue" role="status"></span>' : '';
   const observation = sampleFinding(spec, inspection);
   const recorded = findings.some(({ key }) => key === observation.key);
+  const moldRecorded = Boolean(mold && findings.some(({ key }) => key === mold.finding.key));
   const result = inGauge ? (measured ? spec.reading : '—') : visual;
   const canRecord = !binary && !tutorial && (!inGauge || measured) && !(measured && thicknessRecorded);
   const resultText = inGauge ? `<strong>${esc(result)}</strong>` : `<span>${esc(result)}</span>`;
   const observationLine = canRecord
-    ? button(`${resultText}<small>${recorded ? '已记' : '记下'}</small>`, 'sample-basis', 'sample-basis-control',
-      `aria-label="记为查验依据：${esc(result)}"${active(recorded)}`)
+    ? (mold
+      ? button(`${resultText}<small>${moldRecorded ? '已记线位对照' : '记下线位对照'}</small>`, 'sample-mold-basis', 'sample-basis-control',
+        `aria-label="记为查验依据：${esc(mold.finding.text)}"${active(moldRecorded)}`)
+      : button(`${resultText}<small>${recorded ? '已记' : '记下'}</small>`, 'sample-basis', 'sample-basis-control',
+        `aria-label="记为查验依据：${esc(result)}"${active(recorded)}`))
     : resultText;
   const show = recorded && !tutorial ? findingShowButton(observation, item, item.shownFinding, progress?.supplementRequest, 'source') : '';
-  const flipAction = packaged || inGauge || lensLesson || filmHint ? '' : button(back ? `看${appearance.front ?? '正面'}` : '翻到背面', 'sample-flip',
+  const hasRearCheck = !back && !packaged && !inGauge && !tutorial &&
+    Boolean(appearance.clasp || spec.model || spec.kind === 'line' || spec.kind === 'cuff');
+  const flipText = back ? `看${appearance.front ?? '正面'}` : hasRearCheck ? '翻到背面 <small class="flip-cue">待查</small>' : '翻到背面';
+  const flipAction = packaged || inGauge || lensLesson || filmHint ? '' : button(flipText, 'sample-flip',
     guidedFlip ? 'primary tutorial-next sample-flip-control instructed' : 'secondary sample-flip-control',
     guideAttributes(guidedFlip && 'sample-flip', back ? '翻回正面，找到膜角。' : '翻到背面，找到扣件。'));
   const besideStamps = Boolean(spec.model) && !guidedFlip;

@@ -360,6 +360,18 @@ export function mountScenery(host, { baseUrl, context }) {
     activeScene?.layout();
   }
 
+  function syncActivity() {
+    if (destroyed || !game?.loop) return;
+    if (view.document?.hidden || requested.phase === 'home') game.loop.sleep();
+    else game.loop.wake();
+  }
+
+  function loseContext(event) {
+    event.preventDefault();
+    delete host.dataset.sceneReady;
+    game?.loop?.sleep();
+  }
+
   game = new Phaser.Game({
     type: Phaser.WEBGL,
     canvas: context.canvas,
@@ -378,10 +390,15 @@ export function mountScenery(host, { baseUrl, context }) {
     banner: false,
   });
 
+  view.document?.addEventListener('visibilitychange', syncActivity);
+  context.canvas.addEventListener('webglcontextlost', loseContext);
+  syncActivity();
+
   return {
     setFrame(frame) {
       if (destroyed) return;
       requested = { ...requested, ...frame };
+      syncActivity();
       activeScene?.show(requested);
     },
     setViewPose(x, y) {
@@ -394,6 +411,8 @@ export function mountScenery(host, { baseUrl, context }) {
       destroyed = true;
       observer?.disconnect();
       view.removeEventListener('resize', resize);
+      view.document?.removeEventListener('visibilitychange', syncActivity);
+      context.canvas.removeEventListener('webglcontextlost', loseContext);
       game.destroy(true);
       activeScene = undefined;
       delete host.dataset.sceneReady;

@@ -5,11 +5,59 @@ let audio;
 let master;
 let noise;
 
+const gestureEvents = ['pointerdown', 'touchstart', 'keydown', 'click'];
+
+function ensureAudioContext() {
+  const view = globalThis.window;
+  const AudioContext = view?.AudioContext ?? view?.webkitAudioContext;
+  if (!AudioContext) return null;
+  if (!audio || audio.state === 'closed') {
+    audio = new AudioContext();
+    master = audio.createGain();
+    master.gain.value = isMuted() ? 0 : 0.2;
+    const limiter = audio.createDynamicsCompressor();
+    limiter.threshold.value = -15;
+    limiter.knee.value = 13;
+    limiter.ratio.value = 7;
+    limiter.attack.value = 0.004;
+    limiter.release.value = 0.09;
+    master.connect(limiter);
+    limiter.connect(audio.destination);
+    noise = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+    const samples = noise.getChannelData(0);
+    let trail = 0;
+    for (let index = 0; index < samples.length; index++) {
+      const white = Math.random() * 2 - 1;
+      trail = 0.8 * trail + 0.2 * white;
+      samples[index] = 0.74 * white + 0.26 * trail;
+    }
+  }
+  return audio;
+}
+
 export function bindAudio(page) {
   const captureGesture = (event) => {
-    if (event.isTrusted) receivedGesture = true;
+    if (!event.isTrusted) return;
+    receivedGesture = true;
+    if (!isMuted()) {
+      try {
+        const ctx = ensureAudioContext();
+        if (ctx && ctx.state !== 'running') {
+          void ctx.resume().then(() => {
+            if (ctx.state === 'running') {
+              for (const name of gestureEvents) page.removeEventListener(name, captureGesture, { capture: true });
+            }
+          }).catch(() => {});
+        }
+        if (ctx?.state === 'running') {
+          for (const name of gestureEvents) page.removeEventListener(name, captureGesture, { capture: true });
+        }
+      } catch {
+        // Browsers may block AudioContext creation until another gesture.
+      }
+    }
   };
-  for (const event of ['pointerdown', 'touchstart', 'keydown', 'click']) {
+  for (const event of gestureEvents) {
     page.addEventListener(event, captureGesture, { capture: true, passive: true });
   }
 }
@@ -50,29 +98,10 @@ async function getAudio() {
   const AudioContext = view?.AudioContext ?? view?.webkitAudioContext;
   if (!AudioContext || (!receivedGesture && !view.navigator.userActivation?.hasBeenActive)) return null;
   try {
-    if (!audio || audio.state === 'closed') {
-      audio = new AudioContext();
-      master = audio.createGain();
-      master.gain.value = 0.2;
-      const limiter = audio.createDynamicsCompressor();
-      limiter.threshold.value = -15;
-      limiter.knee.value = 13;
-      limiter.ratio.value = 7;
-      limiter.attack.value = 0.004;
-      limiter.release.value = 0.09;
-      master.connect(limiter);
-      limiter.connect(audio.destination);
-      noise = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
-      const samples = noise.getChannelData(0);
-      let trail = 0;
-      for (let index = 0; index < samples.length; index++) {
-        const white = Math.random() * 2 - 1;
-        trail = 0.8 * trail + 0.2 * white;
-        samples[index] = 0.74 * white + 0.26 * trail;
-      }
-    }
-    if (audio.state !== 'running') await audio.resume();
-    return audio.state === 'running' && audioAvailable() ? audio : null;
+    const ctx = ensureAudioContext();
+    if (!ctx) return null;
+    if (ctx.state !== 'running') await ctx.resume();
+    return ctx.state === 'running' && audioAvailable() ? ctx : null;
   } catch {
     // The app remains fully usable when audio is disabled by the browser.
     return null;
@@ -182,11 +211,19 @@ const effects = {
     wood(ctx, time);
     rustle(ctx, time + 0.085, { from: 1650, to: 650, duration: 0.075, level: 0.27 });
   },
-  print(ctx, time) {
-    wood(ctx, time);
-    tone(ctx, time + 0.042, { from: 187, to: 124, duration: 0.125, level: 0.11, type: 'triangle', attack: 0.014 });
+  print(ctx, time, verdict) {
+    const heavy = verdict === 'fail' || verdict === 'review';
+    wood(ctx, time, heavy ? 1.15 : 0.96);
+    tone(ctx, time + 0.042, {
+      from: heavy ? 152 : 210,
+      to: heavy ? 98 : 138,
+      duration: 0.125,
+      level: heavy ? 0.13 : 0.1,
+      type: 'triangle',
+      attack: 0.014,
+    });
     for (let tooth = 0; tooth < 3; tooth++) {
-      rustle(ctx, time + 0.055 + tooth * 0.038, { from: 1540, to: 810, duration: 0.038, level: 0.19 - tooth * 0.03 });
+      rustle(ctx, time + 0.055 + tooth * 0.038, { from: heavy ? 1320 : 1620, to: 810, duration: 0.038, level: 0.19 - tooth * 0.03 });
     }
     rustle(ctx, time + 0.142, { from: 2360, to: 1250, duration: 0.068, level: 0.15, attack: 0.011 });
   },

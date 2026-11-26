@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DAYS, PRESSURE, documentExtension } from '../src/content.js';
-import { cartonFinding, intakeComparison, modelComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
+import { cartonFinding, intakeComparison, modelComparison, moldComparison, projectComparison, relabelComparison, thicknessComparison } from '../src/document-comparison.js';
 import { createRun, dispatch, getCase, getDay } from '../src/engine.js';
 import { captureInspectionProgress, freshInteraction, restoreInspectionProgress } from '../src/inspection-progress.js';
 import { sampleFinding } from '../src/samples.js';
@@ -19,6 +19,61 @@ test('records the actual carton face only after turning it, independently of the
   assert.equal(cartonFinding(mismatch, false), null);
   assert.deepEqual(cartonFinding({ ...mismatch, answer: 'pass' }, true), {
     key: 'box:17:bottom', source: '外箱底面 / 送检联', text: '箱底实码 · C-271-03；送检登记 · C-217-03',
+  });
+});
+
+test('mold comparison joins each actual rear sighting to the same WX-3 rules', () => {
+  const original = cases.get(3);
+  const alternate = original.variants[1];
+  const split = { ...original, ...alternate, sample: { ...original.sample, ...alternate.sample } };
+  for (const [item, sighting] of [
+    [original, '细线沿外壳收住，内侧壳体没有裂口，软垫也完整'],
+    [split, '沿内侧看，那道线越过外壳边缘，在软垫边上也能看到一截'],
+  ]) {
+    assert.equal(moldComparison(item, undefined, 2), null);
+    assert.equal(moldComparison(item, { back: false }, 2), null);
+    assert.equal(moldComparison(item, { back: 'true' }, 2), null);
+    const back = { back: true };
+    const comparison = {
+      observation: sampleFinding(item.sample, back),
+      finding: {
+        key: 'compare:3:mold:2',
+        source: '防噪耳罩 · 背面 / 耳罩外壳工艺示意 WX-3',
+        text: `实物 · ${sighting}；允许线位 · 耳杯外壳下沿；目视限制 · 不得贯穿壳体或延伸到软垫`,
+      },
+    };
+    assert.deepEqual(moldComparison(item, back, 2), comparison);
+    assert.deepEqual(moldComparison({ ...item, answer: 'review', reason: '另一个判断' }, back, 2), comparison);
+  }
+});
+
+test('mold comparison requires the matching sketch and an actual rear observation', () => {
+  const item = cases.get(3);
+  const [label, report, sketch] = item.documents;
+  const back = { back: true };
+  for (const index of [undefined, 0, 1, '2', 3]) assert.equal(moldComparison(item, back, index), null);
+  assert.equal(moldComparison({ ...item, documents: [label, report, sketch, sketch] }, back, 2), null);
+  for (const changedSketch of [{ ...sketch, type: 'report' }, { ...sketch, kind: 'other' }]) {
+    assert.equal(moldComparison({ ...item, documents: [label, report, changedSketch] }, back, 2), null);
+  }
+  for (const fields of [
+    sketch.fields.filter(([field]) => field !== '目视限制'),
+    [...sketch.fields, ['图号', 'WX-4']],
+    sketch.fields.map(([field, value]) => [field, field === '合模线允许位置' ? ' ' : value]),
+  ]) {
+    assert.equal(moldComparison({ ...item, documents: [label, report, { ...sketch, fields }] }, back, 2), null);
+  }
+  for (const reading of [{ kind: 'clear' }, { appearance: 'vented' }, { back: '' }, { unwrapped: '打开包装' }]) {
+    assert.equal(moldComparison({ ...item, sample: { ...item.sample, ...reading } }, back, 2), null);
+  }
+  assert.equal(moldComparison(item, { ...back, tug: true }, 2), null);
+
+  const revised = { ...sketch, title: '修订工艺图', fields: [['图号', 'WX-4'], ['合模线允许位置', '耳杯外侧'], ['目视限制', '线位不得碰到软垫']] };
+  const result = moldComparison({ ...item, documents: [label, revised, report] }, back, 1);
+  assert.deepEqual(result.finding, {
+    key: 'compare:3:mold:1',
+    source: '防噪耳罩 · 背面 / 修订工艺图 WX-4',
+    text: '实物 · 细线沿外壳收住，内侧壳体没有裂口，软垫也完整；允许线位 · 耳杯外侧；目视限制 · 线位不得碰到软垫',
   });
 });
 

@@ -23,6 +23,17 @@
 
 .sample-surface > .desk-surface-footer:has(.sample-flip-control) { gap: .28rem; }
 .sample-surface > .desk-surface-footer .sample-flip-control { padding-inline: .5rem; font-size: .8rem; white-space: nowrap; }
+.sample-flip-control .flip-cue {
+  display: inline-block;
+  margin-inline-start: .28rem;
+  padding: .02rem .3rem;
+  border-radius: 2px;
+  background: #b85d38;
+  color: #fff6e2;
+  font-size: .68rem;
+  font-weight: 760;
+  vertical-align: 1px;
+}
 
 @media (pointer: coarse) {
   .sample-surface .sample-flip-control,

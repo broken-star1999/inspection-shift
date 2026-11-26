@@ -1,5 +1,5 @@
 import { createRun, createFollowingRun, restoreRun, validRunSave, dispatch, getCase, getDay, getEnding, getPreviousReceipt, getReworkFollowup, getShipmentAcceptance, getShipmentException, getTraceInquiry, getTraceHandoffReview, getTutorialStep, archive, archivedReportSources, canShowFinding, canRecheckReceipt, getWindowSupplementRequest, nightRegisterForReceipt, receiptDisposition, runEvidence, COMPACT_SCHEDULE, EVIDENCE, TRACE_CASE_ID, TRACE_FINDING } from './engine.js';
-import { DAYS, EASTER_EGGS, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION } from './content.js';
+import { DAYS, EASTER_EGGS, FIRST_BATCH_TUTORIAL, SECOND_BATCH_TUTORIAL, SHIPMENT_ACCEPTANCE, SHIPMENT_EXCEPTION } from './content.js';
 import { cuffSplitVisible, sampleAppearance, sampleFinding, sampleInGauge } from './samples.js';
 import { mountSampleImage, retrySampleImage, updateSampleImage } from './sample-images.js';
 import { bindViewport, toggleFullscreen, stagePoint } from './devices.js';
@@ -10,7 +10,7 @@ import { freshInteraction, captureInspectionProgress, restoreInspectionProgress 
 import { readFindings } from './inspection-findings.js';
 import { reportWorkspace, TRACE_INQUIRY_KEY } from './report-workspace.js';
 import { completedShiftHistory, collectedEndingIds, createWeekId } from './completed-shifts.js';
-import { cartonFinding, intakeComparison, modelComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
+import { cartonFinding, intakeComparison, modelComparison, moldComparison, projectComparison, relabelComparison, thicknessComparison } from './document-comparison.js';
 import { handoffComparison } from './handoff-comparison.js';
 import { handoffWorkspace, hasHandoffDocument } from './handoff-workspace.js';
 import * as view from './view.js';
@@ -128,6 +128,7 @@ const modalLayer = root.querySelector('#modal');
 const tutorialPointer = root.querySelector('.tutorial-pointer');
 const tutorialSpotlight = root.querySelector('.tutorial-spotlight');
 const tutorialCallout = root.querySelector('.tutorial-callout');
+const tutorialCalloutLabel = tutorialCallout.querySelector('small');
 const tutorialCalloutText = tutorialCallout.querySelector('strong');
 const toastBox = root.querySelector('.game-toast');
 const roomHost = root.querySelector('.canvas-room');
@@ -255,7 +256,7 @@ async function startScene() {
           context: webgl2,
           onLayout(layout) {
             fixtureLayout = layout;
-            placeFixtures();
+            if (!panel) placeFixtures();
           },
           onReady() {
             modeledReady = true;
@@ -416,6 +417,14 @@ function positionTutorialCallout(target, bounds, stage) {
     tutorialRemindTimer = setTimeout(() => tutorialSpotlight.setAttribute('data-remind', ''), TUTORIAL_REMIND_MS);
   }
   const cue = target.dataset.guideCue ?? target.getAttribute('aria-label') ?? target.textContent.trim();
+  const caseId = windowCase()?.id;
+  const guide = run?.binaryVerdicts && run.day === 0
+    ? (caseId === 1 ? FIRST_BATCH_TUTORIAL : caseId === 2 ? SECOND_BATCH_TUTORIAL : null)
+    : null;
+  const stepKey = tutorialStep()?.key;
+  const stepIndex = guide && stepKey ? guide.findIndex(({ key: entryKey }) => entryKey === stepKey) : -1;
+  const label = stepIndex >= 0 ? `老周 · 带教 ${stepIndex + 1}/${guide.length}` : '老周 · 带教';
+  if (tutorialCalloutLabel && tutorialCalloutLabel.textContent !== label) tutorialCalloutLabel.textContent = label;
   if (tutorialCalloutText.textContent !== cue) tutorialCalloutText.textContent = cue;
   tutorialCallout.hidden = false;
   tutorialCallout.dataset.guideFor = key;
@@ -1352,20 +1361,26 @@ function openPanel(name, opener, scroll) {
   render(scroll?.scrollTop, scroll?.scrollLeft);
 }
 
-function enter(restore) {
+function clearShiftTransientState() {
   cancelArrivalPause();
   cancelClosingShot();
-  recallPairReturn = null;
-  reviewingHistory = false;
-  historyNavigation = null;
-  issuedReceiptId = null;
-  pendingReceiptPrint = false;
   clearTimeout(receiptPrintTimer);
   receiptPrintTimer = 0;
   cancelReceiptHandover();
+  clearTimeout(workspaceScrollTimer);
+  workspaceScrollTimer = 0;
+  issuedReceiptId = null;
+  pendingReceiptPrint = false;
   receiptHeld = false;
   correctionDraft = null;
   presentedEvidence = null;
+  recallPairReturn = null;
+  reviewingHistory = false;
+  historyNavigation = null;
+}
+
+function enter(restore) {
+  clearShiftTransientState();
   let workspace;
   let arrivalAction;
   let resumeApproach = false;
@@ -2168,6 +2183,20 @@ function checkSample(act) {
       toast(recorded ? '已记下型号对照' : '已取回型号对照');
       break;
     }
+    case 'sample-mold-basis': {
+      const comparison = !step && moldComparison(item, sample, interaction.referenceDoc);
+      if (!comparison) return;
+      const recorded = !interaction.findings.some(({ key }) => key === comparison.finding.key);
+      if (recorded) {
+        const { observation, finding } = comparison;
+        const otherFindings = interaction.findings.filter(({ key, source, text }) =>
+          key !== observation.key || source !== observation.source || text !== observation.text);
+        updateFindings([...otherFindings, finding]);
+      } else toggleFinding(comparison.finding);
+      sound = 'paper';
+      toast(recorded ? '已记下线位对照' : '已取回线位对照');
+      break;
+    }
     case 'sample-thickness-basis': {
       if (tutorialStep() || !interaction.thicknessOpen) return;
       const comparison = thicknessComparison(item, sample, interaction.findings);
@@ -2259,7 +2288,7 @@ function stamp(value) {
     beginReceiptPrint(run.records.at(-1).id);
     clearTimeout(toastTimer);
     toastBox.textContent = '';
-    playSound('print');
+    playSound('print', value);
     render();
     scenery?.setPressed?.(value);
   }
@@ -2518,12 +2547,8 @@ root.addEventListener('click', (event) => {
       const fromHistory = reviewingHistory;
       const fromShift = Boolean(run && !fromHistory && run.phase !== 'ending');
       if (fromShift) persistRun();
-      cancelArrivalPause();
-      cancelClosingShot();
+      clearShiftTransientState();
       run = null;
-      reviewingHistory = false;
-      historyNavigation = null;
-      recallPairReturn = null;
       toast('');
       resetGaze();
       closePanel();
@@ -2873,12 +2898,14 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.key === 'Tab' && modalLayer.querySelector('[aria-modal="true"]')) {
-    const controls = [...modalLayer.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
+    const controls = [...modalLayer.querySelectorAll('button:not(:disabled), input:not(:disabled), summary, a[href]')]
+      .filter((element) => element.getClientRects().length > 0);
     const first = controls[0];
     const last = controls.at(-1);
     const liveControl = windowGlance.parentElement === utility ? windowGlance : null;
     let next;
     if (document.activeElement === liveControl) next = event.shiftKey ? last : first;
+    else if (!modalLayer.contains(document.activeElement)) next = event.shiftKey ? last : first;
     else if (event.shiftKey && document.activeElement === first) next = liveControl ?? last;
     else if (!event.shiftKey && document.activeElement === last) next = liveControl ?? first;
     if (next) { event.preventDefault(); next.focus(); }
@@ -2886,7 +2913,47 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && panel) { event.preventDefault(); closePanel(); }
   const editable = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'));
   if (!run || editable || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (!event.repeat && ['1', '2'].includes(event.key)) stamp(event.key === '1' ? 'pass' : 'fail');
+  if (!event.repeat && ['1', '2', '3'].includes(event.key)) {
+    if (event.key === '3' && run.binaryVerdicts) return;
+    stamp({ 1: 'pass', 2: 'fail', 3: 'review' }[event.key]);
+    return;
+  }
+  if (!event.repeat && !glancedPanel && !arrival && !activeVisit() && run.phase === 'case') {
+    const lower = event.key.toLowerCase();
+    if (lower === 'f') {
+      if (panel === 'sample') {
+        event.preventDefault();
+        checkSample(tutorialStep()?.key === 'lens' ? 'sample-lens' : 'sample-flip');
+      } else if (panel === 'carton') {
+        event.preventDefault();
+        checkCarton('carton-turn');
+      }
+      return;
+    }
+    if (lower === 's') {
+      if (!panel || panel === 'docs') {
+        event.preventDefault();
+        openSample(desktop.querySelector('.sample-preview'));
+      } else if (panel === 'sample') {
+        event.preventDefault();
+        closePanel();
+      }
+      return;
+    }
+    if (lower === 'q' || lower === 'e') {
+      const docs = windowCase()?.documents;
+      const delta = lower === 'q' ? -1 : 1;
+      if (panel === 'docs' && !tutorialStep() && docs?.length > 1) {
+        event.preventDefault();
+        const nextIndex = (viewedDocument() + delta + docs.length) % docs.length;
+        chooseDoc(nextIndex);
+      } else if (panel === 'sample' && !tutorialStep() && interaction.referenceDoc !== null && docs?.length > 1) {
+        event.preventDefault();
+        const nextIndex = (interaction.referenceDoc + delta + docs.length) % docs.length;
+        chooseDoc(nextIndex);
+      }
+    }
+  }
 });
 
 modalLayer.addEventListener('pointerdown', (event) => {

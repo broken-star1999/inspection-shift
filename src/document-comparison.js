@@ -83,6 +83,29 @@ function numberedField(document, field) {
   return title && value ? { title, field, value } : null;
 }
 
+export function moldComparison(item, inspection, referenceIndex) {
+  const sample = item?.sample;
+  if (inspection?.back !== true || sample?.kind !== 'line' || sample.appearance !== 'earmuff') return null;
+  if (sample.unwrapped && inspection.unpacked !== true) return null;
+  const sketch = documentAt(item, referenceIndex, 'archive');
+  if (sketch?.kind !== 'mold-sketch' || item.documents.some((document, index) =>
+    index !== referenceIndex && document?.type === 'archive' && document.kind === 'mold-sketch')) return null;
+  const figure = numberedField(sketch, '图号');
+  const location = numberedField(sketch, '合模线允许位置');
+  const restriction = numberedField(sketch, '目视限制');
+  const observation = sampleFinding(sample, inspection);
+  const observed = cleanText(observation.text);
+  if (!figure || !location || !restriction || observation.key !== 'sample:背面' || !observed) return null;
+  return {
+    observation,
+    finding: {
+      key: `compare:${item.id}:mold:${referenceIndex}`,
+      source: `${observation.source} / ${figure.title} ${figure.value}`,
+      text: `实物 · ${observed.replace(/。$/u, '')}；允许线位 · ${location.value}；目视限制 · ${restriction.value}`,
+    },
+  };
+}
+
 export function modelComparison(item, inspection) {
   if (inspection?.back !== true || !Number.isInteger(item?.id) || item.id < 1 || !Array.isArray(item.documents)) return null;
   const sample = item.sample;
